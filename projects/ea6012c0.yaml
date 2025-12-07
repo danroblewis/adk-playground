@@ -46,25 +46,12 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
-  instruction: 'You are a creative writer. Your task:
-
-    1. FIRST, write a very short 2-sentence story about the given topic
-
-    2. THEN, review your story
-
-    3. If satisfied, call exit_loop() to finish
-
-    4. If not satisfied, explain what needs improvement (the loop will continue)
-
-
-    Always write the story FIRST before deciding whether to exit.'
+  instruction: You are a creative writer.
   output_key: null
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
-  tools:
-  - type: builtin
-    name: exit_loop
+  tools: []
   sub_agents: []
   before_agent_callbacks: []
   after_agent_callbacks: []

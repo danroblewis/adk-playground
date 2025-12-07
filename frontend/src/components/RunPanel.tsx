@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Square, Send, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, ChevronDown, ChevronRight, Zap } from 'lucide-react';
+import { Play, Square, Send, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, ChevronDown, ChevronRight, Zap, Save } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent } from '../utils/types';
-import { createRunWebSocket } from '../utils/api';
+import { createRunWebSocket, updateProject as apiUpdateProject } from '../utils/api';
 
 const EVENT_ICONS: Record<string, React.FC<{ size: number }>> = {
   agent_start: GitBranch,
@@ -27,7 +27,7 @@ const EVENT_COLORS: Record<string, string> = {
 };
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, hasUnsavedChanges } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, hasUnsavedChanges, setHasUnsavedChanges } = useStore();
   const [userInput, setUserInput] = useState('');
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
@@ -35,6 +35,7 @@ export default function RunPanel() {
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   if (!project) return null;
   
@@ -100,6 +101,29 @@ export default function RunPanel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
+  }
+  
+  async function handleSaveAndRun() {
+    if (!userInput.trim()) return;
+    
+    setIsSaving(true);
+    try {
+      await apiUpdateProject(project.id, project);
+      setHasUnsavedChanges(false);
+      setShowUnsavedWarning(false);
+      // Now run with the saved config
+      handleRun();
+    } catch (error) {
+      console.error('Failed to save project:', error);
+      addRunEvent({
+        timestamp: Date.now() / 1000,
+        event_type: 'agent_end',
+        agent_name: 'system',
+        data: { error: 'Failed to save project before running' }
+      });
+    } finally {
+      setIsSaving(false);
+    }
   }
   
   function handleStop() {
@@ -471,8 +495,13 @@ export default function RunPanel() {
             <h3>⚠️ Unsaved Changes</h3>
             <p>You have unsaved changes. The agent will run with the last saved configuration.</p>
             <div className="warning-actions">
-              <button className="btn btn-secondary" onClick={() => setShowUnsavedWarning(false)}>
-                Cancel
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleSaveAndRun}
+                disabled={isSaving}
+              >
+                <Save size={14} />
+                {isSaving ? 'Saving...' : 'Save & Run'}
               </button>
               <button className="btn btn-primary" onClick={handleRun}>
                 Run Anyway
