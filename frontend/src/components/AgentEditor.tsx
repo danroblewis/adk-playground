@@ -208,12 +208,21 @@ export default function AgentEditor({ agent }: Props) {
         }
         
         .tool-item .delete-btn {
-          padding: 4px;
+          padding: 6px;
           color: var(--text-muted);
+          background: transparent;
+          border-radius: var(--radius-sm);
+          opacity: 0.6;
+          transition: all 0.15s ease;
+        }
+        
+        .tool-item:hover .delete-btn {
+          opacity: 1;
         }
         
         .tool-item .delete-btn:hover {
           color: var(--error);
+          background: rgba(255, 107, 107, 0.1);
         }
         
         .add-tool-dropdown {
