@@ -611,16 +611,47 @@ function ToolsEditor({
   agents: AgentConfig[];
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   
   function openDropdown() {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      setDropdownPos({
-        top: rect.bottom + 4,
-        left: rect.left
-      });
+      const viewportHeight = window.innerHeight;
+      const dropdownHeight = 350; // approximate max height
+      const spaceBelow = viewportHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      
+      if (spaceBelow >= dropdownHeight) {
+        // Enough room below - position dropdown below button
+        setDropdownStyle({
+          top: rect.bottom + 4,
+          left: rect.left,
+          maxHeight: Math.min(dropdownHeight, spaceBelow)
+        });
+      } else if (spaceAbove >= dropdownHeight) {
+        // Enough room above - position dropdown above button
+        setDropdownStyle({
+          bottom: viewportHeight - rect.top + 4,
+          left: rect.left,
+          maxHeight: Math.min(dropdownHeight, spaceAbove)
+        });
+      } else {
+        // Not enough room either way - use whichever has more space
+        if (spaceBelow >= spaceAbove) {
+          setDropdownStyle({
+            top: rect.bottom + 4,
+            left: rect.left,
+            maxHeight: spaceBelow - 8
+          });
+        } else {
+          setDropdownStyle({
+            bottom: viewportHeight - rect.top + 4,
+            left: rect.left,
+            maxHeight: spaceAbove - 8
+          });
+        }
+      }
     }
     setDropdownOpen(true);
   }
@@ -683,7 +714,7 @@ function ToolsEditor({
             />
             <div 
               className="dropdown-content dropdown-fixed"
-              style={{ top: dropdownPos.top, left: dropdownPos.left }}
+              style={dropdownStyle}
             >
               <div className="dropdown-section">
                 <h5>Built-in Tools</h5>
