@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Settings, Bot, Wrench, Play, TestTube, FileCode, Save } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
@@ -22,27 +22,38 @@ const tabs = [
 export default function ProjectEditor() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { project, setProject, activeTab, setActiveTab } = useStore();
+  const { project, setProject, activeTab, setActiveTab, hasUnsavedChanges, setHasUnsavedChanges } = useStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
+  const initialLoadRef = useRef(true);
+  const lastSavedProjectRef = useRef<string | null>(null);
   
   useEffect(() => {
     if (projectId) {
       loadProject(projectId);
     }
-    return () => setProject(null);
+    return () => {
+      setProject(null);
+      setHasUnsavedChanges(false);
+    };
   }, [projectId]);
   
   async function loadProject(id: string) {
+    initialLoadRef.current = true;
     try {
       const data = await getProject(id);
       setProject(data);
+      lastSavedProjectRef.current = JSON.stringify(data);
+      setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to load project:', error);
       navigate('/');
     } finally {
       setLoading(false);
+      // Reset initial load flag after a small delay to allow the project useEffect to run
+      setTimeout(() => {
+        initialLoadRef.current = false;
+      }, 100);
     }
   }
   
@@ -52,7 +63,8 @@ export default function ProjectEditor() {
     setSaving(true);
     try {
       await apiUpdateProject(project.id, project);
-      setHasChanges(false);
+      lastSavedProjectRef.current = JSON.stringify(project);
+      setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to save project:', error);
     } finally {
@@ -60,9 +72,14 @@ export default function ProjectEditor() {
     }
   }
   
-  // Track changes
+  // Track changes by comparing to last saved state
   useEffect(() => {
-    setHasChanges(true);
+    if (project && !initialLoadRef.current && lastSavedProjectRef.current) {
+      const currentState = JSON.stringify(project);
+      if (currentState !== lastSavedProjectRef.current) {
+        setHasUnsavedChanges(true);
+      }
+    }
   }, [project]);
   
   if (loading) {
@@ -191,7 +208,7 @@ export default function ProjectEditor() {
           <h1 className="project-name">{project.name}</h1>
         </div>
         <div className="top-bar-right">
-          {hasChanges && <span className="save-indicator">Unsaved changes</span>}
+          {hasUnsavedChanges && <span className="save-indicator">Unsaved changes</span>}
           <button 
             className="btn btn-primary" 
             onClick={handleSave}

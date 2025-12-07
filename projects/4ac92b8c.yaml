@@ -1,11 +1,11 @@
-id: 7061d4a2
-name: Test Agent Project
-description: Testing the playground
+id: 4ac92b8c
+name: Math Helper
+description: A simple math assistant agent
 app:
-  id: app_7061d4a2
-  name: Test Agent Project
+  id: app_4ac92b8c
+  name: Math Helper
   description: ''
-  root_agent_id: agent_miw76y51
+  root_agent_id: agent_math001
   session_service_uri: memory://
   memory_service_uri: memory://
   artifact_service_uri: memory://
@@ -23,9 +23,9 @@ app:
   artifacts: []
 agents:
 - type: LlmAgent
-  id: agent_miw76y51
-  name: simple_agent
-  description: A simple test agent
+  id: agent_math001
+  name: math_agent
+  description: A math helper agent
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
@@ -35,7 +35,8 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
-  instruction: You are a helpful assistant. Respond briefly.
+  instruction: You are a helpful math assistant. Answer math questions accurately
+    and briefly.
   output_key: null
   include_contents: default
   disallow_transfer_to_parent: false

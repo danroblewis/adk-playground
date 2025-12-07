@@ -35,6 +35,9 @@ interface Store {
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
   
+  hasUnsavedChanges: boolean;
+  setHasUnsavedChanges: (has: boolean) => void;
+  
   // Actions
   updateProject: (updates: Partial<Project>) => void;
   addAgent: (agent: AgentConfig) => void;
@@ -56,6 +59,7 @@ export const useStore = create<Store>((set, get) => ({
   runEvents: [],
   activeTab: 'app',
   sidebarOpen: true,
+  hasUnsavedChanges: false,
   
   // Setters
   setProject: (project) => set({ project }),
@@ -68,6 +72,7 @@ export const useStore = create<Store>((set, get) => ({
   clearRunEvents: () => set({ runEvents: [] }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setHasUnsavedChanges: (has) => set({ hasUnsavedChanges: has }),
   
   // Complex actions
   updateProject: (updates) => {

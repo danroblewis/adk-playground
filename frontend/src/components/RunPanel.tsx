@@ -27,13 +27,14 @@ const EVENT_COLORS: Record<string, string> = {
 };
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, hasUnsavedChanges } = useStore();
   const [userInput, setUserInput] = useState('');
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [timelineRange, setTimelineRange] = useState<[number, number]>([0, 100]);
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
+  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   
   if (!project) return null;
   
@@ -42,8 +43,20 @@ export default function RunPanel() {
     eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [runEvents.length]);
   
+  function handleRunClick() {
+    if (!userInput.trim()) return;
+    
+    if (hasUnsavedChanges) {
+      setShowUnsavedWarning(true);
+      return;
+    }
+    
+    handleRun();
+  }
+  
   function handleRun() {
     if (!userInput.trim()) return;
+    setShowUnsavedWarning(false);
     
     clearRunEvents();
     setIsRunning(true);
@@ -412,13 +425,74 @@ export default function RunPanel() {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
         }
+        
+        .warning-dialog {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        
+        .warning-content {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-lg);
+          padding: 24px;
+          max-width: 400px;
+          text-align: center;
+        }
+        
+        .warning-content h3 {
+          margin-bottom: 12px;
+          color: #ffd93d;
+        }
+        
+        .warning-content p {
+          color: var(--text-secondary);
+          margin-bottom: 20px;
+        }
+        
+        .warning-actions {
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+        }
       `}</style>
+      
+      {showUnsavedWarning && (
+        <div className="warning-dialog">
+          <div className="warning-content">
+            <h3>⚠️ Unsaved Changes</h3>
+            <p>You have unsaved changes. The agent will run with the last saved configuration.</p>
+            <div className="warning-actions">
+              <button className="btn btn-secondary" onClick={() => setShowUnsavedWarning(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleRun}>
+                Run Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="input-area">
         <textarea
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
-          placeholder="Enter a message to test your agent..."
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault();
+              handleRunClick();
+            }
+          }}
+          placeholder="Enter a message to test your agent... (⌘+Enter to run)"
           disabled={isRunning}
         />
         <div className="input-actions">
@@ -428,7 +502,7 @@ export default function RunPanel() {
               Stop
             </button>
           ) : (
-            <button className="btn btn-primary" onClick={handleRun} disabled={!userInput.trim()}>
+            <button className="btn btn-primary" onClick={handleRunClick} disabled={!userInput.trim()}>
               <Play size={16} />
               Run
             </button>
