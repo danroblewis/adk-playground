@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from .models import Project, AppConfig, AgentConfig, CustomToolDefinition
+from models import Project, AppConfig, AgentConfig, CustomToolDefinition
 
 
 class ProjectManager:

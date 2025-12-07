@@ -1,6 +1,6 @@
 """Known MCP servers with their tools for quick selection."""
 
-from .models import MCPServerConfig, MCPConnectionType
+from models import MCPServerConfig, MCPConnectionType
 
 KNOWN_MCP_SERVERS = [
     MCPServerConfig(

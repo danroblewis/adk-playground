@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from .models import (
+from models import (
     Project, RunSession, RunEvent, AgentConfig, LlmAgentConfig,
     SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig,
     ToolConfig, FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig,

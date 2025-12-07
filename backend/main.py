@@ -13,14 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .models import (
+from models import (
     Project, AppConfig, AgentConfig, LlmAgentConfig, SequentialAgentConfig,
     LoopAgentConfig, ParallelAgentConfig, CustomToolDefinition, MCPServerConfig,
     EvalTestGroup, EvalResult, RunEvent,
 )
-from .project_manager import ProjectManager
-from .runtime import RuntimeManager
-from .known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
+from project_manager import ProjectManager
+from runtime import RuntimeManager
+from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
 
 # Initialize managers
 PROJECTS_DIR = Path(__file__).parent.parent / "projects"
