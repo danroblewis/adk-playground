@@ -124,3 +124,22 @@ export function createRunWebSocket(projectId: string): WebSocket {
   return new WebSocket(`${protocol}//${host}/ws/run/${projectId}`);
 }
 
+// AI-assisted prompt generation
+export interface GeneratePromptResult {
+  prompt: string | null;
+  success: boolean;
+  error?: string;
+}
+
+export async function generatePrompt(
+  projectId: string, 
+  agentId: string, 
+  context?: string
+): Promise<GeneratePromptResult> {
+  const data = await fetchJSON<GeneratePromptResult>(`/projects/${projectId}/generate-prompt`, {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: agentId, context }),
+  });
+  return data;
+}
+

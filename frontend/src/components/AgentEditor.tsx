@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Sparkles, Loader } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig } from '../utils/types';
+import { generatePrompt } from '../utils/api';
 
 interface Props {
   agent: AgentConfig;
@@ -10,6 +11,9 @@ interface Props {
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools } = useStore();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model']));
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  const [promptHint, setPromptHint] = useState('');
+  const [showPromptDialog, setShowPromptDialog] = useState(false);
   
   if (!project) return null;
   
@@ -56,6 +60,25 @@ export default function AgentEditor({ agent }: Props) {
   
   // Get available agents for sub-agent selection (excluding self and preventing cycles)
   const availableAgents = project.agents.filter(a => a.id !== agent.id);
+  
+  async function handleGeneratePrompt() {
+    if (!project) return;
+    setIsGeneratingPrompt(true);
+    try {
+      const result = await generatePrompt(project.id, agent.id, promptHint || undefined);
+      if (result.success && result.prompt) {
+        update({ instruction: result.prompt } as Partial<LlmAgentConfig>);
+        setShowPromptDialog(false);
+        setPromptHint('');
+      } else {
+        alert('Failed to generate prompt: ' + (result.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Error generating prompt: ' + (e as Error).message);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  }
   
   return (
     <div className="agent-editor">
@@ -317,6 +340,105 @@ export default function AgentEditor({ agent }: Props) {
         .sub-agent-chip button:hover {
           color: var(--error);
         }
+        
+        .label-with-action {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 6px;
+        }
+        
+        .label-with-action label {
+          margin-bottom: 0;
+        }
+        
+        .generate-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          font-size: 12px;
+        }
+        
+        .generate-btn svg {
+          color: #fbbf24;
+        }
+        
+        .prompt-dialog-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+        
+        .prompt-dialog {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-lg);
+          padding: 24px;
+          max-width: 500px;
+          width: 90%;
+        }
+        
+        .prompt-dialog h3 {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 12px;
+          font-size: 1.1rem;
+        }
+        
+        .prompt-dialog h3 svg {
+          color: #fbbf24;
+        }
+        
+        .prompt-dialog > p {
+          color: var(--text-secondary);
+          margin-bottom: 16px;
+        }
+        
+        .dialog-info {
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+          padding: 12px 16px;
+          margin: 16px 0;
+          font-size: 13px;
+        }
+        
+        .dialog-info strong {
+          color: var(--text-primary);
+          display: block;
+          margin-bottom: 8px;
+        }
+        
+        .dialog-info ul {
+          margin: 0;
+          padding-left: 20px;
+          color: var(--text-muted);
+        }
+        
+        .dialog-info li {
+          margin-bottom: 4px;
+        }
+        
+        .dialog-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 20px;
+        }
+        
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
       
       <div className="editor-header">
@@ -355,7 +477,17 @@ export default function AgentEditor({ agent }: Props) {
             <>
               <div className="form-row">
                 <div className="form-group full-width">
-                  <label>Instruction</label>
+                  <div className="label-with-action">
+                    <label>Instruction</label>
+                    <button 
+                      className="btn btn-secondary btn-sm generate-btn"
+                      onClick={() => setShowPromptDialog(true)}
+                      disabled={isGeneratingPrompt}
+                    >
+                      <Sparkles size={14} />
+                      {isGeneratingPrompt ? 'Generating...' : 'AI Generate'}
+                    </button>
+                  </div>
                   <textarea
                     value={llmAgent.instruction}
                     onChange={(e) => update({ instruction: e.target.value } as Partial<LlmAgentConfig>)}
@@ -363,6 +495,62 @@ export default function AgentEditor({ agent }: Props) {
                   />
                 </div>
               </div>
+              
+              {showPromptDialog && (
+                <div className="prompt-dialog-overlay">
+                  <div className="prompt-dialog">
+                    <h3><Sparkles size={18} /> Generate Instruction with AI</h3>
+                    <p>The AI will analyze your agent network and generate a detailed instruction prompt for <strong>{agent.name}</strong>.</p>
+                    
+                    <div className="form-group">
+                      <label>Optional Hints</label>
+                      <textarea
+                        value={promptHint}
+                        onChange={(e) => setPromptHint(e.target.value)}
+                        placeholder="Any specific requirements, tone, or focus areas for this agent..."
+                        rows={3}
+                      />
+                    </div>
+                    
+                    <div className="dialog-info">
+                      <strong>Context that will be provided to the AI:</strong>
+                      <ul>
+                        <li>Project name and description</li>
+                        <li>All {project.agents.length} agents and their configurations</li>
+                        <li>This agent's tools and sub-agents</li>
+                        <li>How this agent fits in the overall system</li>
+                      </ul>
+                    </div>
+                    
+                    <div className="dialog-actions">
+                      <button 
+                        className="btn btn-secondary"
+                        onClick={() => setShowPromptDialog(false)}
+                        disabled={isGeneratingPrompt}
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        className="btn btn-primary"
+                        onClick={handleGeneratePrompt}
+                        disabled={isGeneratingPrompt}
+                      >
+                        {isGeneratingPrompt ? (
+                          <>
+                            <Loader size={14} className="spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} />
+                            Generate Prompt
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label>Output Key</label>

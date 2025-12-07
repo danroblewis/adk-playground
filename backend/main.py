@@ -408,6 +408,170 @@ async def get_session(session_id: str):
 
 
 # ============================================================================
+# AI-Assisted Prompt Generation
+# ============================================================================
+
+class GeneratePromptRequest(BaseModel):
+    agent_id: str
+    context: Optional[str] = None  # Optional user hints
+
+@app.post("/api/projects/{project_id}/generate-prompt")
+async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest):
+    """Generate an instruction prompt for an agent using AI."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Find the target agent
+    target_agent = None
+    for agent in project.agents:
+        if agent.id == request.agent_id:
+            target_agent = agent
+            break
+    
+    if not target_agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    # Build context about the entire agent network
+    agent_summaries = []
+    for agent in project.agents:
+        summary = {
+            "name": agent.name,
+            "type": agent.type,
+            "description": getattr(agent, "description", "") or "",
+        }
+        if agent.type == "LlmAgent":
+            summary["tools"] = [t.type + ":" + (t.name or "") for t in getattr(agent, "tools", [])]
+            summary["current_instruction"] = getattr(agent, "instruction", "")[:200] if getattr(agent, "instruction", "") else ""
+        elif agent.type in ["SequentialAgent", "LoopAgent", "ParallelAgent"]:
+            summary["sub_agents"] = getattr(agent, "sub_agent_ids", [])
+        
+        if agent.id == request.agent_id:
+            summary["is_target"] = True
+        agent_summaries.append(summary)
+    
+    # Build the meta-prompt for prompt generation
+    meta_prompt = f"""You are an expert prompt engineer for AI agents. Your task is to write a detailed, effective instruction prompt for an agent in a multi-agent system.
+
+## Project Context
+Project Name: {project.name}
+Project Description: {project.description or 'No description'}
+
+## Agent Network
+The following agents exist in this project:
+
+"""
+    for summary in agent_summaries:
+        marker = ">>> TARGET AGENT <<<" if summary.get("is_target") else ""
+        meta_prompt += f"""
+### {summary['name']} ({summary['type']}) {marker}
+- Description: {summary['description'] or 'No description yet'}
+"""
+        if summary.get("tools"):
+            meta_prompt += f"- Tools: {', '.join(summary['tools'])}\n"
+        if summary.get("sub_agents"):
+            meta_prompt += f"- Sub-agents: {', '.join(summary['sub_agents'])}\n"
+        if summary.get("current_instruction"):
+            meta_prompt += f"- Current instruction preview: {summary['current_instruction']}...\n"
+    
+    meta_prompt += f"""
+## Your Task
+Write a detailed instruction prompt for the TARGET AGENT: **{target_agent.name}**
+
+The prompt should:
+1. Clearly define the agent's role and responsibilities
+2. Explain how it fits within the multi-agent system
+3. Specify how to interact with any tools it has access to
+4. Define expected input/output formats if applicable
+5. Include any relevant constraints or guidelines
+6. Be specific and actionable, not vague
+
+"""
+    if request.context:
+        meta_prompt += f"""## Additional Context from User
+{request.context}
+
+"""
+    
+    meta_prompt += """## Output Format
+Write ONLY the instruction prompt itself, without any preamble or explanation. The prompt should be ready to use directly as the agent's instruction.
+"""
+    
+    # Use the project's configured model, or fall back to a default
+    try:
+        from google.adk import Agent
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+        from google.genai import types
+        
+        # Get model config from project
+        model_config = None
+        if project.app.models and len(project.app.models) > 0:
+            if project.app.default_model_id:
+                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+            if not model_config:
+                model_config = project.app.models[0]
+        
+        # Create a simple agent for prompt generation
+        if model_config and model_config.provider == "litellm":
+            from google.adk.models.lite_llm import LiteLlm
+            model = LiteLlm(
+                model=model_config.model_name,
+                api_base=model_config.api_base,
+            )
+        else:
+            # Default to Gemini if available
+            model = "gemini-2.0-flash"
+        
+        prompt_agent = Agent(
+            name="prompt_generator",
+            model=model,
+            instruction="You are a prompt engineering expert. Generate high-quality instruction prompts for AI agents.",
+        )
+        
+        runner = Runner(
+            app_name="prompt_generator",
+            agent=prompt_agent,
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+            artifact_service=InMemoryArtifactService(),
+        )
+        
+        session = await runner.session_service.create_session(
+            app_name="prompt_generator",
+            user_id="prompt_gen_user",
+        )
+        
+        # Run the prompt generation
+        generated_prompt = ""
+        async for event in runner.run_async(
+            session_id=session.id,
+            user_id="prompt_gen_user",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=meta_prompt)]
+            ),
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        generated_prompt += part.text
+        
+        return {"prompt": generated_prompt.strip(), "success": True}
+        
+    except Exception as e:
+        import traceback
+        return {
+            "prompt": None,
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+# ============================================================================
 # Health Check
 # ============================================================================
 
