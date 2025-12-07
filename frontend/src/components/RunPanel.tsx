@@ -166,13 +166,15 @@ export default function RunPanel() {
         // Capture values in local variables to avoid closure issues
         const agentName = currentAgent;
         const events = [...agentEvents];
-        const isCollapsed = collapsedAgents.has(agentName);
+        // Use unique key combining agent name and start index to handle multiple groups with same agent
+        const groupKey = `${agentName}-${events[0].index}`;
+        const isCollapsed = collapsedAgents.has(groupKey);
         
         elements.push(
-          <div key={`agent-${agentName}-${events[0].index}`} className="agent-group">
+          <div key={`agent-${groupKey}`} className="agent-group">
             <div 
               className="agent-group-header"
-              onClick={() => toggleAgentCollapse(agentName)}
+              onClick={() => toggleAgentCollapse(groupKey)}
             >
               {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
               <span className="agent-name">{agentName}</span>
