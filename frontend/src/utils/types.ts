@@ -127,6 +127,17 @@ export interface ArtifactConfig {
   type: 'file' | 'image' | 'data';
 }
 
+export interface AppModelConfig {
+  id: string;
+  name: string;
+  provider: 'gemini' | 'litellm' | 'anthropic';
+  model_name: string;
+  api_base?: string;
+  temperature?: number;
+  max_output_tokens?: number;
+  is_default?: boolean;
+}
+
 export interface AppConfig {
   id: string;
   name: string;
@@ -141,6 +152,8 @@ export interface AppConfig {
   plugins: PluginConfig[];
   state_keys: StateKeyConfig[];
   artifacts: ArtifactConfig[];
+  models: AppModelConfig[];
+  default_model_id?: string;
 }
 
 export interface CustomToolDefinition {

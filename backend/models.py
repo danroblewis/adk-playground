@@ -214,6 +214,18 @@ class ArtifactConfig(BaseModel):
     type: Literal["file", "image", "data"] = "file"
 
 
+class AppModelConfig(BaseModel):
+    """Configuration for a model preset in the app."""
+    id: str
+    name: str
+    provider: Literal["gemini", "litellm", "anthropic"] = "gemini"
+    model_name: str = "gemini-2.0-flash"
+    api_base: Optional[str] = None
+    temperature: Optional[float] = None
+    max_output_tokens: Optional[int] = None
+    is_default: bool = False
+
+
 class AppConfig(BaseModel):
     """Full configuration for an ADK App."""
     id: str
@@ -241,6 +253,10 @@ class AppConfig(BaseModel):
     
     # Artifacts
     artifacts: List[ArtifactConfig] = Field(default_factory=list)
+    
+    # Models
+    models: List[AppModelConfig] = Field(default_factory=list)
+    default_model_id: Optional[str] = None
 
 
 # ============================================================================

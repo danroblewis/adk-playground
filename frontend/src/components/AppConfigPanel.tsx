@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { StateKeyConfig, PluginConfig, ArtifactConfig } from '../utils/types';
+import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig } from '../utils/types';
 
 export default function AppConfigPanel() {
   const { project, updateProject } = useStore();
@@ -54,6 +54,41 @@ export default function AppConfigPanel() {
   
   function removePlugin(index: number) {
     updateApp({ plugins: app.plugins.filter((_, i) => i !== index) });
+  }
+  
+  // Model management
+  const models = app.models || [];
+  
+  function addModel() {
+    const id = `model_${Date.now().toString(36)}`;
+    const newModel: AppModelConfig = {
+      id,
+      name: 'New Model',
+      provider: 'gemini',
+      model_name: 'gemini-2.0-flash',
+      is_default: models.length === 0
+    };
+    updateApp({ 
+      models: [...models, newModel],
+      default_model_id: models.length === 0 ? id : app.default_model_id
+    });
+  }
+  
+  function updateModel(id: string, updates: Partial<AppModelConfig>) {
+    const newModels = models.map(m => m.id === id ? { ...m, ...updates } : m);
+    updateApp({ models: newModels });
+  }
+  
+  function removeModel(id: string) {
+    const newModels = models.filter(m => m.id !== id);
+    const newDefault = app.default_model_id === id 
+      ? (newModels[0]?.id || undefined)
+      : app.default_model_id;
+    updateApp({ models: newModels, default_model_id: newDefault });
+  }
+  
+  function setDefaultModel(id: string) {
+    updateApp({ default_model_id: id });
   }
   
   return (
@@ -201,6 +236,28 @@ export default function AppConfigPanel() {
           color: var(--text-muted);
           font-size: 13px;
         }
+        
+        .default-model-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          font-size: 12px;
+          color: var(--text-muted);
+          background: var(--bg-secondary);
+          border-radius: var(--radius-sm);
+          transition: all 0.15s ease;
+        }
+        
+        .default-model-btn:hover {
+          color: var(--accent-secondary);
+          background: var(--bg-hover);
+        }
+        
+        .default-model-btn.is-default {
+          color: var(--accent-secondary);
+          background: rgba(255, 217, 61, 0.15);
+        }
       `}</style>
       
       {/* Basic Info */}
@@ -282,6 +339,72 @@ export default function AppConfigPanel() {
             </select>
           </div>
         </div>
+      </section>
+      
+      {/* Models */}
+      <section className="section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <Cpu size={20} />
+            Models
+          </h2>
+          <button className="btn btn-secondary btn-sm" onClick={addModel}>
+            <Plus size={14} />
+            Add Model
+          </button>
+        </div>
+        
+        {models.length === 0 ? (
+          <p className="empty-message">
+            No models configured. Add models that agents can use.
+          </p>
+        ) : (
+          models.map((model) => (
+            <div key={model.id} className="list-item">
+              <div className="list-item-content" style={{ gridTemplateColumns: '1fr 120px 200px 160px' }}>
+                <input
+                  type="text"
+                  value={model.name}
+                  onChange={(e) => updateModel(model.id, { name: e.target.value })}
+                  placeholder="Model name"
+                />
+                <select
+                  value={model.provider}
+                  onChange={(e) => updateModel(model.id, { provider: e.target.value as any })}
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="litellm">LiteLLM</option>
+                  <option value="anthropic">Anthropic</option>
+                </select>
+                <input
+                  type="text"
+                  value={model.model_name}
+                  onChange={(e) => updateModel(model.id, { model_name: e.target.value })}
+                  placeholder="e.g., gemini-2.0-flash"
+                />
+                {model.provider === 'litellm' && (
+                  <input
+                    type="text"
+                    value={model.api_base || ''}
+                    onChange={(e) => updateModel(model.id, { api_base: e.target.value || undefined })}
+                    placeholder="API Base URL"
+                  />
+                )}
+                <button
+                  className={`default-model-btn ${app.default_model_id === model.id ? 'is-default' : ''}`}
+                  onClick={() => setDefaultModel(model.id)}
+                  title={app.default_model_id === model.id ? 'Default model' : 'Set as default'}
+                >
+                  <Star size={14} fill={app.default_model_id === model.id ? 'currentColor' : 'none'} />
+                  {app.default_model_id === model.id ? 'Default' : 'Set default'}
+                </button>
+              </div>
+              <button className="delete-item" onClick={() => removeModel(model.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
       </section>
       
       {/* Configuration Options */}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save } from 'lucide-react';
+import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { CustomToolDefinition } from '../utils/types';
+import type { CustomToolDefinition, BuiltinTool } from '../utils/types';
 import Editor from '@monaco-editor/react';
 
 function generateId() {
@@ -24,9 +24,10 @@ const DEFAULT_TOOL_CODE = `def my_tool(tool_context: ToolContext, param1: str) -
 `;
 
 export default function ToolsPanel() {
-  const { project, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId } = useStore();
+  const { project, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools } = useStore();
   const [editingCode, setEditingCode] = useState('');
   const [hasCodeChanges, setHasCodeChanges] = useState(false);
+  const [selectedBuiltinTool, setSelectedBuiltinTool] = useState<BuiltinTool | null>(null);
   
   if (!project) return null;
   
@@ -333,6 +334,57 @@ export default function ToolsPanel() {
           color: var(--warning);
           border-radius: 999px;
         }
+        
+        .tool-item.builtin svg {
+          color: var(--accent-secondary);
+        }
+        
+        .tool-item.builtin .tool-name {
+          color: var(--text-secondary);
+        }
+        
+        .builtin-tool-info {
+          padding: 24px;
+          flex: 1;
+          overflow-y: auto;
+        }
+        
+        .info-section {
+          margin-bottom: 24px;
+        }
+        
+        .info-section h4 {
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin-bottom: 8px;
+        }
+        
+        .info-section p {
+          font-size: 14px;
+          line-height: 1.6;
+          color: var(--text-secondary);
+          margin-bottom: 8px;
+        }
+        
+        .info-section code {
+          display: block;
+          padding: 12px 16px;
+          background: var(--bg-primary);
+          border-radius: var(--radius-md);
+          font-family: var(--font-mono);
+          font-size: 13px;
+          color: var(--accent-primary);
+        }
+        
+        .badge-muted {
+          background: var(--bg-tertiary);
+          color: var(--text-muted);
+          font-size: 11px;
+          padding: 2px 8px;
+          border-radius: 999px;
+        }
       `}</style>
       
       <aside className="tools-sidebar">
@@ -344,12 +396,36 @@ export default function ToolsPanel() {
           </button>
         </div>
         <div className="tools-tree">
-          {project.custom_tools.length === 0 ? (
+          {/* Built-in Tools Section */}
+          {builtinTools.length > 0 && (
+            <div className="module-group">
+              <div className="module-header">
+                <Package size={14} />
+                Built-in Tools
+              </div>
+              {builtinTools.map(tool => (
+                <div
+                  key={tool.name}
+                  className={`tool-item builtin ${selectedBuiltinTool?.name === tool.name ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedBuiltinTool(tool);
+                    setSelectedToolId(null);
+                  }}
+                >
+                  <Lock size={14} />
+                  <span className="tool-name">{tool.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Custom Tools Section */}
+          {project.custom_tools.length === 0 && builtinTools.length === 0 ? (
             <div className="empty-state">
               <Code size={32} />
-              <p>No custom tools yet</p>
+              <p>No tools defined yet</p>
             </div>
-          ) : (
+          ) : project.custom_tools.length > 0 && (
             Object.entries(toolsByModule).map(([module, tools]) => (
               <div key={module} className="module-group">
                 <div className="module-header">
@@ -360,7 +436,10 @@ export default function ToolsPanel() {
                   <div
                     key={tool.id}
                     className={`tool-item ${selectedToolId === tool.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedToolId(tool.id)}
+                    onClick={() => {
+                      setSelectedToolId(tool.id);
+                      setSelectedBuiltinTool(null);
+                    }}
                   >
                     <Wrench size={14} />
                     <span className="tool-name">{tool.name}</span>
@@ -376,7 +455,33 @@ export default function ToolsPanel() {
       </aside>
       
       <div className="tool-editor">
-        {selectedTool ? (
+        {selectedBuiltinTool ? (
+          <>
+            <div className="editor-header">
+              <Lock size={20} style={{ color: 'var(--accent-secondary)' }} />
+              <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>{selectedBuiltinTool.name}</span>
+              <span className="badge badge-muted">Built-in</span>
+            </div>
+            
+            <div className="builtin-tool-info">
+              <div className="info-section">
+                <h4>Description</h4>
+                <p>{selectedBuiltinTool.description || 'No description available.'}</p>
+              </div>
+              
+              <div className="info-section">
+                <h4>Usage</h4>
+                <p>This is a built-in tool provided by ADK. Add it to any LLM agent's tools list to enable it.</p>
+                <code>tools: ["{selectedBuiltinTool.name}"]</code>
+              </div>
+              
+              <div className="info-section">
+                <h4>Note</h4>
+                <p>Built-in tools are read-only and cannot be modified. Create a custom tool if you need different behavior.</p>
+              </div>
+            </div>
+          </>
+        ) : selectedTool ? (
           <>
             <div className="editor-header">
               <Wrench size={20} style={{ color: 'var(--accent-primary)' }} />
@@ -480,7 +585,7 @@ export default function ToolsPanel() {
         ) : (
           <div className="empty-state">
             <Code size={48} />
-            <p>Select a tool to edit<br />or create a new one</p>
+            <p>Select a tool to view<br />or create a new custom tool</p>
           </div>
         )}
       </div>
