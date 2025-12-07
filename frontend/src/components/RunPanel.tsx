@@ -155,6 +155,19 @@ export default function RunPanel() {
     return percent >= timelineRange[0] && percent <= timelineRange[1];
   });
   
+  // Calculate token totals for the filtered time range
+  const tokenTotals = filteredEvents.reduce(
+    (acc, event) => {
+      if (event.event_type === 'model_response' && event.data?.token_counts) {
+        acc.input += event.data.token_counts.input || 0;
+        acc.output += event.data.token_counts.output || 0;
+      }
+      return acc;
+    },
+    { input: 0, output: 0 }
+  );
+  const totalTokens = tokenTotals.input + tokenTotals.output;
+  
   // Group events by agent for collapsing
   function renderEvents() {
     let currentAgent: string | null = null;
@@ -273,6 +286,30 @@ export default function RunPanel() {
           gap: 16px;
           font-size: 12px;
           color: var(--text-muted);
+        }
+        
+        .token-stats {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 2px 8px;
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-sm);
+          font-family: var(--font-mono);
+          cursor: help;
+        }
+        
+        .token-input {
+          color: #4ecdc4;
+        }
+        
+        .token-output {
+          color: #ff6b6b;
+        }
+        
+        .token-total {
+          color: var(--text-secondary);
+          font-weight: 600;
         }
         
         .timeline-slider {
@@ -703,8 +740,15 @@ export default function RunPanel() {
           <div className="timeline-header">
             <h4><Clock size={14} /> Timeline</h4>
             <div className="timeline-stats">
-              <span>{runEvents.length} events</span>
+              <span>{filteredEvents.length} events</span>
               <span>{(duration * 1000).toFixed(0)}ms</span>
+              {totalTokens > 0 && (
+                <span className="token-stats" title={`Input: ${tokenTotals.input} | Output: ${tokenTotals.output}`}>
+                  <span className="token-input">{tokenTotals.input}↓</span>
+                  <span className="token-output">{tokenTotals.output}↑</span>
+                  <span className="token-total">= {totalTokens}</span>
+                </span>
+              )}
               {isRunning && (
                 <span className="running-indicator">
                   <span className="dot" />
