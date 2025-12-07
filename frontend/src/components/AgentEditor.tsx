@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig } from '../utils/types';
@@ -102,7 +102,6 @@ export default function AgentEditor({ agent }: Props) {
           margin-bottom: 12px;
           background: var(--bg-tertiary);
           border-radius: var(--radius-md);
-          overflow: hidden;
         }
         
         .section-header {
@@ -134,6 +133,7 @@ export default function AgentEditor({ agent }: Props) {
         .section-content {
           padding: 16px;
           border-top: 1px solid var(--border-color);
+          overflow: visible;
         }
         
         .form-row {
@@ -220,19 +220,29 @@ export default function AgentEditor({ agent }: Props) {
           position: relative;
         }
         
+        .dropdown-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 999;
+        }
+        
         .dropdown-content {
           position: absolute;
           top: 100%;
           left: 0;
-          right: 0;
+          min-width: 280px;
           background: var(--bg-secondary);
           border: 1px solid var(--border-color);
           border-radius: var(--radius-md);
           padding: 8px;
-          z-index: 10;
-          max-height: 300px;
+          z-index: 1000;
+          max-height: 400px;
           overflow-y: auto;
-          box-shadow: var(--shadow-lg);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+        
+        .dropdown-content.dropdown-fixed {
+          position: fixed;
         }
         
         .dropdown-section {
@@ -601,6 +611,19 @@ function ToolsEditor({
   agents: AgentConfig[];
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  
+  function openDropdown() {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 4,
+        left: rect.left
+      });
+    }
+    setDropdownOpen(true);
+  }
   
   function addBuiltinTool(name: string) {
     onAdd({ type: 'builtin', name });
@@ -644,77 +667,87 @@ function ToolsEditor({
       
       <div className="add-tool-dropdown" style={{ marginTop: 12 }}>
         <button 
+          ref={buttonRef}
           className="btn btn-secondary btn-sm"
-          onClick={() => setDropdownOpen(!dropdownOpen)}
+          onClick={() => dropdownOpen ? setDropdownOpen(false) : openDropdown()}
         >
           <Plus size={14} />
           Add Tool
         </button>
         
         {dropdownOpen && (
-          <div className="dropdown-content">
-            <div className="dropdown-section">
-              <h5>Built-in Tools</h5>
-              {builtinTools.map(tool => (
-                <button
-                  key={tool.name}
-                  className="dropdown-item"
-                  onClick={() => addBuiltinTool(tool.name)}
-                >
-                  <div className="dropdown-item-name">{tool.name}</div>
-                  <div className="dropdown-item-desc">{tool.description}</div>
-                </button>
-              ))}
-            </div>
-            
-            {mcpServers.length > 0 && (
+          <>
+            <div 
+              className="dropdown-backdrop"
+              onClick={() => setDropdownOpen(false)}
+            />
+            <div 
+              className="dropdown-content dropdown-fixed"
+              style={{ top: dropdownPos.top, left: dropdownPos.left }}
+            >
               <div className="dropdown-section">
-                <h5>MCP Servers</h5>
-                {mcpServers.map(server => (
+                <h5>Built-in Tools</h5>
+                {builtinTools.map(tool => (
                   <button
-                    key={server.name}
+                    key={tool.name}
                     className="dropdown-item"
-                    onClick={() => addMcpTool(server)}
-                  >
-                    <div className="dropdown-item-name">{server.name}</div>
-                    <div className="dropdown-item-desc">{server.description}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-            
-            {customTools.length > 0 && (
-              <div className="dropdown-section">
-                <h5>Custom Tools</h5>
-                {customTools.map(tool => (
-                  <button
-                    key={tool.id}
-                    className="dropdown-item"
-                    onClick={() => addCustomTool(tool)}
+                    onClick={() => addBuiltinTool(tool.name)}
                   >
                     <div className="dropdown-item-name">{tool.name}</div>
                     <div className="dropdown-item-desc">{tool.description}</div>
                   </button>
                 ))}
               </div>
-            )}
-            
-            {agents.length > 0 && (
-              <div className="dropdown-section">
-                <h5>Agents as Tools</h5>
-                {agents.map(agent => (
-                  <button
-                    key={agent.id}
-                    className="dropdown-item"
-                    onClick={() => addAgentTool(agent.id)}
-                  >
-                    <div className="dropdown-item-name">{agent.name}</div>
-                    <div className="dropdown-item-desc">{agent.type}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+              
+              {mcpServers.length > 0 && (
+                <div className="dropdown-section">
+                  <h5>MCP Servers</h5>
+                  {mcpServers.map(server => (
+                    <button
+                      key={server.name}
+                      className="dropdown-item"
+                      onClick={() => addMcpTool(server)}
+                    >
+                      <div className="dropdown-item-name">{server.name}</div>
+                      <div className="dropdown-item-desc">{server.description}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {customTools.length > 0 && (
+                <div className="dropdown-section">
+                  <h5>Custom Tools</h5>
+                  {customTools.map(tool => (
+                    <button
+                      key={tool.id}
+                      className="dropdown-item"
+                      onClick={() => addCustomTool(tool)}
+                    >
+                      <div className="dropdown-item-name">{tool.name}</div>
+                      <div className="dropdown-item-desc">{tool.description}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {agents.length > 0 && (
+                <div className="dropdown-section">
+                  <h5>Agents as Tools</h5>
+                  {agents.map(agent => (
+                    <button
+                      key={agent.id}
+                      className="dropdown-item"
+                      onClick={() => addAgentTool(agent.id)}
+                    >
+                      <div className="dropdown-item-name">{agent.name}</div>
+                      <div className="dropdown-item-desc">{agent.type}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

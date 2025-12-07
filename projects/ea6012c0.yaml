@@ -1,0 +1,146 @@
+id: ea6012c0
+name: Iterative Writer
+description: Demo of LoopAgent with author/critic workflow
+app:
+  id: app_ea6012c0
+  name: Iterative Writer
+  description: ''
+  root_agent_id: agent_loop
+  session_service_uri: memory://
+  memory_service_uri: memory://
+  artifact_service_uri: memory://
+  compaction:
+    enabled: false
+    max_events: 100
+    summarize: true
+  context_cache:
+    enabled: false
+    ttl_seconds: 3600
+  resumability:
+    enabled: false
+  plugins:
+  - type: ReflectAndRetryToolPlugin
+    name: reflect_retry
+    max_retries: 3
+    throw_exception_if_retry_exceeded: false
+  state_keys: []
+  artifacts: []
+agents:
+- type: LlmAgent
+  id: agent_writer
+  name: writer
+  description: Writes and refines a story iteratively
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: 'You are a creative writer. Your task:
+
+    1. FIRST, write a very short 2-sentence story about the given topic
+
+    2. THEN, review your story
+
+    3. If satisfied, call exit_loop() to finish
+
+    4. If not satisfied, explain what needs improvement (the loop will continue)
+
+
+    Always write the story FIRST before deciding whether to exit.'
+  output_key: null
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: builtin
+    name: exit_loop
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+- type: LoopAgent
+  id: agent_loop
+  name: refinement_loop
+  description: Loops author/critic until satisfied
+  sub_agents:
+  - agent_author_critic
+  max_iterations: 3
+- type: LlmAgent
+  id: agent_author
+  name: author
+  description: Writes the story
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: You are a creative writer. Write a short 2-3 sentence story based on
+    the topic and any feedback provided. Just write the story, nothing else.
+  output_key: story
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools: []
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+- type: LlmAgent
+  id: agent_critic
+  name: critic
+  description: Reviews the story and decides to approve or request changes
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: 'You are a story critic. Review the current story from state key "story".
+
+
+    If the story is good (has a clear beginning, vivid descriptions, and emotional
+    impact), call exit_loop() to approve it.
+
+
+    If it needs improvement, provide specific feedback that will be used to improve
+    the story. Do NOT call exit_loop if improvements are needed.'
+  output_key: null
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: builtin
+    name: exit_loop
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+- type: SequentialAgent
+  id: agent_author_critic
+  name: author_critic_sequence
+  description: Runs author then critic in sequence
+  sub_agents:
+  - agent_author
+  - agent_critic
+custom_tools: []
+mcp_servers: []

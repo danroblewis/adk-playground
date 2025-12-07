@@ -116,7 +116,7 @@ class TrackingPlugin:
         ))
         return None
     
-    async def after_tool_callback(self, *, tool, tool_args, tool_context, tool_response, **kwargs):
+    async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
         """Called after a tool is executed."""
         agent_name = "unknown"
         if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
@@ -139,7 +139,7 @@ class TrackingPlugin:
             agent_name=agent_name,
             data={
                 "tool_name": tool.name,
-                "result_preview": str(tool_response)[:500] if tool_response else None,
+                "result_preview": str(result)[:500] if result else None,
             },
         ))
         return None
@@ -216,8 +216,8 @@ class RuntimeManager:
                 async def before_tool_callback(self, *, tool, tool_args, tool_context):
                     return await self.tracker.before_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context)
                 
-                async def after_tool_callback(self, *, tool, tool_args, tool_context, tool_response):
-                    return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, tool_response=tool_response)
+                async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
+                    return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, result=result)
             
             plugins = [TrackingPluginWrapper(tracking)]
             
