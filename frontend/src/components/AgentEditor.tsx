@@ -448,11 +448,11 @@ export default function AgentEditor({ agent }: Props) {
                   </button>
                 )}
               </div>
-              <textarea
+              <MarkdownEditor
                 value={agent.description}
-                onChange={(e) => update({ description: e.target.value })}
-                placeholder="What does this agent do?"
-                style={{ minHeight: 60 }}
+                onChange={(value) => update({ description: value })}
+                placeholder="What does this agent do? (Markdown supported)"
+                minHeight={80}
               />
             </div>
           </div>
