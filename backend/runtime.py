@@ -31,37 +31,38 @@ class TrackingPlugin:
         # Run callback in background
         asyncio.create_task(self.callback(event))
     
-    async def before_agent_callback(self, *, invocation_context, **kwargs):
+    async def before_agent_callback(self, *, agent, callback_context, **kwargs):
         """Called before an agent runs."""
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="agent_start",
-            agent_name=invocation_context.agent.name,
-            data={"instruction": getattr(invocation_context.agent, "instruction", "")[:200]},
+            agent_name=agent.name,
+            data={"instruction": getattr(agent, "instruction", "")[:200] if getattr(agent, "instruction", None) else ""},
         ))
         return None
     
-    async def after_agent_callback(self, *, invocation_context, **kwargs):
+    async def after_agent_callback(self, *, agent, callback_context, **kwargs):
         """Called after an agent runs."""
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="agent_end",
-            agent_name=invocation_context.agent.name,
+            agent_name=agent.name,
             data={},
         ))
         return None
     
-    async def before_model_callback(self, *, invocation_context, llm_request, **kwargs):
+    async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
         """Called before an LLM call."""
         # Extract relevant info from request
         contents_preview = ""
         if hasattr(llm_request, "contents") and llm_request.contents:
             contents_preview = str(llm_request.contents)[:500]
         
+        agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_call",
-            agent_name=invocation_context.agent.name,
+            agent_name=agent_name,
             data={
                 "contents_preview": contents_preview,
                 "tool_count": len(llm_request.tools_dict) if hasattr(llm_request, "tools_dict") else 0,
@@ -69,7 +70,7 @@ class TrackingPlugin:
         ))
         return None
     
-    async def after_model_callback(self, *, invocation_context, llm_response, **kwargs):
+    async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
         """Called after an LLM call."""
         response_text = ""
         if hasattr(llm_response, "content") and llm_response.content:
@@ -86,10 +87,11 @@ class TrackingPlugin:
             if hasattr(usage, "candidates_token_count"):
                 self.token_counts["output"] += usage.candidates_token_count or 0
         
+        agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_response",
-            agent_name=invocation_context.agent.name,
+            agent_name=agent_name,
             data={
                 "response_preview": response_text[:500],
                 "token_counts": dict(self.token_counts),
@@ -97,27 +99,35 @@ class TrackingPlugin:
         ))
         return None
     
-    async def before_tool_callback(self, *, tool, args, tool_context, **kwargs):
+    async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
         """Called before a tool is executed."""
+        agent_name = "unknown"
+        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+            agent_name = tool_context._invocation_context.agent.name
+        
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="tool_call",
-            agent_name=tool_context._invocation_context.agent.name,
+            agent_name=agent_name,
             data={
                 "tool_name": tool.name,
-                "args": {k: str(v)[:100] for k, v in args.items()},
+                "args": {k: str(v)[:100] for k, v in tool_args.items()},
             },
         ))
         return None
     
-    async def after_tool_callback(self, *, tool, args, tool_context, result, **kwargs):
+    async def after_tool_callback(self, *, tool, tool_args, tool_context, tool_response, **kwargs):
         """Called after a tool is executed."""
+        agent_name = "unknown"
+        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
+            agent_name = tool_context._invocation_context.agent.name
+        
         # Track state changes
         if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
             self._emit(RunEvent(
                 timestamp=time.time(),
                 event_type="state_change",
-                agent_name=tool_context._invocation_context.agent.name,
+                agent_name=agent_name,
                 data={
                     "state_delta": {k: str(v)[:100] for k, v in tool_context._event_actions.state_delta.items()},
                 },
@@ -126,10 +136,10 @@ class TrackingPlugin:
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="tool_result",
-            agent_name=tool_context._invocation_context.agent.name,
+            agent_name=agent_name,
             data={
                 "tool_name": tool.name,
-                "result_preview": str(result)[:500] if result else None,
+                "result_preview": str(tool_response)[:500] if tool_response else None,
             },
         ))
         return None
@@ -191,23 +201,23 @@ class RuntimeManager:
                     super().__init__(name="tracking")
                     self.tracker = tracker
                 
-                async def before_agent_callback(self, **kwargs):
-                    return await self.tracker.before_agent_callback(**kwargs)
+                async def before_agent_callback(self, *, agent, callback_context):
+                    return await self.tracker.before_agent_callback(agent=agent, callback_context=callback_context)
                 
-                async def after_agent_callback(self, **kwargs):
-                    return await self.tracker.after_agent_callback(**kwargs)
+                async def after_agent_callback(self, *, agent, callback_context):
+                    return await self.tracker.after_agent_callback(agent=agent, callback_context=callback_context)
                 
-                async def before_model_callback(self, **kwargs):
-                    return await self.tracker.before_model_callback(**kwargs)
+                async def before_model_callback(self, *, callback_context, llm_request):
+                    return await self.tracker.before_model_callback(callback_context=callback_context, llm_request=llm_request)
                 
-                async def after_model_callback(self, **kwargs):
-                    return await self.tracker.after_model_callback(**kwargs)
+                async def after_model_callback(self, *, callback_context, llm_response):
+                    return await self.tracker.after_model_callback(callback_context=callback_context, llm_response=llm_response)
                 
-                async def before_tool_callback(self, **kwargs):
-                    return await self.tracker.before_tool_callback(**kwargs)
+                async def before_tool_callback(self, *, tool, tool_args, tool_context):
+                    return await self.tracker.before_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context)
                 
-                async def after_tool_callback(self, **kwargs):
-                    return await self.tracker.after_tool_callback(**kwargs)
+                async def after_tool_callback(self, *, tool, tool_args, tool_context, tool_response):
+                    return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, tool_response=tool_response)
             
             plugins = [TrackingPluginWrapper(tracking)]
             

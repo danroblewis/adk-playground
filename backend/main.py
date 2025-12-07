@@ -37,7 +37,13 @@ app = FastAPI(
 # CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -291,7 +297,7 @@ class ConnectionManager:
         self.active_connections: dict[str, WebSocket] = {}
     
     async def connect(self, websocket: WebSocket, session_id: str):
-        await websocket.accept()
+        # Note: websocket should already be accepted before calling this
         self.active_connections[session_id] = websocket
     
     def disconnect(self, session_id: str):
@@ -339,10 +345,46 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         if session_id:
             runtime_manager.stop_run(session_id)
     except Exception as e:
-        await websocket.send_json({"type": "error", "error": str(e)})
+        import traceback
+        error_msg = f"{str(e)}\n{traceback.format_exc()}"
+        print(f"WebSocket error: {error_msg}")
+        try:
+            await websocket.send_json({"type": "error", "error": str(e), "traceback": traceback.format_exc()})
+        except Exception:
+            pass  # WebSocket might be closed
     finally:
         if session_id:
             connection_manager.disconnect(session_id)
+
+
+# ============================================================================
+# HTTP Run Endpoint (for simpler testing)
+# ============================================================================
+
+class RunRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+
+@app.post("/api/projects/{project_id}/run")
+async def run_agent_http(project_id: str, request: RunRequest):
+    """HTTP endpoint to run agent (collects all events and returns them)."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    events = []
+    
+    async def collect_event(event: RunEvent):
+        events.append(event.model_dump(mode="json"))
+    
+    try:
+        async for event in runtime_manager.run_agent(project, request.message, collect_event):
+            events.append(event.model_dump(mode="json"))
+        return {"events": events, "status": "completed"}
+    except Exception as e:
+        import traceback
+        return {"events": events, "status": "error", "error": str(e), "traceback": traceback.format_exc()}
 
 
 # ============================================================================
