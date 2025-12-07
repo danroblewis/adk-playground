@@ -101,7 +101,15 @@ export default function AgentEditor({ agent }: Props) {
     
     setIsGeneratingDescription(true);
     try {
-      const context = `Based on this agent instruction, write a brief 1-2 sentence description summarizing what this agent does. Only output the description, nothing else.\n\nInstruction:\n${currentPrompt}`;
+      const context = `Based on this agent's instruction, write a brief third-person description (1 sentence, under 100 characters) that describes what this agent does. This description is used by OTHER agents to decide whether to call this agent as a tool.
+
+DO NOT write a system prompt. DO NOT start with "You are".
+DO write something like: "Searches the web for information" or "Reviews code for bugs and suggests fixes" or "Generates creative writing based on prompts"
+
+Agent instruction:
+${currentPrompt}
+
+Output only the description, nothing else:`;
       
       const result = await generatePrompt(project.id, agent.id, context);
       if (result.success && result.prompt) {
@@ -448,11 +456,11 @@ export default function AgentEditor({ agent }: Props) {
                   </button>
                 )}
               </div>
-              <MarkdownEditor
+              <input
+                type="text"
                 value={agent.description}
-                onChange={(value) => update({ description: value })}
-                placeholder="What does this agent do? (Markdown supported)"
-                minHeight={80}
+                onChange={(e) => update({ description: e.target.value })}
+                placeholder="e.g., Reviews code for bugs and suggests fixes"
               />
             </div>
           </div>
