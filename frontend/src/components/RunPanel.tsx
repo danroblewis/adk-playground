@@ -163,20 +163,24 @@ export default function RunPanel() {
     
     function flushAgent() {
       if (currentAgent && agentEvents.length > 0) {
-        const isCollapsed = collapsedAgents.has(currentAgent);
+        // Capture values in local variables to avoid closure issues
+        const agentName = currentAgent;
+        const events = [...agentEvents];
+        const isCollapsed = collapsedAgents.has(agentName);
+        
         elements.push(
-          <div key={`agent-${currentAgent}-${agentEvents[0].index}`} className="agent-group">
+          <div key={`agent-${agentName}-${events[0].index}`} className="agent-group">
             <div 
               className="agent-group-header"
-              onClick={() => toggleAgentCollapse(currentAgent!)}
+              onClick={() => toggleAgentCollapse(agentName)}
             >
               {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-              <span className="agent-name">{currentAgent}</span>
-              <span className="event-count">{agentEvents.length} events</span>
+              <span className="agent-name">{agentName}</span>
+              <span className="event-count">{events.length} events</span>
             </div>
             {!isCollapsed && (
               <div className="agent-events">
-                {agentEvents.map(({ event, index }) => (
+                {events.map(({ event, index }) => (
                   <EventItem 
                     key={index}
                     event={event}
