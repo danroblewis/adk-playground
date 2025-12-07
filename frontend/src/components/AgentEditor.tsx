@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig } from '../utils/types';
 
 interface Props {
   agent: AgentConfig;
@@ -425,84 +425,12 @@ export default function AgentEditor({ agent }: Props) {
             expanded={expandedSections.has('model')}
             onToggle={() => toggleSection('model')}
           >
-            <div className="form-row">
-              <div className="form-group">
-                <label>Provider</label>
-                <select
-                  value={llmAgent.model?.provider || 'gemini'}
-                  onChange={(e) => updateModel({ provider: e.target.value as any })}
-                >
-                  <option value="gemini">Gemini</option>
-                  <option value="litellm">LiteLLM</option>
-                  <option value="anthropic">Anthropic</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Model Name</label>
-                <input
-                  type="text"
-                  value={llmAgent.model?.model_name || ''}
-                  onChange={(e) => updateModel({ model_name: e.target.value })}
-                  placeholder="e.g., gemini-2.0-flash"
-                />
-              </div>
-              {llmAgent.model?.provider === 'litellm' && (
-                <div className="form-group">
-                  <label>API Base</label>
-                  <input
-                    type="text"
-                    value={llmAgent.model?.api_base || ''}
-                    onChange={(e) => updateModel({ api_base: e.target.value || undefined })}
-                    placeholder="http://localhost:11434"
-                  />
-                </div>
-              )}
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Temperature</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="2"
-                  value={llmAgent.model?.temperature ?? ''}
-                  onChange={(e) => updateModel({ temperature: parseFloat(e.target.value) || undefined })}
-                  placeholder="Default"
-                />
-              </div>
-              <div className="form-group">
-                <label>Max Output Tokens</label>
-                <input
-                  type="number"
-                  value={llmAgent.model?.max_output_tokens ?? ''}
-                  onChange={(e) => updateModel({ max_output_tokens: parseInt(e.target.value) || undefined })}
-                  placeholder="Default"
-                />
-              </div>
-              <div className="form-group">
-                <label>Top P</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="1"
-                  value={llmAgent.model?.top_p ?? ''}
-                  onChange={(e) => updateModel({ top_p: parseFloat(e.target.value) || undefined })}
-                  placeholder="Default"
-                />
-              </div>
-              <div className="form-group">
-                <label>Top K</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={llmAgent.model?.top_k ?? ''}
-                  onChange={(e) => updateModel({ top_k: parseInt(e.target.value) || undefined })}
-                  placeholder="Default"
-                />
-              </div>
-            </div>
+            <ModelSelector
+              agent={llmAgent}
+              appModels={project.app.models || []}
+              defaultModelId={project.app.default_model_id}
+              onUpdate={(modelConfig) => update({ model: modelConfig } as Partial<LlmAgentConfig>)}
+            />
           </Section>
         )}
         
@@ -781,6 +709,330 @@ function ToolsEditor({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Model selector component
+function ModelSelector({
+  agent,
+  appModels,
+  defaultModelId,
+  onUpdate
+}: {
+  agent: LlmAgentConfig;
+  appModels: AppModelConfig[];
+  defaultModelId?: string;
+  onUpdate: (model: ModelConfig) => void;
+}) {
+  const [useCustom, setUseCustom] = useState(() => {
+    // Check if current model matches any app model
+    if (!agent.model) return false;
+    return !appModels.some(m => 
+      m.provider === agent.model?.provider && 
+      m.model_name === agent.model?.model_name &&
+      m.api_base === agent.model?.api_base
+    );
+  });
+  
+  const [selectedModelId, setSelectedModelId] = useState(() => {
+    // Find matching app model
+    const match = appModels.find(m => 
+      m.provider === agent.model?.provider && 
+      m.model_name === agent.model?.model_name &&
+      m.api_base === agent.model?.api_base
+    );
+    return match?.id || defaultModelId || appModels[0]?.id;
+  });
+  
+  function selectAppModel(modelId: string) {
+    setSelectedModelId(modelId);
+    const model = appModels.find(m => m.id === modelId);
+    if (model) {
+      onUpdate({
+        provider: model.provider,
+        model_name: model.model_name,
+        api_base: model.api_base,
+        temperature: model.temperature,
+        max_output_tokens: model.max_output_tokens,
+        top_p: model.top_p,
+        top_k: model.top_k,
+        fallbacks: []
+      });
+    }
+  }
+  
+  function toggleCustom() {
+    if (useCustom) {
+      // Switch to app model
+      setUseCustom(false);
+      if (selectedModelId) {
+        selectAppModel(selectedModelId);
+      }
+    } else {
+      setUseCustom(true);
+    }
+  }
+  
+  function updateCustomModel(updates: Partial<ModelConfig>) {
+    onUpdate({ ...agent.model!, ...updates });
+  }
+  
+  const selectedModel = appModels.find(m => m.id === selectedModelId);
+  const defaultModel = appModels.find(m => m.id === defaultModelId);
+  
+  return (
+    <div className="model-selector">
+      <style>{`
+        .model-selector {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        
+        .model-choice {
+          display: flex;
+          gap: 12px;
+        }
+        
+        .model-option {
+          flex: 1;
+          padding: 12px 16px;
+          border: 2px solid var(--border-color);
+          border-radius: var(--radius-md);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          text-align: center;
+        }
+        
+        .model-option:hover {
+          border-color: var(--text-muted);
+        }
+        
+        .model-option.selected {
+          border-color: var(--accent-primary);
+          background: rgba(0, 245, 212, 0.05);
+        }
+        
+        .model-option-label {
+          font-weight: 600;
+          margin-bottom: 4px;
+        }
+        
+        .model-option-desc {
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+        
+        .app-model-select {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .app-model-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 16px;
+          background: var(--bg-tertiary);
+          border: 2px solid transparent;
+          border-radius: var(--radius-md);
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        
+        .app-model-item:hover {
+          background: var(--bg-hover);
+        }
+        
+        .app-model-item.selected {
+          border-color: var(--accent-primary);
+          background: rgba(0, 245, 212, 0.05);
+        }
+        
+        .app-model-item-info {
+          flex: 1;
+        }
+        
+        .app-model-item-name {
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .app-model-item-details {
+          font-size: 12px;
+          color: var(--text-muted);
+          margin-top: 4px;
+        }
+        
+        .default-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          padding: 2px 6px;
+          background: rgba(255, 217, 61, 0.15);
+          color: var(--accent-secondary);
+          border-radius: 999px;
+          font-weight: normal;
+        }
+        
+        .no-models-message {
+          padding: 20px;
+          text-align: center;
+          color: var(--text-muted);
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+        }
+        
+        .custom-model-form .form-row {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        
+        .custom-model-form .form-row:last-child {
+          margin-bottom: 0;
+        }
+      `}</style>
+      
+      {appModels.length > 0 && (
+        <div className="model-choice">
+          <div 
+            className={`model-option ${!useCustom ? 'selected' : ''}`}
+            onClick={() => !useCustom || toggleCustom()}
+          >
+            <div className="model-option-label">Use App Model</div>
+            <div className="model-option-desc">Select from configured models</div>
+          </div>
+          <div 
+            className={`model-option ${useCustom ? 'selected' : ''}`}
+            onClick={() => useCustom || toggleCustom()}
+          >
+            <div className="model-option-label">Custom</div>
+            <div className="model-option-desc">Configure model manually</div>
+          </div>
+        </div>
+      )}
+      
+      {!useCustom && appModels.length > 0 ? (
+        <div className="app-model-select">
+          {appModels.map(model => (
+            <div
+              key={model.id}
+              className={`app-model-item ${selectedModelId === model.id ? 'selected' : ''}`}
+              onClick={() => selectAppModel(model.id)}
+            >
+              <div className="app-model-item-info">
+                <div className="app-model-item-name">
+                  {model.name}
+                  {model.id === defaultModelId && (
+                    <span className="default-badge">
+                      <Star size={10} fill="currentColor" />
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div className="app-model-item-details">
+                  {model.provider} / {model.model_name}
+                  {model.api_base && ` • ${model.api_base}`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : appModels.length === 0 ? (
+        <div className="no-models-message">
+          No models configured in App Config. Configure models there first, or use custom settings below.
+        </div>
+      ) : null}
+      
+      {(useCustom || appModels.length === 0) && (
+        <div className="custom-model-form">
+          <div className="form-row">
+            <div className="form-group">
+              <label>Provider</label>
+              <select
+                value={agent.model?.provider || 'gemini'}
+                onChange={(e) => updateCustomModel({ provider: e.target.value as any })}
+              >
+                <option value="gemini">Gemini</option>
+                <option value="litellm">LiteLLM</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>Model Name</label>
+              <input
+                type="text"
+                value={agent.model?.model_name || ''}
+                onChange={(e) => updateCustomModel({ model_name: e.target.value })}
+                placeholder="e.g., gemini-2.0-flash"
+              />
+            </div>
+            {agent.model?.provider === 'litellm' && (
+              <div className="form-group" style={{ flex: 2 }}>
+                <label>API Base</label>
+                <input
+                  type="text"
+                  value={agent.model?.api_base || ''}
+                  onChange={(e) => updateCustomModel({ api_base: e.target.value || undefined })}
+                  placeholder="http://localhost:11434"
+                />
+              </div>
+            )}
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Temperature</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={agent.model?.temperature ?? ''}
+                onChange={(e) => updateCustomModel({ temperature: e.target.value ? parseFloat(e.target.value) : undefined })}
+                placeholder="Default"
+              />
+            </div>
+            <div className="form-group">
+              <label>Max Tokens</label>
+              <input
+                type="number"
+                value={agent.model?.max_output_tokens ?? ''}
+                onChange={(e) => updateCustomModel({ max_output_tokens: e.target.value ? parseInt(e.target.value) : undefined })}
+                placeholder="Default"
+              />
+            </div>
+            <div className="form-group">
+              <label>Top P</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="1"
+                value={agent.model?.top_p ?? ''}
+                onChange={(e) => updateCustomModel({ top_p: e.target.value ? parseFloat(e.target.value) : undefined })}
+                placeholder="Default"
+              />
+            </div>
+            <div className="form-group">
+              <label>Top K</label>
+              <input
+                type="number"
+                min="1"
+                value={agent.model?.top_k ?? ''}
+                onChange={(e) => updateCustomModel({ top_k: e.target.value ? parseInt(e.target.value) : undefined })}
+                placeholder="Default"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

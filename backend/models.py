@@ -223,6 +223,8 @@ class AppModelConfig(BaseModel):
     api_base: Optional[str] = None
     temperature: Optional[float] = None
     max_output_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
     is_default: bool = False
 
 

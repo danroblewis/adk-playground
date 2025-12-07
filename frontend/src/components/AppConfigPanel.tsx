@@ -258,6 +258,59 @@ export default function AppConfigPanel() {
           color: var(--accent-secondary);
           background: rgba(255, 217, 61, 0.15);
         }
+        
+        .model-card {
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+          margin-bottom: 12px;
+          overflow: hidden;
+        }
+        
+        .model-card-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 12px 16px;
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .model-name-input {
+          flex: 1;
+          font-size: 14px;
+          font-weight: 600;
+          background: transparent;
+          border: none;
+          padding: 4px 8px;
+        }
+        
+        .model-name-input:focus {
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-sm);
+        }
+        
+        .model-card-body {
+          padding: 16px;
+        }
+        
+        .model-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        
+        .model-row:last-child {
+          margin-bottom: 0;
+        }
+        
+        .model-row .form-group {
+          flex: 1;
+        }
+        
+        .model-row input, .model-row select {
+          padding: 8px 10px;
+          font-size: 13px;
+        }
       `}</style>
       
       {/* Basic Info */}
@@ -360,48 +413,107 @@ export default function AppConfigPanel() {
           </p>
         ) : (
           models.map((model) => (
-            <div key={model.id} className="list-item">
-              <div className="list-item-content" style={{ gridTemplateColumns: '1fr 120px 200px 160px' }}>
+            <div key={model.id} className="model-card">
+              <div className="model-card-header">
                 <input
                   type="text"
                   value={model.name}
                   onChange={(e) => updateModel(model.id, { name: e.target.value })}
                   placeholder="Model name"
+                  className="model-name-input"
                 />
-                <select
-                  value={model.provider}
-                  onChange={(e) => updateModel(model.id, { provider: e.target.value as any })}
-                >
-                  <option value="gemini">Gemini</option>
-                  <option value="litellm">LiteLLM</option>
-                  <option value="anthropic">Anthropic</option>
-                </select>
-                <input
-                  type="text"
-                  value={model.model_name}
-                  onChange={(e) => updateModel(model.id, { model_name: e.target.value })}
-                  placeholder="e.g., gemini-2.0-flash"
-                />
-                {model.provider === 'litellm' && (
-                  <input
-                    type="text"
-                    value={model.api_base || ''}
-                    onChange={(e) => updateModel(model.id, { api_base: e.target.value || undefined })}
-                    placeholder="API Base URL"
-                  />
-                )}
                 <button
                   className={`default-model-btn ${app.default_model_id === model.id ? 'is-default' : ''}`}
                   onClick={() => setDefaultModel(model.id)}
                   title={app.default_model_id === model.id ? 'Default model' : 'Set as default'}
                 >
                   <Star size={14} fill={app.default_model_id === model.id ? 'currentColor' : 'none'} />
-                  {app.default_model_id === model.id ? 'Default' : 'Set default'}
+                </button>
+                <button className="delete-item" onClick={() => removeModel(model.id)}>
+                  <Trash2 size={16} />
                 </button>
               </div>
-              <button className="delete-item" onClick={() => removeModel(model.id)}>
-                <Trash2 size={16} />
-              </button>
+              <div className="model-card-body">
+                <div className="model-row">
+                  <div className="form-group">
+                    <label>Provider</label>
+                    <select
+                      value={model.provider}
+                      onChange={(e) => updateModel(model.id, { provider: e.target.value as any })}
+                    >
+                      <option value="gemini">Gemini</option>
+                      <option value="litellm">LiteLLM</option>
+                      <option value="anthropic">Anthropic</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ flex: 2 }}>
+                    <label>Model Name</label>
+                    <input
+                      type="text"
+                      value={model.model_name}
+                      onChange={(e) => updateModel(model.id, { model_name: e.target.value })}
+                      placeholder="e.g., gemini-2.0-flash"
+                    />
+                  </div>
+                  {model.provider === 'litellm' && (
+                    <div className="form-group" style={{ flex: 2 }}>
+                      <label>API Base URL</label>
+                      <input
+                        type="text"
+                        value={model.api_base || ''}
+                        onChange={(e) => updateModel(model.id, { api_base: e.target.value || undefined })}
+                        placeholder="http://localhost:11434"
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="model-row">
+                  <div className="form-group">
+                    <label>Temperature</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="2"
+                      value={model.temperature ?? ''}
+                      onChange={(e) => updateModel(model.id, { temperature: e.target.value ? parseFloat(e.target.value) : undefined })}
+                      placeholder="Default"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Max Tokens</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={model.max_output_tokens ?? ''}
+                      onChange={(e) => updateModel(model.id, { max_output_tokens: e.target.value ? parseInt(e.target.value) : undefined })}
+                      placeholder="Default"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Top P</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="1"
+                      value={model.top_p ?? ''}
+                      onChange={(e) => updateModel(model.id, { top_p: e.target.value ? parseFloat(e.target.value) : undefined })}
+                      placeholder="Default"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Top K</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={model.top_k ?? ''}
+                      onChange={(e) => updateModel(model.id, { top_k: e.target.value ? parseInt(e.target.value) : undefined })}
+                      placeholder="Default"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           ))
         )}

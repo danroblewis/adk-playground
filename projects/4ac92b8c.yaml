@@ -21,6 +21,16 @@ app:
   plugins: []
   state_keys: []
   artifacts: []
+  models:
+  - id: model_miw91pjo
+    name: qwen3:8b
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    temperature: null
+    max_output_tokens: null
+    is_default: true
+  default_model_id: model_miw91pjo
 agents:
 - type: LlmAgent
   id: agent_math001

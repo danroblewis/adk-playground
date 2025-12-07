@@ -135,6 +135,8 @@ export interface AppModelConfig {
   api_base?: string;
   temperature?: number;
   max_output_tokens?: number;
+  top_p?: number;
+  top_k?: number;
   is_default?: boolean;
 }
 

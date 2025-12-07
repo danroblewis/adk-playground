@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig } from '../utils/types';
 import AgentEditor from './AgentEditor';
 
 const AGENT_TYPES = [
@@ -15,16 +15,34 @@ function generateId() {
   return `agent_${Date.now().toString(36)}`;
 }
 
-function createDefaultAgent(type: string): AgentConfig {
+function appModelToModelConfig(appModel: AppModelConfig): ModelConfig {
+  return {
+    provider: appModel.provider,
+    model_name: appModel.model_name,
+    api_base: appModel.api_base,
+    temperature: appModel.temperature,
+    max_output_tokens: appModel.max_output_tokens,
+    top_p: appModel.top_p,
+    top_k: appModel.top_k,
+    fallbacks: []
+  };
+}
+
+function createDefaultAgent(type: string, defaultModel?: AppModelConfig): AgentConfig {
   const id = generateId();
   const base = { id, name: `New ${type}`, description: '' };
+  
+  // Use default model from app config, or fall back to gemini
+  const modelConfig: ModelConfig = defaultModel 
+    ? appModelToModelConfig(defaultModel)
+    : { provider: 'gemini', model_name: 'gemini-2.0-flash', fallbacks: [] };
   
   switch (type) {
     case 'LlmAgent':
       return {
         ...base,
         type: 'LlmAgent',
-        model: { provider: 'gemini', model_name: 'gemini-2.0-flash', fallbacks: [] },
+        model: modelConfig,
         instruction: '',
         include_contents: 'default',
         disallow_transfer_to_parent: false,
@@ -59,7 +77,11 @@ export default function AgentsPanel() {
   const selectedAgent = project.agents.find(a => a.id === selectedAgentId);
   
   function handleAddAgent(type: string) {
-    const agent = createDefaultAgent(type);
+    // Find default model from app config
+    const models = project.app.models || [];
+    const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
+    
+    const agent = createDefaultAgent(type, defaultModel);
     addAgent(agent);
     setSelectedAgentId(agent.id);
     setShowTypeSelector(false);
