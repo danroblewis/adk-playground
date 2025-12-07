@@ -14,6 +14,8 @@ export default function AgentEditor({ agent }: Props) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [showRequestChanges, setShowRequestChanges] = useState(false);
+  const [requestChangesText, setRequestChangesText] = useState('');
   
   if (!project) return null;
   
@@ -86,6 +88,28 @@ export default function AgentEditor({ agent }: Props) {
       }
     } catch (e) {
       alert('Error generating prompt: ' + (e as Error).message);
+    } finally {
+      setIsGeneratingPrompt(false);
+    }
+  }
+  
+  async function handleRequestChanges() {
+    if (!project || !isLlmAgent || !requestChangesText.trim()) return;
+    setIsGeneratingPrompt(true);
+    try {
+      const currentPrompt = llmAgent.instruction || '';
+      const context = `Current instruction:\n\n${currentPrompt}\n\n---\n\nRequested changes:\n${requestChangesText}\n\nPlease apply the requested changes to the instruction above. Output only the updated instruction, nothing else.`;
+      
+      const result = await generatePrompt(project.id, agent.id, context);
+      if (result.success && result.prompt) {
+        update({ instruction: result.prompt } as Partial<LlmAgentConfig>);
+        setShowRequestChanges(false);
+        setRequestChangesText('');
+      } else {
+        alert('Failed to apply changes: ' + (result.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Error applying changes: ' + (e as Error).message);
     } finally {
       setIsGeneratingPrompt(false);
     }
@@ -412,6 +436,29 @@ Output only the description, nothing else:`;
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        
+        .action-buttons {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .request-changes-box {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 8px;
+          padding: 8px;
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-sm);
+        }
+        
+        .request-changes-box input {
+          flex: 1;
+          font-size: 13px;
+        }
+        
+        .request-changes-box .btn {
+          white-space: nowrap;
+        }
       `}</style>
       
       <div className="editor-header">
@@ -471,22 +518,60 @@ Output only the description, nothing else:`;
                 <div className="form-group full-width">
                   <div className="label-with-action">
                     <label>Instruction</label>
-                    <button 
-                      className="btn btn-secondary btn-sm generate-btn"
-                      onClick={handleGeneratePrompt}
-                      disabled={isGeneratingPrompt}
-                      title="Uses AI to improve and expand the current instruction"
-                    >
-                      {isGeneratingPrompt ? (
-                        <>
-                          <Loader size={14} className="spin" />
-                          Improving...
-                        </>
-                      ) : (
-                        'Auto-Improve'
-                      )}
-                    </button>
+                    <div className="action-buttons">
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setShowRequestChanges(!showRequestChanges)}
+                        disabled={isGeneratingPrompt || !llmAgent.instruction}
+                        title="Request specific changes to the instruction"
+                      >
+                        Request Changes
+                      </button>
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleGeneratePrompt}
+                        disabled={isGeneratingPrompt}
+                        title="Uses AI to improve and expand the current instruction"
+                      >
+                        {isGeneratingPrompt ? (
+                          <>
+                            <Loader size={14} className="spin" />
+                            Working...
+                          </>
+                        ) : (
+                          'Auto-Improve'
+                        )}
+                      </button>
+                    </div>
                   </div>
+                  
+                  {showRequestChanges && (
+                    <div className="request-changes-box">
+                      <input
+                        type="text"
+                        value={requestChangesText}
+                        onChange={(e) => setRequestChangesText(e.target.value)}
+                        placeholder="Describe what changes you want..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && requestChangesText.trim()) {
+                            handleRequestChanges();
+                          } else if (e.key === 'Escape') {
+                            setShowRequestChanges(false);
+                            setRequestChangesText('');
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <button 
+                        className="btn btn-primary btn-sm"
+                        onClick={handleRequestChanges}
+                        disabled={isGeneratingPrompt || !requestChangesText.trim()}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  )}
+                  
                   <MarkdownEditor
                     value={llmAgent.instruction}
                     onChange={(value) => update({ instruction: value } as Partial<LlmAgentConfig>)}
