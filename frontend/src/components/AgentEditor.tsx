@@ -3,6 +3,7 @@ import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star,
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig } from '../utils/types';
 import { generatePrompt } from '../utils/api';
+import MarkdownEditor from './MarkdownEditor';
 
 interface Props {
   agent: AgentConfig;
@@ -478,10 +479,11 @@ export default function AgentEditor({ agent }: Props) {
                       )}
                     </button>
                   </div>
-                  <textarea
+                  <MarkdownEditor
                     value={llmAgent.instruction}
-                    onChange={(e) => update({ instruction: e.target.value } as Partial<LlmAgentConfig>)}
-                    placeholder="System instruction for the agent..."
+                    onChange={(value) => update({ instruction: value } as Partial<LlmAgentConfig>)}
+                    placeholder="Write your agent's instruction here... (Markdown supported)"
+                    minHeight={200}
                   />
                 </div>
               </div>
