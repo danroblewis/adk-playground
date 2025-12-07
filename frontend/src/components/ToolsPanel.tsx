@@ -23,7 +23,11 @@ const DEFAULT_TOOL_CODE = `def my_tool(tool_context: ToolContext, param1: str) -
     return {"result": "success"}
 `;
 
-export default function ToolsPanel() {
+interface ToolsPanelProps {
+  onSelectTool?: (id: string | null) => void;
+}
+
+export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const { project, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools } = useStore();
   const [editingCode, setEditingCode] = useState('');
   const [hasCodeChanges, setHasCodeChanges] = useState(false);
@@ -32,6 +36,11 @@ export default function ToolsPanel() {
   if (!project) return null;
   
   const selectedTool = project.custom_tools.find(t => t.id === selectedToolId);
+  
+  function selectTool(id: string | null) {
+    setSelectedToolId(id);
+    onSelectTool?.(id);
+  }
   
   useEffect(() => {
     if (selectedTool) {
@@ -51,13 +60,16 @@ export default function ToolsPanel() {
       state_keys_used: []
     };
     addCustomTool(tool);
-    setSelectedToolId(id);
+    selectTool(id);
   }
   
   function handleDeleteTool(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!confirm('Delete this tool?')) return;
     removeCustomTool(id);
+    if (selectedToolId === id) {
+      onSelectTool?.(null);
+    }
   }
   
   function handleUpdateTool(updates: Partial<CustomToolDefinition>) {
@@ -409,7 +421,7 @@ export default function ToolsPanel() {
                   className={`tool-item builtin ${selectedBuiltinTool?.name === tool.name ? 'selected' : ''}`}
                   onClick={() => {
                     setSelectedBuiltinTool(tool);
-                    setSelectedToolId(null);
+                    selectTool(null);
                   }}
                 >
                   <Lock size={14} />
@@ -437,7 +449,7 @@ export default function ToolsPanel() {
                     key={tool.id}
                     className={`tool-item ${selectedToolId === tool.id ? 'selected' : ''}`}
                     onClick={() => {
-                      setSelectedToolId(tool.id);
+                      selectTool(tool.id);
                       setSelectedBuiltinTool(null);
                     }}
                   >

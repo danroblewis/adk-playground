@@ -23,9 +23,9 @@ type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml';
 const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml'];
 
 export default function ProjectEditor() {
-  const { projectId, tab } = useParams<{ projectId: string; tab?: string }>();
+  const { projectId, tab, itemId } = useParams<{ projectId: string; tab?: string; itemId?: string }>();
   const navigate = useNavigate();
-  const { project, setProject, activeTab, setActiveTab, hasUnsavedChanges, setHasUnsavedChanges } = useStore();
+  const { project, setProject, activeTab, setActiveTab, hasUnsavedChanges, setHasUnsavedChanges, selectedAgentId, setSelectedAgentId, selectedToolId, setSelectedToolId } = useStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const initialLoadRef = useRef(true);
@@ -41,10 +41,35 @@ export default function ProjectEditor() {
     }
   }, [tab, projectId]);
   
-  // Update URL when tab changes (but not on initial load from URL)
+  // Sync itemId from URL to store (for agents/tools)
+  useEffect(() => {
+    if (tab === 'agents' && itemId) {
+      setSelectedAgentId(itemId);
+    } else if (tab === 'tools' && itemId) {
+      setSelectedToolId(itemId);
+    }
+  }, [tab, itemId]);
+  
+  // Update URL when tab changes
   function handleTabChange(newTab: TabId) {
     setActiveTab(newTab);
-    navigate(`/project/${projectId}/${newTab}`, { replace: true });
+    // Include item ID if switching to agents/tools and one is selected
+    if (newTab === 'agents' && selectedAgentId) {
+      navigate(`/project/${projectId}/${newTab}/${selectedAgentId}`, { replace: true });
+    } else if (newTab === 'tools' && selectedToolId) {
+      navigate(`/project/${projectId}/${newTab}/${selectedToolId}`, { replace: true });
+    } else {
+      navigate(`/project/${projectId}/${newTab}`, { replace: true });
+    }
+  }
+  
+  // Helper to update URL with item ID
+  function updateItemInUrl(newItemId: string | null) {
+    if (newItemId) {
+      navigate(`/project/${projectId}/${activeTab}/${newItemId}`, { replace: true });
+    } else {
+      navigate(`/project/${projectId}/${activeTab}`, { replace: true });
+    }
   }
   
   useEffect(() => {
@@ -254,8 +279,8 @@ export default function ProjectEditor() {
       
       <main className="main-content">
         {activeTab === 'app' && <AppConfigPanel />}
-        {activeTab === 'agents' && <AgentsPanel />}
-        {activeTab === 'tools' && <ToolsPanel />}
+        {activeTab === 'agents' && <AgentsPanel onSelectAgent={updateItemInUrl} />}
+        {activeTab === 'tools' && <ToolsPanel onSelectTool={updateItemInUrl} />}
         {activeTab === 'run' && <RunPanel />}
         {activeTab === 'eval' && <EvalPanel />}
         {activeTab === 'yaml' && <YamlPanel />}

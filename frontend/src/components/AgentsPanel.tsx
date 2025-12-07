@@ -67,7 +67,11 @@ function createDefaultAgent(type: string, defaultModel?: AppModelConfig): AgentC
   }
 }
 
-export default function AgentsPanel() {
+interface AgentsPanelProps {
+  onSelectAgent?: (id: string | null) => void;
+}
+
+export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const { project, addAgent, removeAgent, selectedAgentId, setSelectedAgentId } = useStore();
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
@@ -76,6 +80,11 @@ export default function AgentsPanel() {
   
   const selectedAgent = project.agents.find(a => a.id === selectedAgentId);
   
+  function selectAgent(id: string) {
+    setSelectedAgentId(id);
+    onSelectAgent?.(id);
+  }
+  
   function handleAddAgent(type: string) {
     // Find default model from app config
     const models = project.app.models || [];
@@ -83,7 +92,7 @@ export default function AgentsPanel() {
     
     const agent = createDefaultAgent(type, defaultModel);
     addAgent(agent);
-    setSelectedAgentId(agent.id);
+    selectAgent(agent.id);
     setShowTypeSelector(false);
   }
   
@@ -91,6 +100,9 @@ export default function AgentsPanel() {
     e.stopPropagation();
     if (!confirm('Delete this agent?')) return;
     removeAgent(id);
+    if (selectedAgentId === id) {
+      onSelectAgent?.(null);
+    }
   }
   
   function toggleExpand(id: string) {
@@ -125,7 +137,7 @@ export default function AgentsPanel() {
         <div key={agent.id} className="agent-tree-item">
           <div 
             className={`agent-item ${selectedAgentId === agent.id ? 'selected' : ''}`}
-            onClick={() => setSelectedAgentId(agent.id)}
+            onClick={() => selectAgent(agent.id)}
             style={{ paddingLeft: 12 + depth * 20 }}
           >
             {hasSubAgents ? (

@@ -19,6 +19,7 @@ function App() {
       <Route path="/" element={<ProjectList />} />
       <Route path="/project/:projectId" element={<ProjectEditor />} />
       <Route path="/project/:projectId/:tab" element={<ProjectEditor />} />
+      <Route path="/project/:projectId/:tab/:itemId" element={<ProjectEditor />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

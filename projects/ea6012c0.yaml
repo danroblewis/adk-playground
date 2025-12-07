@@ -23,8 +23,15 @@ app:
     name: reflect_retry
     max_retries: 3
     throw_exception_if_retry_exceeded: false
-  state_keys: []
+  state_keys:
+  - name: story
+    description: story
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
+  models: []
+  default_model_id: null
 agents:
 - type: LlmAgent
   id: agent_writer
