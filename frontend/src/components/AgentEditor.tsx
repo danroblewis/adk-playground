@@ -48,6 +48,13 @@ export default function AgentEditor({ agent }: Props) {
     update({ tools: llmAgent.tools.filter((_, i) => i !== index) } as Partial<LlmAgentConfig>);
   }
   
+  function updateTool(index: number, tool: ToolConfig) {
+    if (!isLlmAgent) return;
+    const newTools = [...llmAgent.tools];
+    newTools[index] = tool;
+    update({ tools: newTools } as Partial<LlmAgentConfig>);
+  }
+  
   function addSubAgent(agentId: string) {
     if (!('sub_agents' in agent)) return;
     update({ sub_agents: [...agent.sub_agents, agentId] });
@@ -644,6 +651,7 @@ export default function AgentEditor({ agent }: Props) {
               tools={llmAgent.tools}
               onAdd={addTool}
               onRemove={removeTool}
+              onUpdate={updateTool}
               builtinTools={builtinTools}
               mcpServers={mcpServers}
               customTools={project.custom_tools}
@@ -722,6 +730,7 @@ function ToolsEditor({
   tools,
   onAdd,
   onRemove,
+  onUpdate,
   builtinTools,
   mcpServers,
   customTools,
@@ -730,6 +739,7 @@ function ToolsEditor({
   tools: ToolConfig[];
   onAdd: (tool: ToolConfig) => void;
   onRemove: (index: number) => void;
+  onUpdate: (index: number, tool: ToolConfig) => void;
   builtinTools: any[];
   mcpServers: any[];
   customTools: any[];
@@ -738,6 +748,8 @@ function ToolsEditor({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const [mcpConfigDialog, setMcpConfigDialog] = useState<{ server: any; enabledTools: Set<string> } | null>(null);
+  const [expandedMcpTools, setExpandedMcpTools] = useState<Set<number>>(new Set());
   
   function openDropdown() {
     if (buttonRef.current) {
@@ -774,9 +786,67 @@ function ToolsEditor({
     setDropdownOpen(false);
   }
   
-  function addMcpTool(server: any) {
-    onAdd({ type: 'mcp', server: { ...server } });
+  function openMcpConfig(server: any) {
+    // Start with all tools enabled if tool_filter has items, otherwise all enabled by default
+    const allTools = server.tool_filter || [];
+    setMcpConfigDialog({
+      server,
+      enabledTools: new Set(allTools) // Start with all tools enabled
+    });
     setDropdownOpen(false);
+  }
+  
+  function toggleMcpTool(toolName: string) {
+    if (!mcpConfigDialog) return;
+    const next = new Set(mcpConfigDialog.enabledTools);
+    if (next.has(toolName)) {
+      next.delete(toolName);
+    } else {
+      next.add(toolName);
+    }
+    setMcpConfigDialog({ ...mcpConfigDialog, enabledTools: next });
+  }
+  
+  function confirmMcpTool() {
+    if (!mcpConfigDialog) return;
+    const enabledTools = Array.from(mcpConfigDialog.enabledTools);
+    onAdd({
+      type: 'mcp',
+      server: {
+        ...mcpConfigDialog.server,
+        tool_filter: enabledTools
+      }
+    });
+    setMcpConfigDialog(null);
+  }
+  
+  function toggleMcpExpand(index: number) {
+    const next = new Set(expandedMcpTools);
+    if (next.has(index)) next.delete(index);
+    else next.add(index);
+    setExpandedMcpTools(next);
+  }
+  
+  function toggleExistingMcpTool(toolIndex: number, toolName: string) {
+    const tool = tools[toolIndex];
+    if (tool.type !== 'mcp' || !tool.server) return;
+    
+    const currentFilter = tool.server.tool_filter || [];
+    let newFilter: string[];
+    
+    if (currentFilter.includes(toolName)) {
+      newFilter = currentFilter.filter(t => t !== toolName);
+    } else {
+      newFilter = [...currentFilter, toolName];
+    }
+    
+    onUpdate(toolIndex, {
+      ...tool,
+      server: {
+        ...tool.server,
+        tool_filter: newFilter
+      }
+    });
   }
   
   function addCustomTool(tool: any) {
@@ -790,22 +860,218 @@ function ToolsEditor({
     setDropdownOpen(false);
   }
   
+  // Get the known server config for an existing MCP tool to get all available tools
+  function getKnownServer(serverName: string) {
+    return mcpServers.find(s => s.name === serverName);
+  }
+  
   return (
     <div>
+      <style>{`
+        .mcp-tool-item {
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          overflow: hidden;
+          margin-bottom: 8px;
+        }
+        
+        .mcp-tool-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 12px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        
+        .mcp-tool-header:hover {
+          background: var(--bg-tertiary);
+        }
+        
+        .mcp-tool-info {
+          flex: 1;
+        }
+        
+        .mcp-tool-name {
+          font-weight: 500;
+        }
+        
+        .mcp-tool-count {
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+        
+        .mcp-tool-body {
+          padding: 12px;
+          background: var(--bg-tertiary);
+          border-top: 1px solid var(--border-color);
+        }
+        
+        .mcp-tool-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        
+        .mcp-tool-chip {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: 999px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .mcp-tool-chip.enabled {
+          background: rgba(0, 245, 212, 0.1);
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
+        }
+        
+        .mcp-tool-chip.disabled {
+          opacity: 0.5;
+          text-decoration: line-through;
+        }
+        
+        .mcp-config-dialog {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1001;
+        }
+        
+        .mcp-config-content {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-lg);
+          padding: 24px;
+          max-width: 500px;
+          width: 90%;
+          max-height: 80vh;
+          overflow-y: auto;
+        }
+        
+        .mcp-config-content h3 {
+          margin-bottom: 8px;
+        }
+        
+        .mcp-config-content > p {
+          color: var(--text-muted);
+          margin-bottom: 16px;
+          font-size: 14px;
+        }
+        
+        .mcp-tools-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 8px;
+          margin-bottom: 20px;
+        }
+        
+        .mcp-tool-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+          font-size: 13px;
+          transition: all 0.15s;
+        }
+        
+        .mcp-tool-toggle:hover {
+          border-color: var(--text-muted);
+        }
+        
+        .mcp-tool-toggle.enabled {
+          background: rgba(0, 245, 212, 0.1);
+          border-color: var(--accent-primary);
+        }
+        
+        .mcp-tool-toggle input {
+          margin: 0;
+        }
+        
+        .mcp-select-actions {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        
+        .mcp-select-actions button {
+          font-size: 12px;
+          padding: 4px 8px;
+        }
+      `}</style>
+      
       <div className="tool-list">
         {tools.map((tool, index) => (
-          <div key={index} className="tool-item">
-            <Wrench size={14} style={{ color: 'var(--accent-primary)' }} />
-            <div className="tool-item-info">
-              <div className="tool-item-name">
-                {tool.name || (tool.type === 'mcp' ? tool.server?.name : tool.agent_id)}
+          tool.type === 'mcp' && tool.server ? (
+            <div key={index} className="mcp-tool-item">
+              <div className="mcp-tool-header" onClick={() => toggleMcpExpand(index)}>
+                {expandedMcpTools.has(index) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <Wrench size={14} style={{ color: 'var(--accent-primary)' }} />
+                <div className="mcp-tool-info">
+                  <div className="mcp-tool-name">{tool.server.name}</div>
+                  <div className="mcp-tool-count">
+                    {tool.server.tool_filter?.length || 0} tools enabled
+                  </div>
+                </div>
+                <button className="delete-btn" onClick={(e) => { e.stopPropagation(); onRemove(index); }}>
+                  <Trash2 size={14} />
+                </button>
               </div>
-              <div className="tool-item-type">{tool.type}</div>
+              {expandedMcpTools.has(index) && (
+                <div className="mcp-tool-body">
+                  <div className="mcp-tool-list">
+                    {(() => {
+                      const knownServer = getKnownServer(tool.server!.name);
+                      const allTools = knownServer?.tool_filter || tool.server!.tool_filter || [];
+                      const enabledTools = new Set(tool.server!.tool_filter || []);
+                      
+                      return allTools.map((toolName: string) => (
+                        <label
+                          key={toolName}
+                          className={`mcp-tool-chip ${enabledTools.has(toolName) ? 'enabled' : 'disabled'}`}
+                          onClick={() => toggleExistingMcpTool(index, toolName)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={enabledTools.has(toolName)}
+                            onChange={() => {}}
+                            style={{ display: 'none' }}
+                          />
+                          {toolName}
+                        </label>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
             </div>
-            <button className="delete-btn" onClick={() => onRemove(index)}>
-              <Trash2 size={14} />
-            </button>
-          </div>
+          ) : (
+            <div key={index} className="tool-item">
+              <Wrench size={14} style={{ color: 'var(--accent-primary)' }} />
+              <div className="tool-item-info">
+                <div className="tool-item-name">
+                  {tool.name || tool.agent_id}
+                </div>
+                <div className="tool-item-type">{tool.type}</div>
+              </div>
+              <button className="delete-btn" onClick={() => onRemove(index)}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )
         ))}
       </div>
       
@@ -845,14 +1111,19 @@ function ToolsEditor({
               
               {mcpServers.length > 0 && (
                 <div className="dropdown-section">
-                  <h5>MCP Servers</h5>
+                  <h5>MCP Servers ({mcpServers.length})</h5>
                   {mcpServers.map(server => (
                     <button
                       key={server.name}
                       className="dropdown-item"
-                      onClick={() => addMcpTool(server)}
+                      onClick={() => openMcpConfig(server)}
                     >
-                      <div className="dropdown-item-name">{server.name}</div>
+                      <div className="dropdown-item-name">
+                        {server.name}
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
+                          {server.tool_filter?.length || 0} tools
+                        </span>
+                      </div>
                       <div className="dropdown-item-desc">{server.description}</div>
                     </button>
                   ))}
@@ -894,6 +1165,69 @@ function ToolsEditor({
           </>
         )}
       </div>
+      
+      {mcpConfigDialog && (
+        <div className="mcp-config-dialog">
+          <div className="mcp-config-content">
+            <h3>Configure {mcpConfigDialog.server.name}</h3>
+            <p>{mcpConfigDialog.server.description}</p>
+            
+            <div className="mcp-select-actions">
+              <button 
+                className="btn btn-secondary btn-sm"
+                onClick={() => setMcpConfigDialog({
+                  ...mcpConfigDialog,
+                  enabledTools: new Set(mcpConfigDialog.server.tool_filter || [])
+                })}
+              >
+                Select All
+              </button>
+              <button 
+                className="btn btn-secondary btn-sm"
+                onClick={() => setMcpConfigDialog({
+                  ...mcpConfigDialog,
+                  enabledTools: new Set()
+                })}
+              >
+                Select None
+              </button>
+            </div>
+            
+            <div className="mcp-tools-grid">
+              {(mcpConfigDialog.server.tool_filter || []).map((toolName: string) => (
+                <label 
+                  key={toolName}
+                  className={`mcp-tool-toggle ${mcpConfigDialog.enabledTools.has(toolName) ? 'enabled' : ''}`}
+                  onClick={() => toggleMcpTool(toolName)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={mcpConfigDialog.enabledTools.has(toolName)}
+                    onChange={() => {}}
+                  />
+                  {toolName}
+                </label>
+              ))}
+            </div>
+            
+            <div className="dialog-actions">
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setMcpConfigDialog(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={confirmMcpTool}
+                disabled={mcpConfigDialog.enabledTools.size === 0}
+              >
+                Add {mcpConfigDialog.enabledTools.size} Tools
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
