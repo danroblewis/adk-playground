@@ -572,6 +572,170 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
 
 
 # ============================================================================
+# AI-Assisted Agent Configuration
+# ============================================================================
+
+class GenerateAgentConfigRequest(BaseModel):
+    description: str  # User's description of what the agent should do
+
+@app.post("/api/projects/{project_id}/generate-agent-config")
+async def generate_agent_config(project_id: str, request: GenerateAgentConfigRequest):
+    """Generate a complete agent configuration using AI."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get available tools
+    builtin_tools = [t["name"] for t in BUILTIN_TOOLS]
+    mcp_servers_info = []
+    for server in KNOWN_MCP_SERVERS:
+        mcp_servers_info.append({
+            "name": server.name,
+            "description": server.description,
+            "tools": server.tool_filter or [],
+        })
+    
+    # Get existing agents for sub-agent selection
+    existing_agents = [{"id": a.id, "name": a.name, "description": a.description, "type": a.type} for a in project.agents]
+    
+    # Get custom tools
+    custom_tools = [{"name": t.name, "description": t.description} for t in project.custom_tools]
+    
+    meta_prompt = f"""You are an expert AI agent architect. Based on the user's description, generate a complete agent configuration.
+
+## User's Request
+{request.description}
+
+## Available Resources
+
+### Built-in Tools
+{json.dumps(builtin_tools, indent=2)}
+
+### MCP Servers (with their tools)
+{json.dumps(mcp_servers_info, indent=2)}
+
+### Custom Tools in Project
+{json.dumps(custom_tools, indent=2)}
+
+### Existing Agents (can be used as sub-agents)
+{json.dumps(existing_agents, indent=2)}
+
+## Your Task
+Generate a JSON configuration for an LLM agent that fulfills the user's request.
+
+The JSON must have this exact structure:
+{{
+  "name": "short_snake_case_name",
+  "description": "Brief third-person description for other agents (e.g., 'Searches the web for information')",
+  "instruction": "Detailed markdown instruction for the agent...",
+  "tools": {{
+    "builtin": ["tool_name1", "tool_name2"],
+    "mcp": [
+      {{"server": "server_name", "tools": ["tool1", "tool2"]}}
+    ],
+    "custom": ["custom_tool_name"],
+    "agents": ["agent_id"]
+  }},
+  "sub_agents": ["agent_id1", "agent_id2"]
+}}
+
+Rules:
+1. Only include tools/servers that are relevant to the task
+2. For MCP servers, only enable specific tools that are needed
+3. The instruction should be detailed and well-formatted markdown
+4. The description should be under 100 characters, third-person
+5. Sub-agents are other agents this agent can delegate to
+6. Return ONLY valid JSON, no explanation
+
+JSON:"""
+
+    try:
+        from google.adk import Agent
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+        from google.genai import types
+        
+        # Get model config from project
+        model_config = None
+        if project.app.models and len(project.app.models) > 0:
+            if project.app.default_model_id:
+                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+            if not model_config:
+                model_config = project.app.models[0]
+        
+        if model_config and model_config.provider == "litellm":
+            from google.adk.models.lite_llm import LiteLlm
+            model = LiteLlm(
+                model=model_config.model_name,
+                api_base=model_config.api_base,
+            )
+        else:
+            model = "gemini-2.0-flash"
+        
+        config_agent = Agent(
+            name="config_generator",
+            model=model,
+            instruction="You are an expert at configuring AI agents. Generate valid JSON configurations.",
+        )
+        
+        runner = Runner(
+            app_name="config_generator",
+            agent=config_agent,
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+            artifact_service=InMemoryArtifactService(),
+        )
+        
+        session = await runner.session_service.create_session(
+            app_name="config_generator",
+            user_id="config_gen_user",
+        )
+        
+        generated_text = ""
+        async for event in runner.run_async(
+            session_id=session.id,
+            user_id="config_gen_user",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=meta_prompt)]
+            ),
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        generated_text += part.text
+        
+        # Parse the JSON from the response
+        generated_text = generated_text.strip()
+        # Try to extract JSON if it's wrapped in markdown code blocks
+        if "```json" in generated_text:
+            generated_text = generated_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in generated_text:
+            generated_text = generated_text.split("```")[1].split("```")[0].strip()
+        
+        config = json.loads(generated_text)
+        return {"config": config, "success": True}
+        
+    except json.JSONDecodeError as e:
+        return {
+            "config": None,
+            "success": False,
+            "error": f"Failed to parse JSON: {str(e)}",
+            "raw_response": generated_text[:1000] if 'generated_text' in dir() else None,
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "config": None,
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+# ============================================================================
 # Health Check
 # ============================================================================
 

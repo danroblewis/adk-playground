@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical } from 'lucide-react';
+import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig, MCPServerConfig } from '../utils/types';
 import AgentEditor from './AgentEditor';
+import { generateAgentConfig, GeneratedAgentConfig } from '../utils/api';
 
 const AGENT_TYPES = [
   { type: 'LlmAgent', label: 'LLM Agent', icon: Bot, color: '#00f5d4', description: 'AI-powered agent with model reasoning' },
@@ -72,11 +73,120 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
-  const { project, addAgent, removeAgent, selectedAgentId, setSelectedAgentId } = useStore();
+  const { project, addAgent, removeAgent, updateAgent, selectedAgentId, setSelectedAgentId, mcpServers } = useStore();
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const [showQuickSetup, setShowQuickSetup] = useState(false);
+  const [quickSetupDescription, setQuickSetupDescription] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   
   if (!project) return null;
+  
+  async function handleQuickSetup() {
+    if (!quickSetupDescription.trim() || !project) return;
+    
+    setIsGenerating(true);
+    try {
+      const result = await generateAgentConfig(project.id, quickSetupDescription);
+      
+      if (result.success && result.config) {
+        const config = result.config;
+        
+        // Build tools array from the generated config
+        const tools: ToolConfig[] = [];
+        
+        // Add builtin tools
+        if (config.tools?.builtin) {
+          for (const toolName of config.tools.builtin) {
+            tools.push({ type: 'builtin', name: toolName });
+          }
+        }
+        
+        // Add MCP server tools
+        if (config.tools?.mcp) {
+          for (const mcpConfig of config.tools.mcp) {
+            // Find the matching MCP server config
+            const serverConfig = mcpServers.find(s => s.name === mcpConfig.server);
+            if (serverConfig) {
+              tools.push({
+                type: 'mcp',
+                server: {
+                  ...serverConfig,
+                  tool_filter: mcpConfig.tools
+                }
+              });
+            }
+          }
+        }
+        
+        // Add custom tools
+        if (config.tools?.custom) {
+          for (const toolName of config.tools.custom) {
+            const customTool = project.custom_tools.find(t => t.name === toolName);
+            if (customTool) {
+              tools.push({ type: 'function', name: toolName, module_path: customTool.module_path });
+            }
+          }
+        }
+        
+        // Add agent tools
+        if (config.tools?.agents) {
+          for (const agentId of config.tools.agents) {
+            const targetAgent = project.agents.find(a => a.id === agentId);
+            if (targetAgent) {
+              tools.push({ type: 'agent', agent_id: agentId, name: targetAgent.name });
+            }
+          }
+        }
+        
+        // Get default model
+        const models = project.app.models || [];
+        const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
+        
+        // Create the new agent
+        const newAgent: LlmAgentConfig = {
+          id: `agent_${Date.now().toString(36)}`,
+          type: 'LlmAgent',
+          name: config.name || 'new_agent',
+          description: config.description || '',
+          instruction: config.instruction || '',
+          model: defaultModel ? {
+            provider: defaultModel.provider,
+            model_name: defaultModel.model_name,
+            api_base: defaultModel.api_base,
+            temperature: defaultModel.temperature,
+            max_output_tokens: defaultModel.max_output_tokens,
+            top_p: defaultModel.top_p,
+            top_k: defaultModel.top_k,
+            fallbacks: []
+          } : { provider: 'gemini', model_name: 'gemini-2.0-flash', fallbacks: [] },
+          include_contents: 'default',
+          disallow_transfer_to_parent: false,
+          disallow_transfer_to_peers: false,
+          tools,
+          sub_agents: config.sub_agents || [],
+          before_agent_callbacks: [],
+          after_agent_callbacks: [],
+          before_model_callbacks: [],
+          after_model_callbacks: [],
+          before_tool_callbacks: [],
+          after_tool_callbacks: [],
+        };
+        
+        addAgent(newAgent);
+        setSelectedAgentId(newAgent.id);
+        onSelectAgent?.(newAgent.id);
+        setShowQuickSetup(false);
+        setQuickSetupDescription('');
+      } else {
+        alert('Failed to generate agent: ' + (result.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Error generating agent: ' + (e as Error).message);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
   
   const selectedAgent = project.agents.find(a => a.id === selectedAgentId);
   
@@ -322,6 +432,84 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           margin-bottom: 20px;
         }
         
+        .header-buttons {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .quick-setup-content {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-lg);
+          padding: 24px;
+          max-width: 600px;
+          width: 100%;
+        }
+        
+        .quick-setup-content h2 {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+        
+        .quick-setup-content h2 svg {
+          color: var(--accent-primary);
+        }
+        
+        .quick-setup-desc {
+          color: var(--text-secondary);
+          margin-bottom: 16px;
+          font-size: 14px;
+        }
+        
+        .quick-setup-form textarea {
+          width: 100%;
+          min-height: 100px;
+          margin-bottom: 16px;
+          font-size: 14px;
+          line-height: 1.5;
+        }
+        
+        .quick-setup-info {
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+          padding: 12px 16px;
+          margin-bottom: 16px;
+          font-size: 13px;
+        }
+        
+        .quick-setup-info strong {
+          display: block;
+          margin-bottom: 8px;
+          color: var(--text-primary);
+        }
+        
+        .quick-setup-info ul {
+          margin: 0;
+          padding-left: 20px;
+          color: var(--text-muted);
+        }
+        
+        .quick-setup-info li {
+          margin-bottom: 4px;
+        }
+        
+        .quick-setup-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+        }
+        
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
         .type-options {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
@@ -370,10 +558,20 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       <aside className="agents-sidebar">
         <div className="sidebar-header">
           <h3>Agents ({project.agents.length})</h3>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowTypeSelector(true)}>
-            <Plus size={14} />
-            Add
-          </button>
+          <div className="header-buttons">
+            <button 
+              className="btn btn-secondary btn-sm" 
+              onClick={() => setShowQuickSetup(true)}
+              title="AI-powered agent setup"
+            >
+              <Wand2 size={14} />
+              Quick
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowTypeSelector(true)}>
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
         </div>
         <div className="agents-list">
           {project.agents.length === 0 ? (
@@ -418,6 +616,66 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
                   </div>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showQuickSetup && (
+        <div className="type-selector" onClick={() => !isGenerating && setShowQuickSetup(false)}>
+          <div className="quick-setup-content" onClick={e => e.stopPropagation()}>
+            <h2><Wand2 size={20} /> Quick Agent Setup</h2>
+            <p className="quick-setup-desc">
+              Describe what you want this agent to do, and AI will configure everything:
+              name, description, instruction, tools, and sub-agents.
+            </p>
+            
+            <div className="quick-setup-form">
+              <textarea
+                value={quickSetupDescription}
+                onChange={(e) => setQuickSetupDescription(e.target.value)}
+                placeholder="Example: An agent that searches the web for information and summarizes the results. It should be able to search Google and handle multiple queries in parallel."
+                rows={5}
+                disabled={isGenerating}
+                autoFocus
+              />
+              
+              <div className="quick-setup-info">
+                <strong>Available resources:</strong>
+                <ul>
+                  <li>{project.app.state_keys.length} state keys</li>
+                  <li>{mcpServers.length} MCP servers</li>
+                  <li>{project.custom_tools.length} custom tools</li>
+                  <li>{project.agents.length} existing agents</li>
+                </ul>
+              </div>
+              
+              <div className="quick-setup-actions">
+                <button 
+                  className="btn btn-secondary"
+                  onClick={() => setShowQuickSetup(false)}
+                  disabled={isGenerating}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  onClick={handleQuickSetup}
+                  disabled={isGenerating || !quickSetupDescription.trim()}
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader size={14} className="spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 size={14} />
+                      Create Agent
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

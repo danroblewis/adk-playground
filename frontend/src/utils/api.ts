@@ -143,3 +143,35 @@ export async function generatePrompt(
   return data;
 }
 
+// AI-assisted agent configuration
+export interface GeneratedAgentConfig {
+  name: string;
+  description: string;
+  instruction: string;
+  tools: {
+    builtin: string[];
+    mcp: { server: string; tools: string[] }[];
+    custom: string[];
+    agents: string[];
+  };
+  sub_agents: string[];
+}
+
+export interface GenerateAgentConfigResult {
+  config: GeneratedAgentConfig | null;
+  success: boolean;
+  error?: string;
+  raw_response?: string;
+}
+
+export async function generateAgentConfig(
+  projectId: string,
+  description: string
+): Promise<GenerateAgentConfigResult> {
+  const data = await fetchJSON<GenerateAgentConfigResult>(`/projects/${projectId}/generate-agent-config`, {
+    method: 'POST',
+    body: JSON.stringify({ description }),
+  });
+  return data;
+}
+
