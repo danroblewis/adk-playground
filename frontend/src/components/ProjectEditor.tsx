@@ -19,14 +19,33 @@ const tabs = [
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
 ];
 
+type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml';
+const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml'];
+
 export default function ProjectEditor() {
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId, tab } = useParams<{ projectId: string; tab?: string }>();
   const navigate = useNavigate();
   const { project, setProject, activeTab, setActiveTab, hasUnsavedChanges, setHasUnsavedChanges } = useStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const initialLoadRef = useRef(true);
   const lastSavedProjectRef = useRef<string | null>(null);
+  
+  // Sync tab from URL to store
+  useEffect(() => {
+    if (tab && validTabs.includes(tab as TabId)) {
+      setActiveTab(tab as TabId);
+    } else if (!tab && projectId) {
+      // No tab in URL, redirect to current active tab
+      navigate(`/project/${projectId}/${activeTab}`, { replace: true });
+    }
+  }, [tab, projectId]);
+  
+  // Update URL when tab changes (but not on initial load from URL)
+  function handleTabChange(newTab: TabId) {
+    setActiveTab(newTab);
+    navigate(`/project/${projectId}/${newTab}`, { replace: true });
+  }
   
   useEffect(() => {
     if (projectId) {
@@ -225,7 +244,7 @@ export default function ProjectEditor() {
           <button
             key={tab.id}
             className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
           >
             <tab.icon size={16} />
             {tab.label}

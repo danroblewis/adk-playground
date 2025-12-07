@@ -546,39 +546,27 @@ function ToolsEditor({
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const viewportHeight = window.innerHeight;
-      const dropdownHeight = 350; // approximate max height
-      const spaceBelow = viewportHeight - rect.bottom - 8;
-      const spaceAbove = rect.top - 8;
+      const maxDropdownHeight = 350;
+      const spaceBelow = viewportHeight - rect.bottom - 16;
+      const spaceAbove = rect.top - 16;
       
-      if (spaceBelow >= dropdownHeight) {
-        // Enough room below - position dropdown below button
+      // Always use top positioning - calculate based on available space
+      if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+        // Position below the button
+        const maxHeight = Math.min(maxDropdownHeight, spaceBelow);
         setDropdownStyle({
           top: rect.bottom + 4,
           left: rect.left,
-          maxHeight: Math.min(dropdownHeight, spaceBelow)
-        });
-      } else if (spaceAbove >= dropdownHeight) {
-        // Enough room above - position dropdown above button
-        setDropdownStyle({
-          bottom: viewportHeight - rect.top + 4,
-          left: rect.left,
-          maxHeight: Math.min(dropdownHeight, spaceAbove)
+          maxHeight
         });
       } else {
-        // Not enough room either way - use whichever has more space
-        if (spaceBelow >= spaceAbove) {
-          setDropdownStyle({
-            top: rect.bottom + 4,
-            left: rect.left,
-            maxHeight: spaceBelow - 8
-          });
-        } else {
-          setDropdownStyle({
-            bottom: viewportHeight - rect.top + 4,
-            left: rect.left,
-            maxHeight: spaceAbove - 8
-          });
-        }
+        // Position above the button - calculate top so dropdown ends at button top
+        const maxHeight = Math.min(maxDropdownHeight, spaceAbove);
+        setDropdownStyle({
+          top: rect.top - maxHeight - 4,
+          left: rect.left,
+          maxHeight
+        });
       }
     }
     setDropdownOpen(true);
