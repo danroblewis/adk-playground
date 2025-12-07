@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package } from 'lucide-react';
+import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { CustomToolDefinition, BuiltinTool } from '../utils/types';
+import type { CustomToolDefinition, BuiltinTool, MCPServerConfig } from '../utils/types';
 import Editor from '@monaco-editor/react';
 
 function generateId() {
@@ -28,14 +28,20 @@ interface ToolsPanelProps {
 }
 
 export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
-  const { project, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools } = useStore();
+  const { project, updateProject, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools } = useStore();
   const [editingCode, setEditingCode] = useState('');
   const [hasCodeChanges, setHasCodeChanges] = useState(false);
   const [selectedBuiltinTool, setSelectedBuiltinTool] = useState<BuiltinTool | null>(null);
+  const [activeTab, setActiveTab] = useState<'tools' | 'mcp'>('tools');
+  const [selectedMcpServer, setSelectedMcpServer] = useState<string | null>(null);
+  const [mcpJsonCode, setMcpJsonCode] = useState('');
+  const [hasMcpChanges, setHasMcpChanges] = useState(false);
   
   if (!project) return null;
   
+  const mcpServers = project.mcp_servers || [];
   const selectedTool = project.custom_tools.find(t => t.id === selectedToolId);
+  const selectedMcp = mcpServers.find(s => s.name === selectedMcpServer);
   
   function selectTool(id: string | null) {
     setSelectedToolId(id);
@@ -48,6 +54,13 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       setHasCodeChanges(false);
     }
   }, [selectedToolId]);
+  
+  useEffect(() => {
+    if (selectedMcp) {
+      setMcpJsonCode(JSON.stringify(selectedMcp, null, 2));
+      setHasMcpChanges(false);
+    }
+  }, [selectedMcpServer]);
   
   function handleAddTool() {
     const id = generateId();
@@ -88,6 +101,60 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     if (!selectedTool) return;
     handleUpdateTool({ code: editingCode });
     setHasCodeChanges(false);
+  }
+  
+  // MCP Server management
+  function handleAddMcpServer() {
+    const newServer: MCPServerConfig = {
+      name: `mcp_server_${Date.now().toString(36)}`,
+      description: 'New MCP Server',
+      connection_type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-example'],
+      env: {},
+      headers: {},
+      timeout: 10,
+      tool_filter: [],
+    };
+    updateProject({
+      mcp_servers: [...mcpServers, newServer]
+    });
+    setSelectedMcpServer(newServer.name);
+  }
+  
+  function handleDeleteMcpServer(name: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm('Delete this MCP server?')) return;
+    updateProject({
+      mcp_servers: mcpServers.filter(s => s.name !== name)
+    });
+    if (selectedMcpServer === name) {
+      setSelectedMcpServer(null);
+    }
+  }
+  
+  function handleMcpJsonChange(value: string | undefined) {
+    if (value !== undefined) {
+      setMcpJsonCode(value);
+      setHasMcpChanges(value !== JSON.stringify(selectedMcp, null, 2));
+    }
+  }
+  
+  function handleSaveMcpServer() {
+    if (!selectedMcp) return;
+    try {
+      const parsed = JSON.parse(mcpJsonCode) as MCPServerConfig;
+      // Ensure name is preserved or updated
+      const oldName = selectedMcp.name;
+      const newServers = mcpServers.map(s => 
+        s.name === oldName ? parsed : s
+      );
+      updateProject({ mcp_servers: newServers });
+      setSelectedMcpServer(parsed.name);
+      setHasMcpChanges(false);
+    } catch (e) {
+      alert('Invalid JSON: ' + (e as Error).message);
+    }
   }
   
   // Group tools by module path
@@ -397,73 +464,228 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           padding: 2px 8px;
           border-radius: 999px;
         }
+        
+        .sidebar-tabs {
+          display: flex;
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .sidebar-tab {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 12px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--text-muted);
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        
+        .sidebar-tab:hover {
+          color: var(--text-primary);
+          background: var(--bg-tertiary);
+        }
+        
+        .sidebar-tab.active {
+          color: var(--accent-primary);
+          background: var(--bg-tertiary);
+          border-bottom: 2px solid var(--accent-primary);
+        }
+        
+        .tool-type-badge {
+          font-size: 10px;
+          padding: 2px 6px;
+          background: var(--bg-primary);
+          color: var(--text-muted);
+          border-radius: 4px;
+          text-transform: uppercase;
+        }
+        
+        .mcp-info {
+          padding: 12px 16px;
+          background: var(--bg-tertiary);
+          border-bottom: 1px solid var(--border-color);
+          font-size: 13px;
+          color: var(--text-secondary);
+        }
+        
+        .mcp-help {
+          padding: 16px;
+          border-top: 1px solid var(--border-color);
+          background: var(--bg-tertiary);
+        }
+        
+        .mcp-help h4 {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          margin-bottom: 12px;
+        }
+        
+        .schema-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .schema-field {
+          display: flex;
+          align-items: baseline;
+          gap: 12px;
+          font-size: 12px;
+        }
+        
+        .schema-field code {
+          font-family: var(--font-mono);
+          color: var(--accent-primary);
+          background: var(--bg-secondary);
+          padding: 2px 6px;
+          border-radius: 4px;
+          min-width: 120px;
+        }
+        
+        .schema-field span {
+          color: var(--text-muted);
+        }
       `}</style>
       
       <aside className="tools-sidebar">
-        <div className="sidebar-header">
-          <h3>Custom Tools ({project.custom_tools.length})</h3>
-          <button className="btn btn-primary btn-sm" onClick={handleAddTool}>
-            <Plus size={14} />
-            New
+        <div className="sidebar-tabs">
+          <button 
+            className={`sidebar-tab ${activeTab === 'tools' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tools')}
+          >
+            <Wrench size={14} />
+            Tools
+          </button>
+          <button 
+            className={`sidebar-tab ${activeTab === 'mcp' ? 'active' : ''}`}
+            onClick={() => setActiveTab('mcp')}
+          >
+            <Server size={14} />
+            MCP
           </button>
         </div>
-        <div className="tools-tree">
-          {/* Built-in Tools Section */}
-          {builtinTools.length > 0 && (
-            <div className="module-group">
-              <div className="module-header">
-                <Package size={14} />
-                Built-in Tools
-              </div>
-              {builtinTools.map(tool => (
-                <div
-                  key={tool.name}
-                  className={`tool-item builtin ${selectedBuiltinTool?.name === tool.name ? 'selected' : ''}`}
-                  onClick={() => {
-                    setSelectedBuiltinTool(tool);
-                    selectTool(null);
-                  }}
-                >
-                  <Lock size={14} />
-                  <span className="tool-name">{tool.name}</span>
-                </div>
-              ))}
+        
+        {activeTab === 'tools' ? (
+          <>
+            <div className="sidebar-header">
+              <h3>Custom Tools ({project.custom_tools.length})</h3>
+              <button className="btn btn-primary btn-sm" onClick={handleAddTool}>
+                <Plus size={14} />
+                New
+              </button>
             </div>
-          )}
-          
-          {/* Custom Tools Section */}
-          {project.custom_tools.length === 0 && builtinTools.length === 0 ? (
-            <div className="empty-state">
-              <Code size={32} />
-              <p>No tools defined yet</p>
-            </div>
-          ) : project.custom_tools.length > 0 && (
-            Object.entries(toolsByModule).map(([module, tools]) => (
-              <div key={module} className="module-group">
-                <div className="module-header">
-                  <FolderOpen size={14} />
-                  {module}
-                </div>
-                {tools.map(tool => (
-                  <div
-                    key={tool.id}
-                    className={`tool-item ${selectedToolId === tool.id ? 'selected' : ''}`}
-                    onClick={() => {
-                      selectTool(tool.id);
-                      setSelectedBuiltinTool(null);
-                    }}
-                  >
-                    <Wrench size={14} />
-                    <span className="tool-name">{tool.name}</span>
-                    <button className="delete-btn" onClick={(e) => handleDeleteTool(tool.id, e)}>
-                      <Trash2 size={14} />
-                    </button>
+            <div className="tools-tree">
+              {/* Built-in Tools Section */}
+              {builtinTools.length > 0 && (
+                <div className="module-group">
+                  <div className="module-header">
+                    <Package size={14} />
+                    Built-in Tools
                   </div>
-                ))}
-              </div>
-            ))
-          )}
-        </div>
+                  {builtinTools.map(tool => (
+                    <div
+                      key={tool.name}
+                      className={`tool-item builtin ${selectedBuiltinTool?.name === tool.name ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedBuiltinTool(tool);
+                        selectTool(null);
+                        setSelectedMcpServer(null);
+                      }}
+                    >
+                      <Lock size={14} />
+                      <span className="tool-name">{tool.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Custom Tools Section */}
+              {project.custom_tools.length === 0 && builtinTools.length === 0 ? (
+                <div className="empty-state">
+                  <Code size={32} />
+                  <p>No tools defined yet</p>
+                </div>
+              ) : project.custom_tools.length > 0 && (
+                Object.entries(toolsByModule).map(([module, tools]) => (
+                  <div key={module} className="module-group">
+                    <div className="module-header">
+                      <FolderOpen size={14} />
+                      {module}
+                    </div>
+                    {tools.map(tool => (
+                      <div
+                        key={tool.id}
+                        className={`tool-item ${selectedToolId === tool.id ? 'selected' : ''}`}
+                        onClick={() => {
+                          selectTool(tool.id);
+                          setSelectedBuiltinTool(null);
+                          setSelectedMcpServer(null);
+                        }}
+                      >
+                        <Wrench size={14} />
+                        <span className="tool-name">{tool.name}</span>
+                        <button className="delete-btn" onClick={(e) => handleDeleteTool(tool.id, e)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="sidebar-header">
+              <h3>MCP Servers ({mcpServers.length})</h3>
+              <button className="btn btn-primary btn-sm" onClick={handleAddMcpServer}>
+                <Plus size={14} />
+                New
+              </button>
+            </div>
+            <div className="tools-tree">
+              {mcpServers.length === 0 ? (
+                <div className="empty-state">
+                  <Server size={32} />
+                  <p>No MCP servers configured</p>
+                </div>
+              ) : (
+                <div className="module-group">
+                  <div className="module-header">
+                    <Globe size={14} />
+                    Configured Servers
+                  </div>
+                  {mcpServers.map(server => (
+                    <div
+                      key={server.name}
+                      className={`tool-item ${selectedMcpServer === server.name ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedMcpServer(server.name);
+                        selectTool(null);
+                        setSelectedBuiltinTool(null);
+                      }}
+                    >
+                      <Server size={14} />
+                      <span className="tool-name">{server.name}</span>
+                      <span className="tool-type-badge">{server.connection_type}</span>
+                      <button className="delete-btn" onClick={(e) => handleDeleteMcpServer(server.name, e)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </aside>
       
       <div className="tool-editor">
@@ -591,6 +813,87 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                     );
                   })
                 )}
+              </div>
+            </div>
+          </>
+        ) : selectedMcp ? (
+          <>
+            <div className="editor-header">
+              <Server size={20} style={{ color: 'var(--accent-primary)' }} />
+              <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>{selectedMcp.name}</span>
+              <span className="badge badge-info">{selectedMcp.connection_type}</span>
+              {hasMcpChanges && <span className="unsaved-badge">Unsaved</span>}
+              <button 
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveMcpServer}
+                disabled={!hasMcpChanges}
+              >
+                <Save size={14} />
+                Save
+              </button>
+            </div>
+            
+            <div className="mcp-info">
+              <p>Configure your MCP server using JSON. The format follows the mcpServers.json schema.</p>
+            </div>
+            
+            <div className="code-editor">
+              <Editor
+                height="100%"
+                language="json"
+                theme="vs-dark"
+                value={mcpJsonCode}
+                onChange={handleMcpJsonChange}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  insertSpaces: true,
+                  padding: { top: 12 },
+                  formatOnPaste: true,
+                }}
+              />
+            </div>
+            
+            <div className="mcp-help">
+              <h4>Schema Reference</h4>
+              <div className="schema-fields">
+                <div className="schema-field">
+                  <code>name</code>
+                  <span>Unique identifier for this server</span>
+                </div>
+                <div className="schema-field">
+                  <code>description</code>
+                  <span>Human-readable description</span>
+                </div>
+                <div className="schema-field">
+                  <code>connection_type</code>
+                  <span>"stdio" | "sse" | "http"</span>
+                </div>
+                <div className="schema-field">
+                  <code>command</code>
+                  <span>Command to run (for stdio)</span>
+                </div>
+                <div className="schema-field">
+                  <code>args</code>
+                  <span>Array of command arguments</span>
+                </div>
+                <div className="schema-field">
+                  <code>env</code>
+                  <span>Environment variables object</span>
+                </div>
+                <div className="schema-field">
+                  <code>url</code>
+                  <span>Server URL (for sse/http)</span>
+                </div>
+                <div className="schema-field">
+                  <code>tool_filter</code>
+                  <span>Array of tool names to include (empty = all)</span>
+                </div>
               </div>
             </div>
           </>

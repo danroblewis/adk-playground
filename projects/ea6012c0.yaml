@@ -30,8 +30,18 @@ app:
     default_value: null
     scope: session
   artifacts: []
-  models: []
-  default_model_id: null
+  models:
+  - id: model_miw9xh0n
+    name: New Model
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+    is_default: true
+  default_model_id: model_miw9xh0n
 agents:
 - type: LlmAgent
   id: agent_writer
