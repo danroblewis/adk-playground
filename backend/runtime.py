@@ -122,7 +122,7 @@ class TrackingPlugin:
         if hasattr(llm_request, "tools_dict") and llm_request.tools_dict:
             tool_names = list(llm_request.tools_dict.keys())
         
-        agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
+        agent_name = getattr(callback_context, "agent_name", None) or "system"
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_call",
@@ -176,7 +176,7 @@ class TrackingPlugin:
                 if finish_reason:
                     finish_reason = str(finish_reason)
         
-        agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
+        agent_name = getattr(callback_context, "agent_name", None) or "system"
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_response",
@@ -191,9 +191,7 @@ class TrackingPlugin:
     
     async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
         """Called before a tool is executed."""
-        agent_name = "unknown"
-        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
-            agent_name = tool_context._invocation_context.agent.name
+        agent_name = getattr(tool_context, "agent_name", None) or "system"
         
         self._emit(RunEvent(
             timestamp=time.time(),
@@ -208,9 +206,7 @@ class TrackingPlugin:
     
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
         """Called after a tool is executed."""
-        agent_name = "unknown"
-        if hasattr(tool_context, "_invocation_context") and tool_context._invocation_context:
-            agent_name = tool_context._invocation_context.agent.name
+        agent_name = getattr(tool_context, "agent_name", None) or "system"
         
         # Track state changes
         if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
