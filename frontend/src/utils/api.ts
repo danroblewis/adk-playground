@@ -1,0 +1,126 @@
+import type { Project, AgentConfig, CustomToolDefinition, MCPServerConfig, BuiltinTool } from './types';
+
+const API_BASE = '/api';
+
+async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${url}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    },
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+// Projects
+export async function listProjects(): Promise<{ id: string; name: string; description: string }[]> {
+  const data = await fetchJSON<{ projects: any[] }>('/projects');
+  return data.projects;
+}
+
+export async function getProject(id: string): Promise<Project> {
+  const data = await fetchJSON<{ project: Project }>(`/projects/${id}`);
+  return data.project;
+}
+
+export async function createProject(name: string, description: string = ''): Promise<Project> {
+  const data = await fetchJSON<{ project: Project }>('/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name, description }),
+  });
+  return data.project;
+}
+
+export async function updateProject(id: string, updates: Partial<Project>): Promise<Project> {
+  const data = await fetchJSON<{ project: Project }>(`/projects/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+  return data.project;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await fetchJSON(`/projects/${id}`, { method: 'DELETE' });
+}
+
+// YAML
+export async function getProjectYaml(id: string): Promise<string> {
+  const data = await fetchJSON<{ yaml: string }>(`/projects/${id}/yaml`);
+  return data.yaml;
+}
+
+export async function updateProjectFromYaml(id: string, yaml: string): Promise<Project> {
+  const data = await fetchJSON<{ project: Project }>(`/projects/${id}/yaml`, {
+    method: 'PUT',
+    body: JSON.stringify({ yaml }),
+  });
+  return data.project;
+}
+
+// Agents
+export async function createAgent(projectId: string, agent: Partial<AgentConfig>): Promise<AgentConfig> {
+  const data = await fetchJSON<{ agent: AgentConfig }>(`/projects/${projectId}/agents`, {
+    method: 'POST',
+    body: JSON.stringify(agent),
+  });
+  return data.agent;
+}
+
+export async function updateAgent(projectId: string, agentId: string, agent: AgentConfig): Promise<AgentConfig> {
+  const data = await fetchJSON<{ agent: AgentConfig }>(`/projects/${projectId}/agents/${agentId}`, {
+    method: 'PUT',
+    body: JSON.stringify(agent),
+  });
+  return data.agent;
+}
+
+export async function deleteAgent(projectId: string, agentId: string): Promise<void> {
+  await fetchJSON(`/projects/${projectId}/agents/${agentId}`, { method: 'DELETE' });
+}
+
+// Custom Tools
+export async function createCustomTool(projectId: string, tool: Partial<CustomToolDefinition>): Promise<CustomToolDefinition> {
+  const data = await fetchJSON<{ tool: CustomToolDefinition }>(`/projects/${projectId}/tools`, {
+    method: 'POST',
+    body: JSON.stringify(tool),
+  });
+  return data.tool;
+}
+
+export async function updateCustomTool(projectId: string, toolId: string, tool: CustomToolDefinition): Promise<CustomToolDefinition> {
+  const data = await fetchJSON<{ tool: CustomToolDefinition }>(`/projects/${projectId}/tools/${toolId}`, {
+    method: 'PUT',
+    body: JSON.stringify(tool),
+  });
+  return data.tool;
+}
+
+export async function deleteCustomTool(projectId: string, toolId: string): Promise<void> {
+  await fetchJSON(`/projects/${projectId}/tools/${toolId}`, { method: 'DELETE' });
+}
+
+// Reference data
+export async function getMcpServers(): Promise<MCPServerConfig[]> {
+  const data = await fetchJSON<{ servers: MCPServerConfig[] }>('/mcp-servers');
+  return data.servers;
+}
+
+export async function getBuiltinTools(): Promise<BuiltinTool[]> {
+  const data = await fetchJSON<{ tools: BuiltinTool[] }>('/builtin-tools');
+  return data.tools;
+}
+
+// WebSocket for running agents
+export function createRunWebSocket(projectId: string): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  return new WebSocket(`${protocol}//${host}/ws/run/${projectId}`);
+}
+
