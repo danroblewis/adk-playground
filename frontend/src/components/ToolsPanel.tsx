@@ -28,7 +28,7 @@ interface ToolsPanelProps {
 }
 
 export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
-  const { project, updateProject, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools } = useStore();
+  const { project, updateProject, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools, mcpServers: knownMcpServers } = useStore();
   const [editingCode, setEditingCode] = useState('');
   const [hasCodeChanges, setHasCodeChanges] = useState(false);
   const [selectedBuiltinTool, setSelectedBuiltinTool] = useState<BuiltinTool | null>(null);
@@ -36,12 +36,17 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [selectedMcpServer, setSelectedMcpServer] = useState<string | null>(null);
   const [mcpJsonCode, setMcpJsonCode] = useState('');
   const [hasMcpChanges, setHasMcpChanges] = useState(false);
+  const [selectedKnownMcp, setSelectedKnownMcp] = useState<MCPServerConfig | null>(null);
   
   if (!project) return null;
   
-  const mcpServers = project.mcp_servers || [];
+  const projectMcpServers = project.mcp_servers || [];
   const selectedTool = project.custom_tools.find(t => t.id === selectedToolId);
-  const selectedMcp = mcpServers.find(s => s.name === selectedMcpServer);
+  const selectedMcp = projectMcpServers.find(s => s.name === selectedMcpServer);
+  
+  // Filter out known servers that are already added to project
+  const addedServerNames = new Set(projectMcpServers.map(s => s.name));
+  const availableKnownServers = knownMcpServers.filter(s => !addedServerNames.has(s.name));
   
   function selectTool(id: string | null) {
     setSelectedToolId(id);
@@ -117,16 +122,27 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       tool_filter: [],
     };
     updateProject({
-      mcp_servers: [...mcpServers, newServer]
+      mcp_servers: [...projectMcpServers, newServer]
     });
     setSelectedMcpServer(newServer.name);
+    setSelectedKnownMcp(null);
+  }
+  
+  function handleAddKnownMcpServer(server: MCPServerConfig) {
+    // Clone the server config
+    const newServer = { ...server };
+    updateProject({
+      mcp_servers: [...projectMcpServers, newServer]
+    });
+    setSelectedMcpServer(newServer.name);
+    setSelectedKnownMcp(null);
   }
   
   function handleDeleteMcpServer(name: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!confirm('Delete this MCP server?')) return;
     updateProject({
-      mcp_servers: mcpServers.filter(s => s.name !== name)
+      mcp_servers: projectMcpServers.filter(s => s.name !== name)
     });
     if (selectedMcpServer === name) {
       setSelectedMcpServer(null);
@@ -146,7 +162,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       const parsed = JSON.parse(mcpJsonCode) as MCPServerConfig;
       // Ensure name is preserved or updated
       const oldName = selectedMcp.name;
-      const newServers = mcpServers.map(s => 
+      const newServers = projectMcpServers.map(s => 
         s.name === oldName ? parsed : s
       );
       updateProject({ mcp_servers: newServers });
@@ -553,6 +569,106 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
         .schema-field span {
           color: var(--text-muted);
         }
+        
+        .tool-item.known-server svg {
+          color: var(--accent-secondary);
+        }
+        
+        .known-server-preview {
+          flex: 1;
+          padding: 20px;
+          overflow-y: auto;
+        }
+        
+        .preview-section {
+          margin-bottom: 20px;
+        }
+        
+        .preview-section h4 {
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin-bottom: 8px;
+        }
+        
+        .preview-section p {
+          font-size: 14px;
+          line-height: 1.6;
+          color: var(--text-secondary);
+        }
+        
+        .preview-section > code {
+          display: block;
+          padding: 12px;
+          background: var(--bg-primary);
+          border-radius: var(--radius-sm);
+          font-family: var(--font-mono);
+          font-size: 13px;
+          color: var(--accent-primary);
+          word-break: break-all;
+        }
+        
+        .env-vars {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .env-var {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 12px;
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-sm);
+        }
+        
+        .env-var code {
+          font-family: var(--font-mono);
+          color: var(--accent-primary);
+          font-size: 12px;
+        }
+        
+        .env-value {
+          font-size: 12px;
+          color: var(--text-muted);
+          font-family: var(--font-mono);
+        }
+        
+        .env-required {
+          font-size: 11px;
+          padding: 2px 8px;
+          background: rgba(255, 107, 107, 0.15);
+          color: var(--error);
+          border-radius: 999px;
+        }
+        
+        .tool-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        
+        .tool-badge {
+          padding: 4px 10px;
+          background: rgba(0, 245, 212, 0.1);
+          color: var(--accent-primary);
+          border-radius: 999px;
+          font-size: 12px;
+          font-family: var(--font-mono);
+        }
+        
+        .config-preview {
+          padding: 12px;
+          background: var(--bg-primary);
+          border-radius: var(--radius-sm);
+          font-family: var(--font-mono);
+          font-size: 12px;
+          overflow-x: auto;
+          max-height: 200px;
+          overflow-y: auto;
+        }
       `}</style>
       
       <aside className="tools-sidebar">
@@ -645,30 +761,27 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
         ) : (
           <>
             <div className="sidebar-header">
-              <h3>MCP Servers ({mcpServers.length})</h3>
+              <h3>MCP Servers ({projectMcpServers.length})</h3>
               <button className="btn btn-primary btn-sm" onClick={handleAddMcpServer}>
                 <Plus size={14} />
-                New
+                Custom
               </button>
             </div>
             <div className="tools-tree">
-              {mcpServers.length === 0 ? (
-                <div className="empty-state">
-                  <Server size={32} />
-                  <p>No MCP servers configured</p>
-                </div>
-              ) : (
+              {/* Configured Servers */}
+              {projectMcpServers.length > 0 && (
                 <div className="module-group">
                   <div className="module-header">
                     <Globe size={14} />
-                    Configured Servers
+                    Configured ({projectMcpServers.length})
                   </div>
-                  {mcpServers.map(server => (
+                  {projectMcpServers.map(server => (
                     <div
                       key={server.name}
                       className={`tool-item ${selectedMcpServer === server.name ? 'selected' : ''}`}
                       onClick={() => {
                         setSelectedMcpServer(server.name);
+                        setSelectedKnownMcp(null);
                         selectTool(null);
                         setSelectedBuiltinTool(null);
                       }}
@@ -681,6 +794,39 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+              
+              {/* Available Known Servers */}
+              {availableKnownServers.length > 0 && (
+                <div className="module-group">
+                  <div className="module-header">
+                    <Package size={14} />
+                    Available Templates ({availableKnownServers.length})
+                  </div>
+                  {availableKnownServers.map(server => (
+                    <div
+                      key={server.name}
+                      className={`tool-item known-server ${selectedKnownMcp?.name === server.name ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedKnownMcp(server);
+                        setSelectedMcpServer(null);
+                        selectTool(null);
+                        setSelectedBuiltinTool(null);
+                      }}
+                    >
+                      <Server size={14} />
+                      <span className="tool-name">{server.name}</span>
+                      <span className="tool-type-badge">{server.connection_type}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {projectMcpServers.length === 0 && availableKnownServers.length === 0 && (
+                <div className="empty-state">
+                  <Server size={32} />
+                  <p>No MCP servers available</p>
                 </div>
               )}
             </div>
@@ -813,6 +959,64 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                     );
                   })
                 )}
+              </div>
+            </div>
+          </>
+        ) : selectedKnownMcp ? (
+          <>
+            <div className="editor-header">
+              <Server size={20} style={{ color: 'var(--accent-secondary)' }} />
+              <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>{selectedKnownMcp.name}</span>
+              <span className="badge badge-info">{selectedKnownMcp.connection_type}</span>
+              <span className="badge badge-muted">Template</span>
+              <button 
+                className="btn btn-primary btn-sm"
+                onClick={() => handleAddKnownMcpServer(selectedKnownMcp)}
+              >
+                <Plus size={14} />
+                Add to Project
+              </button>
+            </div>
+            
+            <div className="known-server-preview">
+              <div className="preview-section">
+                <h4>Description</h4>
+                <p>{selectedKnownMcp.description}</p>
+              </div>
+              
+              <div className="preview-section">
+                <h4>Command</h4>
+                <code>{selectedKnownMcp.command} {selectedKnownMcp.args?.join(' ')}</code>
+              </div>
+              
+              {selectedKnownMcp.env && Object.keys(selectedKnownMcp.env).length > 0 && (
+                <div className="preview-section">
+                  <h4>Required Environment Variables</h4>
+                  <div className="env-vars">
+                    {Object.entries(selectedKnownMcp.env).map(([key, value]) => (
+                      <div key={key} className="env-var">
+                        <code>{key}</code>
+                        {value ? <span className="env-value">{value}</span> : <span className="env-required">Required</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {selectedKnownMcp.tool_filter && selectedKnownMcp.tool_filter.length > 0 && (
+                <div className="preview-section">
+                  <h4>Available Tools ({selectedKnownMcp.tool_filter.length})</h4>
+                  <div className="tool-badges">
+                    {selectedKnownMcp.tool_filter.map(tool => (
+                      <span key={tool} className="tool-badge">{tool}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="preview-section">
+                <h4>Configuration Preview</h4>
+                <pre className="config-preview">{JSON.stringify(selectedKnownMcp, null, 2)}</pre>
               </div>
             </div>
           </>
