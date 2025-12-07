@@ -408,15 +408,168 @@ export default function RunPanel() {
         
         .event-details {
           margin-top: 8px;
-          padding: 8px;
+          padding: 12px;
           background: var(--bg-secondary);
           border-radius: var(--radius-sm);
-          font-family: var(--font-mono);
           font-size: 12px;
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        
+        .event-details pre {
+          font-family: var(--font-mono);
           white-space: pre-wrap;
           word-break: break-all;
-          max-height: 200px;
+          margin: 0;
+        }
+        
+        .token-count {
+          font-size: 10px;
+          color: var(--text-muted);
+          margin-left: auto;
+          font-family: var(--font-mono);
+        }
+        
+        .detail-section {
+          margin-bottom: 12px;
+        }
+        
+        .detail-label {
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin-bottom: 6px;
+        }
+        
+        .detail-text {
+          padding: 8px;
+          background: var(--bg-primary);
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+        
+        .system-instruction {
+          color: var(--accent-secondary);
+          max-height: 100px;
           overflow-y: auto;
+        }
+        
+        .tool-badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        
+        .tool-badge {
+          padding: 2px 8px;
+          background: rgba(0, 245, 212, 0.1);
+          color: var(--accent-primary);
+          border-radius: 999px;
+          font-size: 11px;
+          font-family: var(--font-mono);
+        }
+        
+        .messages-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .message {
+          padding: 8px 12px;
+          border-radius: var(--radius-sm);
+          border-left: 3px solid;
+        }
+        
+        .message-user {
+          background: rgba(0, 245, 212, 0.05);
+          border-color: var(--accent-primary);
+        }
+        
+        .message-model {
+          background: rgba(255, 217, 61, 0.05);
+          border-color: var(--accent-secondary);
+        }
+        
+        .message-role {
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin-bottom: 4px;
+        }
+        
+        .message-parts {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        
+        .part {
+          font-size: 12px;
+          line-height: 1.5;
+        }
+        
+        .part-text .part-content {
+          white-space: pre-wrap;
+        }
+        
+        .part-thought {
+          background: rgba(123, 44, 191, 0.1);
+          padding: 8px;
+          border-radius: var(--radius-sm);
+        }
+        
+        .thought-badge {
+          font-size: 10px;
+          margin-bottom: 4px;
+          display: block;
+          color: #7b2cbf;
+        }
+        
+        .part-function-call {
+          background: rgba(0, 245, 212, 0.1);
+          padding: 6px 10px;
+          border-radius: var(--radius-sm);
+          font-family: var(--font-mono);
+        }
+        
+        .fn-name {
+          color: var(--accent-primary);
+          font-weight: 600;
+        }
+        
+        .fn-args {
+          color: var(--text-muted);
+          margin-left: 4px;
+        }
+        
+        .part-function-response {
+          background: var(--bg-primary);
+          padding: 8px;
+          border-radius: var(--radius-sm);
+        }
+        
+        .fn-response {
+          margin-top: 4px;
+          font-family: var(--font-mono);
+          font-size: 11px;
+          max-height: 100px;
+          overflow-y: auto;
+        }
+        
+        .detail-meta {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid var(--border-color);
+        }
+        
+        .model-response-details .part {
+          margin-bottom: 8px;
         }
         
         .empty-state {
@@ -616,8 +769,18 @@ function EventItem({
         return `${event.data.tool_name}(${Object.keys(event.data.args || {}).join(', ')})`;
       case 'tool_result':
         return event.data.result_preview?.slice(0, 100);
+      case 'model_call':
+        const msgCount = event.data.contents?.length || 0;
+        const toolCount = event.data.tool_count || 0;
+        return `${msgCount} messages, ${toolCount} tools available`;
       case 'model_response':
-        return event.data.response_preview?.slice(0, 100) || event.data.text?.slice(0, 100);
+        // Get preview from parts
+        const parts = event.data.parts || [];
+        const textPart = parts.find((p: any) => p.type === 'text');
+        const fnCallPart = parts.find((p: any) => p.type === 'function_call');
+        if (fnCallPart) return `→ ${fnCallPart.name}()`;
+        if (textPart) return textPart.text?.slice(0, 100);
+        return event.data.response_preview?.slice(0, 100);
       case 'state_change':
         return Object.keys(event.data.state_delta || {}).join(', ');
       case 'agent_start':
@@ -638,17 +801,132 @@ function EventItem({
         <div className="event-header">
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="event-type">{event.event_type.replace('_', ' ')}</span>
+          {event.event_type === 'model_response' && event.data.token_counts && (
+            <span className="token-count">
+              {event.data.token_counts.input || 0}↓ {event.data.token_counts.output || 0}↑
+            </span>
+          )}
         </div>
         {preview && !expanded && (
           <div className="event-preview">{preview}</div>
         )}
         {expanded && (
           <div className="event-details">
-            {JSON.stringify(event.data, null, 2)}
+            <EventDetails event={event} />
           </div>
         )}
       </div>
     </div>
   );
+}
+
+// Render rich event details
+function EventDetails({ event }: { event: RunEvent }) {
+  if (event.event_type === 'model_call') {
+    return <ModelCallDetails data={event.data} />;
+  }
+  if (event.event_type === 'model_response') {
+    return <ModelResponseDetails data={event.data} />;
+  }
+  // Fallback to JSON for other event types
+  return <pre>{JSON.stringify(event.data, null, 2)}</pre>;
+}
+
+function ModelCallDetails({ data }: { data: any }) {
+  const contents = data.contents || [];
+  const toolNames = data.tool_names || [];
+  
+  return (
+    <div className="model-call-details">
+      {data.system_instruction && (
+        <div className="detail-section">
+          <div className="detail-label">System Instruction</div>
+          <div className="detail-text system-instruction">{data.system_instruction}</div>
+        </div>
+      )}
+      
+      {toolNames.length > 0 && (
+        <div className="detail-section">
+          <div className="detail-label">Available Tools ({toolNames.length})</div>
+          <div className="tool-badges">
+            {toolNames.map((name: string) => (
+              <span key={name} className="tool-badge">{name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      <div className="detail-section">
+        <div className="detail-label">Conversation ({contents.length} messages)</div>
+        <div className="messages-list">
+          {contents.map((content: any, i: number) => (
+            <div key={i} className={`message message-${content.role}`}>
+              <div className="message-role">{content.role}</div>
+              <div className="message-parts">
+                {content.parts?.map((part: any, j: number) => (
+                  <MessagePart key={j} part={part} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModelResponseDetails({ data }: { data: any }) {
+  const parts = data.parts || [];
+  
+  return (
+    <div className="model-response-details">
+      {parts.map((part: any, i: number) => (
+        <MessagePart key={i} part={part} />
+      ))}
+      
+      {data.finish_reason && (
+        <div className="detail-meta">
+          Finish reason: {data.finish_reason}
+        </div>
+      )}
+      
+      {data.token_counts && (
+        <div className="detail-meta">
+          Tokens: {data.token_counts.input || 0} input, {data.token_counts.output || 0} output
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessagePart({ part }: { part: any }) {
+  if (part.type === 'text') {
+    return (
+      <div className={`part part-text ${part.thought ? 'part-thought' : ''}`}>
+        {part.thought && <span className="thought-badge">💭 Thought</span>}
+        <div className="part-content">{part.text}</div>
+      </div>
+    );
+  }
+  
+  if (part.type === 'function_call') {
+    return (
+      <div className="part part-function-call">
+        <span className="fn-name">{part.name}</span>
+        <span className="fn-args">({JSON.stringify(part.args)})</span>
+      </div>
+    );
+  }
+  
+  if (part.type === 'function_response') {
+    return (
+      <div className="part part-function-response">
+        <span className="fn-name">{part.name}</span>
+        <pre className="fn-response">{typeof part.response === 'string' ? part.response : JSON.stringify(part.response, null, 2)}</pre>
+      </div>
+    );
+  }
+  
+  return <pre>{JSON.stringify(part, null, 2)}</pre>;
 }
 

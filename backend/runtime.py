@@ -51,12 +51,76 @@ class TrackingPlugin:
         ))
         return None
     
+    def _serialize_contents(self, contents) -> list:
+        """Serialize LLM contents to a structured format for display."""
+        if not contents:
+            return []
+        
+        result = []
+        for content in contents:
+            content_data = {
+                "role": getattr(content, "role", "unknown"),
+                "parts": []
+            }
+            
+            if hasattr(content, "parts") and content.parts:
+                for part in content.parts:
+                    part_data = {}
+                    
+                    # Text content
+                    if hasattr(part, "text") and part.text:
+                        part_data["type"] = "text"
+                        part_data["text"] = part.text
+                    
+                    # Function call
+                    elif hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        part_data["type"] = "function_call"
+                        part_data["name"] = getattr(fc, "name", "unknown")
+                        part_data["args"] = dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {}
+                    
+                    # Function response
+                    elif hasattr(part, "function_response") and part.function_response:
+                        fr = part.function_response
+                        part_data["type"] = "function_response"
+                        part_data["name"] = getattr(fr, "name", "unknown")
+                        response = getattr(fr, "response", None)
+                        if response:
+                            # Truncate large responses
+                            part_data["response"] = str(response)[:1000] if len(str(response)) > 1000 else response
+                    
+                    # Thought (for reasoning models)
+                    if hasattr(part, "thought") and part.thought:
+                        part_data["thought"] = True
+                    
+                    if part_data:
+                        content_data["parts"].append(part_data)
+            
+            result.append(content_data)
+        
+        return result
+    
     async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
         """Called before an LLM call."""
-        # Extract relevant info from request
-        contents_preview = ""
+        # Serialize contents to structured format
+        contents = []
         if hasattr(llm_request, "contents") and llm_request.contents:
-            contents_preview = str(llm_request.contents)[:500]
+            contents = self._serialize_contents(llm_request.contents)
+        
+        # Get system instruction if present
+        system_instruction = None
+        if hasattr(llm_request, "config") and llm_request.config:
+            if hasattr(llm_request.config, "system_instruction"):
+                si = llm_request.config.system_instruction
+                if si and hasattr(si, "parts"):
+                    system_instruction = "".join(
+                        getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
+                    )[:2000]  # Truncate long instructions
+        
+        # Get tool names
+        tool_names = []
+        if hasattr(llm_request, "tools_dict") and llm_request.tools_dict:
+            tool_names = list(llm_request.tools_dict.keys())
         
         agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
         self._emit(RunEvent(
@@ -64,20 +128,37 @@ class TrackingPlugin:
             event_type="model_call",
             agent_name=agent_name,
             data={
-                "contents_preview": contents_preview,
-                "tool_count": len(llm_request.tools_dict) if hasattr(llm_request, "tools_dict") else 0,
+                "contents": contents,
+                "system_instruction": system_instruction,
+                "tool_names": tool_names,
+                "tool_count": len(tool_names),
             },
         ))
         return None
     
     async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
         """Called after an LLM call."""
-        response_text = ""
+        # Serialize the response content
+        response_parts = []
         if hasattr(llm_response, "content") and llm_response.content:
             if hasattr(llm_response.content, "parts"):
                 for part in llm_response.content.parts:
+                    part_data = {}
+                    
                     if hasattr(part, "text") and part.text:
-                        response_text += part.text
+                        part_data["type"] = "text"
+                        part_data["text"] = part.text
+                        if hasattr(part, "thought") and part.thought:
+                            part_data["thought"] = True
+                    
+                    elif hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        part_data["type"] = "function_call"
+                        part_data["name"] = getattr(fc, "name", "unknown")
+                        part_data["args"] = dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {}
+                    
+                    if part_data:
+                        response_parts.append(part_data)
         
         # Track token usage if available
         if hasattr(llm_response, "usage_metadata") and llm_response.usage_metadata:
@@ -87,13 +168,22 @@ class TrackingPlugin:
             if hasattr(usage, "candidates_token_count"):
                 self.token_counts["output"] += usage.candidates_token_count or 0
         
+        # Get finish reason
+        finish_reason = None
+        if hasattr(llm_response, "candidates") and llm_response.candidates:
+            if len(llm_response.candidates) > 0:
+                finish_reason = getattr(llm_response.candidates[0], "finish_reason", None)
+                if finish_reason:
+                    finish_reason = str(finish_reason)
+        
         agent_name = callback_context.agent.name if hasattr(callback_context, "agent") else "unknown"
         self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_response",
             agent_name=agent_name,
             data={
-                "response_preview": response_text[:500],
+                "parts": response_parts,
+                "finish_reason": finish_reason,
                 "token_counts": dict(self.token_counts),
             },
         ))
