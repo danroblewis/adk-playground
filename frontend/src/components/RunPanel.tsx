@@ -3122,6 +3122,7 @@ function ModelResponseDetails({ data }: { data: any }) {
   
   // Handle direct text format (from event stream) vs parts format (from tracking plugin)
   const hasDirectText = data.text && !parts.length;
+  const hasContent = hasDirectText || parts.length > 0;
   
   return (
     <div className="model-response-details">
@@ -3131,7 +3132,26 @@ function ModelResponseDetails({ data }: { data: any }) {
         parts.map((part: any, i: number) => (
           <MessagePart key={i} part={part} />
         ))
-      ) : (
+      ) : null}
+      
+      {/* Fallback: show raw JSON if no recognized content format */}
+      {!hasContent && data && Object.keys(data).length > 0 && (
+        <div className="json-fallback">
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Raw data:</div>
+          <pre style={{ 
+            fontSize: 11, 
+            background: 'var(--bg-tertiary)', 
+            padding: 8, 
+            borderRadius: 4,
+            overflow: 'auto',
+            maxHeight: 300 
+          }}>
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </div>
+      )}
+      
+      {!hasContent && (!data || Object.keys(data).length === 0) && (
         <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No content</div>
       )}
       
