@@ -474,6 +474,7 @@ export default function RunPanel() {
           display: flex;
           flex-direction: column;
           height: calc(100vh - 180px);
+          width: 100%;
           gap: 12px;
         }
         
@@ -746,7 +747,7 @@ export default function RunPanel() {
         }
         
         /* Main Content Area */
-        .main-content {
+        .run-main-content {
           flex: 1;
           display: flex;
           gap: 12px;
@@ -1573,7 +1574,7 @@ export default function RunPanel() {
       )}
       
       {/* Main Content */}
-      <div className="main-content">
+      <div className="run-main-content">
         {/* Events Area */}
         <div className="events-area" ref={eventsAreaRef}>
           {runEvents.length === 0 ? (
