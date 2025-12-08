@@ -169,23 +169,6 @@ agents:
   tools:
   - type: mcp
     server:
-      name: brave-search
-      description: Search the web using Brave Search
-      connection_type: stdio
-      command: npx
-      args:
-      - -y
-      - '@anthropics/mcp-brave-search'
-      env:
-        BRAVE_API_KEY: ''
-      url: null
-      headers: {}
-      timeout: 10.0
-      tool_filter:
-      - brave_web_search
-      tool_name_prefix: null
-  - type: mcp
-    server:
       name: kubernetes_mcp_server
       description: a good kubernetes mcp server with restrictions
       connection_type: stdio

@@ -565,22 +565,30 @@ class RuntimeManager:
         return None
     
     def _build_mcp_toolset(self, server_config):
-        """Build an MCP toolset from config."""
+        """Build an MCP toolset from config with enhanced error tracking."""
         try:
             from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
             from google.adk.tools.mcp_tool.mcp_session_manager import (
                 StdioConnectionParams,
                 SseConnectionParams,
             )
+            from google.adk.tools.base_toolset import BaseToolset
+            
+            print(f"[MCP] Building toolset for: {server_config.name}")
+            print(f"[MCP] Connection type: {server_config.connection_type}")
+            print(f"[MCP] Command: {server_config.command}")
+            print(f"[MCP] Args: {server_config.args}")
             
             if server_config.connection_type.value == "stdio":
-                # Pass server_params as a dict - Pydantic will convert to StdioServerParameters
+                server_params_dict = {
+                    "command": server_config.command,
+                    "args": server_config.args or [],
+                }
+                if server_config.env:
+                    server_params_dict["env"] = server_config.env
+                
                 connection_params = StdioConnectionParams(
-                    server_params={
-                        "command": server_config.command,
-                        "args": server_config.args or [],
-                        "env": server_config.env if server_config.env else None,
-                    },
+                    server_params=server_params_dict,
                     timeout=server_config.timeout,
                 )
             elif server_config.connection_type.value == "sse":
@@ -590,17 +598,54 @@ class RuntimeManager:
                     timeout=server_config.timeout,
                 )
             else:
-                print(f"Unknown MCP connection type: {server_config.connection_type}")
+                print(f"[MCP] Unknown connection type: {server_config.connection_type}")
                 return None
             
-            return MCPToolset(
+            # Create a wrapper that provides better error messages
+            class MCPToolsetWithErrorTracking(BaseToolset):
+                """Wrapper that adds server name to error messages."""
+                
+                def __init__(self, inner_toolset, server_name, server_command):
+                    # Don't call super().__init__ to avoid attribute issues
+                    self._inner = inner_toolset
+                    self._server_name = server_name
+                    self._server_command = server_command
+                
+                async def get_tools(self, readonly_context=None):
+                    try:
+                        return await self._inner.get_tools(readonly_context)
+                    except Exception as e:
+                        error_msg = str(e)
+                        # Enhance error message with server details
+                        raise ConnectionError(
+                            f"MCP server '{self._server_name}' ({self._server_command}) failed: {error_msg}"
+                        ) from e
+                
+                async def close(self):
+                    if hasattr(self._inner, 'close'):
+                        await self._inner.close()
+                
+                # Delegate other attributes to inner toolset
+                def __getattr__(self, name):
+                    return getattr(self._inner, name)
+            
+            inner_toolset = MCPToolset(
                 connection_params=connection_params,
                 tool_filter=server_config.tool_filter if server_config.tool_filter else None,
                 tool_name_prefix=server_config.tool_name_prefix,
             )
+            
+            # Wrap with error tracking
+            toolset = MCPToolsetWithErrorTracking(
+                inner_toolset, 
+                server_config.name,
+                f"{server_config.command} {' '.join(server_config.args or [])}"
+            )
+            print(f"[MCP] Toolset created successfully for: {server_config.name}")
+            return toolset
         except Exception as e:
             import traceback
-            print(f"Error building MCP toolset: {e}")
+            print(f"[MCP] Error building toolset for '{server_config.name}': {e}")
             print(traceback.format_exc())
             return None
 
