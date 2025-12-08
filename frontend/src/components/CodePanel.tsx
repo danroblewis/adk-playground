@@ -227,10 +227,17 @@ function generatePythonCode(project: Project): string {
     imports.add('from google.adk.tools.mcp_tool.mcp_toolset import StdioServerParameters');
   }
   
-  // Check for App
+  // Always import App
+  imports.add('from google.adk.apps import App');
+  
+  // Check for plugins
   const hasPlugins = project.app.plugins.length > 0;
   if (hasPlugins) {
-    imports.add('from google.adk.apps.app import App');
+    project.app.plugins.forEach(p => {
+      if (p.type === 'ReflectAndRetryToolPlugin') {
+        imports.add('from google.adk.plugins import ReflectAndRetryToolPlugin');
+      }
+    });
   }
   
   // Sort and add imports
@@ -308,25 +315,27 @@ function generatePythonCode(project: Project): string {
     lines.push(`root_agent = ${agentVarNames.get(rootAgent.id)}`);
   }
   
-  // Generate App if plugins are used
+  // Always generate App
+  lines.push('');
+  lines.push('');
+  lines.push('# App Configuration');
+  lines.push('app = App(');
+  lines.push(`    name="${project.app.name}",`);
+  lines.push(`    root_agent=root_agent,`);
+  
   if (hasPlugins) {
-    lines.push('');
-    lines.push('');
-    lines.push('# App with Plugins');
     const pluginLines = project.app.plugins.map(p => {
       if (p.type === 'ReflectAndRetryToolPlugin') {
-        return `    ReflectAndRetryToolPlugin(max_retries=${p.max_retries || 3})`;
+        return `        ReflectAndRetryToolPlugin(max_retries=${p.max_retries || 3})`;
       }
-      return `    # ${p.type}()`;
+      return `        # ${p.type}()`;
     });
-    lines.push('app = App(');
-    lines.push(`    name="${project.app.name}",`);
-    lines.push(`    root_agent=root_agent,`);
     lines.push(`    plugins=[`);
     lines.push(pluginLines.join(',\n'));
     lines.push(`    ],`);
-    lines.push(')');
   }
+  
+  lines.push(')');
   
   return lines.join('\n');
 }

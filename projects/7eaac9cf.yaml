@@ -155,31 +155,24 @@ agents:
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
   tools:
+  - type: builtin
+    name: exit_loop
   - type: mcp
     server:
-      name: kubernetes_mcp_server
-      description: a good kubernetes mcp server with restrictions
+      name: brave-search
+      description: Search the web using Brave Search
       connection_type: stdio
-      command: uvx
+      command: npx
       args:
-      - kubernetes-mcp-server@latest
-      - --read-only
-      - --disable-destructive
-      - --kubeconfig
-      - /Users/danroblewis/ro_kubeconfig
-      env: {}
+      - -y
+      - '@anthropics/mcp-brave-search'
+      env:
+        BRAVE_API_KEY: ''
       url: null
       headers: {}
-      timeout: 60.0
+      timeout: 10.0
       tool_filter:
-      - events_list
-      - namespaces_list
-      - nodes_log
-      - pods_get
-      - pods_list
-      - pods_list_in_namespace
-      - pods_log
-      - pods_top
+      - brave_web_search
       tool_name_prefix: null
   sub_agents: []
   before_agent_callbacks: []

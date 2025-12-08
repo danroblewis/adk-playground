@@ -1,0 +1,197 @@
+id: 7cd3d05b
+name: browser_guy
+description: ''
+app:
+  id: app_7cd3d05b
+  name: browser_guy
+  description: ''
+  root_agent_id: null
+  session_service_uri: memory://
+  memory_service_uri: memory://
+  artifact_service_uri: memory://
+  compaction:
+    enabled: false
+    max_events: 100
+    summarize: true
+  context_cache:
+    enabled: false
+    ttl_seconds: 3600
+  resumability:
+    enabled: false
+  plugins: []
+  state_keys: []
+  artifacts: []
+  models:
+  - id: model_miwrj05u
+    name: New Model
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+    is_default: true
+  default_model_id: model_miwrj05u
+agents:
+- type: LlmAgent
+  id: agent_miwrikpt
+  name: root_agent
+  description: an agent that performs actions for the user using a web browser
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: 'Okay, the user wants me to create a detailed instruction prompt for
+    the root_agent in the browser_guy project. Let me start by understanding the requirements.
+
+
+    First, the prompt needs to clearly define the agent''s role and responsibilities.
+    The root_agent is supposed to perform actions using a web browser, so I should
+    emphasize that it''s the main agent handling user tasks through browsing. Maybe
+    mention things like navigating, interacting with web elements, and executing user
+    commands.
+
+
+    Next, how does it fit into the multi-agent system? The user mentioned other agents
+    exist, but they didn''t specify. Since the root_agent is the target, I should
+    position it as the primary executor, possibly coordinating with other agents if
+    needed. But since the user didn''t give details on other agents, maybe just focus
+    on its own role without assuming others.
+
+
+    Specifying tool interactions: the agent has access to a web browser, so I need
+    to outline how it uses tools like clicking, typing, navigating, and handling pop-ups.
+    Maybe include using browser automation tools or APIs if applicable, but since
+    the project name is browser_guy, it''s likely using standard browser interactions.
+
+
+    Input/output formats: The user might provide commands or tasks, and the agent
+    should output the results of its actions. For example, input could be a URL or
+    a task like "search for X," and output could be the result of that action or confirmation
+    messages.
+
+
+    Constraints and guidelines: The agent should prioritize user safety, avoid malicious
+    actions, follow privacy policies, and handle errors gracefully. Also, maybe mention
+    not to install software or access restricted areas.
+
+
+    The original instruction is too vague, so I need to expand it. Let me structure
+    the prompt with sections: role, responsibilities, tool usage, input/output, constraints.
+    Make sure each part is actionable. Avoid being too generic. Use specific examples
+    like navigating to URLs, interacting with forms, handling pop-ups.
+
+
+    Wait, the user said to write only the instruction prompt without any preamble.
+    So I need to make sure the final output is just the prompt, not any explanations.
+    Let me check the example they provided. The sample response has sections with
+    bold headings and bullet points. But the user''s output format says to write only
+    the instruction prompt itself, so maybe structure it as a coherent paragraph without
+    markdown? Wait, the sample they provided includes markdown, but the user''s output
+    format says to write only the instruction prompt. Maybe the user is okay with
+    markdown as long as it''s the prompt itself. Let me check the initial instructions
+    again.
+
+
+    The user says: "Write ONLY the instruction prompt itself, without any preamble
+    or explanation. The prompt should be ready to use directly as the agent''s instruction."
+    So no markdown, just plain text. But the sample response they provided uses markdown.
+    Maybe the user is okay with that. Let me proceed with the structure they used
+    in the sample, but in the final answer, I need to make sure it''s only the instruction
+    prompt.
+
+
+    Putting it all together: Start with the role, then responsibilities, tool interactions,
+    input/output, constraints. Use clear, specific language. Make sure it''s actionable
+    and detailed. Avoid vague terms. Ensure that the agent knows to use the browser
+    tools, handle different tasks, and follow guidelines.
+
+
+
+    You are the root_agent in the browser_guy system, responsible for executing user
+    tasks through web browser interactions. Your primary role is to navigate websites,
+    perform actions like clicking, typing, and form submission, and retrieve data
+    from web pages. You must operate as the central executor in the multi-agent system,
+    coordinating with other agents by following their instructions and providing actionable
+    results. Use browser automation tools to interact with UI elements, handle pop-ups,
+    and manage tabs/windows. Input will be user commands (e.g., "Open Google," "Search
+    for ''AI prompt examples''") or task-specific instructions. Output should include
+    confirmation of completed actions, extracted data, or error messages. Prioritize
+    user safety by avoiding malicious activities, respecting privacy settings, and
+    adhering to legal guidelines. Always validate URLs, handle exceptions gracefully,
+    and ensure actions align with the user''s intent. Use precise, step-by-step execution
+    and avoid ambiguous or vague responses.'
+  output_key: null
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: mcp
+    server:
+      name: chrome_devtools
+      description: chrome_devtools
+      connection_type: stdio
+      command: npx
+      args:
+      - -y
+      - chrome-devtools-mcp@latest
+      env: {}
+      url: null
+      headers: {}
+      timeout: 60.0
+      tool_filter:
+      - click
+      - close_page
+      - drag
+      - emulate
+      - evaluate_script
+      - fill
+      - fill_form
+      - get_console_message
+      - get_network_request
+      - handle_dialog
+      - hover
+      - list_console_messages
+      - list_network_requests
+      - list_pages
+      - navigate_page
+      - new_page
+      - performance_analyze_insight
+      - performance_start_trace
+      - performance_stop_trace
+      - press_key
+      - resize_page
+      - select_page
+      - take_screenshot
+      - take_snapshot
+      - upload_file
+      - wait_for
+      tool_name_prefix: null
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+custom_tools: []
+mcp_servers:
+- name: chrome_devtools
+  description: chrome_devtools
+  connection_type: stdio
+  command: npx
+  args:
+  - -y
+  - chrome-devtools-mcp@latest
+  env: {}
+  url: null
+  headers: {}
+  timeout: 60.0
+  tool_filter: null
+  tool_name_prefix: null
