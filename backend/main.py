@@ -441,7 +441,18 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
             "description": getattr(agent, "description", "") or "",
         }
         if agent.type == "LlmAgent":
-            summary["tools"] = [t.type + ":" + (t.name or "") for t in getattr(agent, "tools", [])]
+            # Handle different tool types
+            tool_names = []
+            for t in getattr(agent, "tools", []):
+                if hasattr(t, "name") and t.name:
+                    tool_names.append(f"{t.type}:{t.name}")
+                elif hasattr(t, "server") and t.server:
+                    tool_names.append(f"{t.type}:{t.server.name}")
+                elif hasattr(t, "agent_id"):
+                    tool_names.append(f"{t.type}:{t.agent_id}")
+                else:
+                    tool_names.append(t.type)
+            summary["tools"] = tool_names
             summary["current_instruction"] = getattr(agent, "instruction", "")[:200] if getattr(agent, "instruction", "") else ""
         elif agent.type in ["SequentialAgent", "LoopAgent", "ParallelAgent"]:
             summary["sub_agents"] = getattr(agent, "sub_agent_ids", [])
