@@ -18,7 +18,11 @@ app:
     ttl_seconds: 3600
   resumability:
     enabled: false
-  plugins: []
+  plugins:
+  - type: ReflectAndRetryToolPlugin
+    name: reflect_retry
+    max_retries: 3
+    throw_exception_if_retry_exceeded: false
   state_keys: []
   artifacts: []
   models:

@@ -43,7 +43,11 @@ function generateToolCode(tool: ToolConfig, project: Project): string {
     const agent = project.agents.find(a => a.id === (tool as any).agent_id);
     return agent ? `AgentTool(agent=${agent.name}_agent)` : 'AgentTool(agent=sub_agent)';
   } else if (tool.type === 'mcp') {
-    return `# MCP tools from ${(tool as any).server_id || 'server'}`;
+    // Reference the MCPToolset variable generated earlier
+    if (tool.server?.name) {
+      return `${tool.server.name}_tools`;
+    }
+    return '';
   }
   return '';
 }
@@ -270,10 +274,22 @@ function generatePythonCode(project: Project): string {
   
   project.agents.forEach(agent => visitAgent(agent.id));
   
-  // Generate MCP toolset code
-  if (project.mcp_servers.length > 0) {
+  // Collect all MCP servers used by agents
+  const usedMcpServers = new Map<string, MCPServerConfig>();
+  sortedAgents.forEach(agent => {
+    if (agent.type === 'LlmAgent') {
+      (agent as LlmAgentConfig).tools.forEach(tool => {
+        if (tool.type === 'mcp' && tool.server) {
+          usedMcpServers.set(tool.server.name, tool.server);
+        }
+      });
+    }
+  });
+  
+  // Generate MCP toolset code for servers used by agents
+  if (usedMcpServers.size > 0) {
     lines.push('# MCP Server Toolsets');
-    project.mcp_servers.forEach(server => {
+    usedMcpServers.forEach(server => {
       lines.push(generateMcpToolsetCode(server));
       lines.push('');
     });
