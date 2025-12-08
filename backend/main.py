@@ -287,6 +287,114 @@ async def list_builtin_tools():
 
 
 # ============================================================================
+# MCP Server Testing
+# ============================================================================
+
+class TestMcpRequest(BaseModel):
+    """Request to test an MCP server connection."""
+    connection_type: str = "stdio"
+    command: Optional[str] = None
+    args: Optional[List[str]] = None
+    env: Optional[dict] = None
+    url: Optional[str] = None
+    headers: Optional[dict] = None
+    timeout: int = 30
+
+@app.post("/api/test-mcp-server")
+async def test_mcp_server(request: TestMcpRequest):
+    """Test an MCP server connection and list its available tools."""
+    import sys
+    import traceback
+    
+    # Check Python version - MCP requires 3.10+
+    if sys.version_info < (3, 10):
+        return {
+            "success": False,
+            "error": f"MCP requires Python 3.10+, but you have Python {sys.version_info.major}.{sys.version_info.minor}",
+            "tools": []
+        }
+    
+    try:
+        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+        from google.adk.tools.mcp_tool.mcp_session_manager import (
+            StdioConnectionParams,
+            SseConnectionParams,
+        )
+        
+        # Build connection params based on type
+        if request.connection_type == "stdio":
+            if not request.command:
+                return {
+                    "success": False,
+                    "error": "Command is required for stdio connection",
+                    "tools": []
+                }
+            
+            connection_params = StdioConnectionParams(
+                server_params={
+                    "command": request.command,
+                    "args": request.args or [],
+                    "env": request.env,
+                }
+            )
+        elif request.connection_type == "sse":
+            if not request.url:
+                return {
+                    "success": False,
+                    "error": "URL is required for SSE connection",
+                    "tools": []
+                }
+            connection_params = SseConnectionParams(
+                url=request.url,
+                headers=request.headers,
+            )
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown connection type: {request.connection_type}",
+                "tools": []
+            }
+        
+        # Create toolset and get tools
+        toolset = MCPToolset(connection_params=connection_params)
+        
+        # Get tools with timeout
+        tools = await asyncio.wait_for(
+            toolset.get_tools(),
+            timeout=request.timeout
+        )
+        
+        # Extract tool information
+        tool_list = []
+        for tool in tools:
+            tool_info = {
+                "name": tool.name,
+                "description": getattr(tool, "description", "") or "",
+            }
+            tool_list.append(tool_info)
+        
+        return {
+            "success": True,
+            "tools": tool_list,
+            "message": f"Successfully connected! Found {len(tool_list)} tools."
+        }
+        
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "error": f"Connection timed out after {request.timeout} seconds. The MCP server may not be responding.",
+            "tools": []
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "tools": []
+        }
+
+
+# ============================================================================
 # Runtime WebSocket
 # ============================================================================
 

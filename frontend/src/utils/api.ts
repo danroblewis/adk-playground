@@ -201,3 +201,33 @@ export async function generateToolCode(
   return data;
 }
 
+// MCP Server Testing
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
+
+export interface TestMcpServerResult {
+  success: boolean;
+  tools: McpToolInfo[];
+  message?: string;
+  error?: string;
+  traceback?: string;
+}
+
+export async function testMcpServer(config: {
+  connection_type: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  timeout?: number;
+}): Promise<TestMcpServerResult> {
+  const data = await fetchJSON<TestMcpServerResult>('/test-mcp-server', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+  return data;
+}
+

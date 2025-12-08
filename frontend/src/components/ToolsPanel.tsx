@@ -3,7 +3,7 @@ import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Packag
 import { useStore } from '../hooks/useStore';
 import type { CustomToolDefinition, BuiltinTool, MCPServerConfig } from '../utils/types';
 import Editor, { Monaco } from '@monaco-editor/react';
-import { generateToolCode } from '../utils/api';
+import { generateToolCode, testMcpServer } from '../utils/api';
 import { registerCompletion } from 'monacopilot';
 
 function generateId() {
@@ -39,6 +39,8 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [hasMcpChanges, setHasMcpChanges] = useState(false);
   const [selectedKnownMcp, setSelectedKnownMcp] = useState<MCPServerConfig | null>(null);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [isTestingMcp, setIsTestingMcp] = useState(false);
+  const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; tools: { name: string; description: string }[]; message?: string; error?: string } | null>(null);
   
   if (!project) return null;
   
@@ -221,6 +223,46 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       setHasMcpChanges(false);
     } catch (e) {
       alert('Invalid JSON: ' + (e as Error).message);
+    }
+  }
+  
+  async function handleTestMcpServer() {
+    setIsTestingMcp(true);
+    setMcpTestResult(null);
+    
+    try {
+      // Parse the current JSON to get config
+      const config = JSON.parse(mcpJsonCode) as MCPServerConfig;
+      
+      const result = await testMcpServer({
+        connection_type: config.connection_type,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+        url: config.url,
+        headers: config.headers,
+        timeout: config.timeout || 30,
+      });
+      
+      setMcpTestResult(result);
+      
+      // If successful and we found tools, offer to update the tool_filter
+      if (result.success && result.tools.length > 0) {
+        const updatedConfig = {
+          ...config,
+          tool_filter: result.tools.map(t => t.name),
+        };
+        setMcpJsonCode(JSON.stringify(updatedConfig, null, 2));
+        setHasMcpChanges(true);
+      }
+    } catch (e) {
+      setMcpTestResult({
+        success: false,
+        tools: [],
+        error: (e as Error).message,
+      });
+    } finally {
+      setIsTestingMcp(false);
     }
   }
   
@@ -608,6 +650,78 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           border-bottom: 1px solid var(--border-color);
           font-size: 13px;
           color: var(--text-secondary);
+        }
+        
+        .mcp-test-result {
+          padding: 12px 16px;
+          border-bottom: 1px solid var(--border-color);
+          font-size: 13px;
+        }
+        
+        .mcp-test-result.success {
+          background: rgba(0, 245, 212, 0.1);
+          border-left: 3px solid var(--accent-primary);
+        }
+        
+        .mcp-test-result.error {
+          background: rgba(255, 107, 107, 0.1);
+          border-left: 3px solid var(--error);
+        }
+        
+        .mcp-test-result .test-result-header {
+          font-weight: 600;
+          margin-bottom: 8px;
+        }
+        
+        .mcp-test-result.success .test-result-header {
+          color: var(--accent-primary);
+        }
+        
+        .mcp-test-result.error .test-result-header {
+          color: var(--error);
+        }
+        
+        .mcp-test-result .test-result-error {
+          color: var(--error);
+          font-family: var(--font-mono);
+          font-size: 12px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        
+        .mcp-test-result .test-result-tools ul {
+          margin: 8px 0;
+          padding-left: 20px;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+        
+        .mcp-test-result .test-result-tools li {
+          margin: 4px 0;
+          line-height: 1.4;
+        }
+        
+        .mcp-test-result .test-result-tools code {
+          background: var(--bg-primary);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 12px;
+        }
+        
+        .mcp-test-result .hint {
+          margin-top: 8px;
+          font-size: 12px;
+          color: var(--text-muted);
+          font-style: italic;
+        }
+        
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
         
         .mcp-help {
@@ -1124,6 +1238,15 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               <span className="badge badge-info">{selectedMcp.connection_type}</span>
               {hasMcpChanges && <span className="unsaved-badge">Unsaved</span>}
               <button 
+                className="btn btn-secondary btn-sm"
+                onClick={handleTestMcpServer}
+                disabled={isTestingMcp}
+                title="Test connection and discover available tools"
+              >
+                {isTestingMcp ? <Loader size={14} className="spin" /> : <Globe size={14} />}
+                {isTestingMcp ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button 
                 className="btn btn-primary btn-sm"
                 onClick={handleSaveMcpServer}
                 disabled={!hasMcpChanges}
@@ -1133,8 +1256,39 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               </button>
             </div>
             
+            {mcpTestResult && (
+              <div className={`mcp-test-result ${mcpTestResult.success ? 'success' : 'error'}`}>
+                {mcpTestResult.success ? (
+                  <>
+                    <div className="test-result-header">
+                      ✓ Connected! Found {mcpTestResult.tools.length} tools
+                    </div>
+                    {mcpTestResult.tools.length > 0 && (
+                      <div className="test-result-tools">
+                        <strong>Available tools:</strong>
+                        <ul>
+                          {mcpTestResult.tools.map(tool => (
+                            <li key={tool.name}>
+                              <code>{tool.name}</code>
+                              {tool.description && <span> — {tool.description}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="hint">The tool_filter has been updated with these tools. Click "Save" to apply.</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="test-result-header">✗ Connection failed</div>
+                    <div className="test-result-error">{mcpTestResult.error}</div>
+                  </>
+                )}
+              </div>
+            )}
+            
             <div className="mcp-info">
-              <p>Configure your MCP server using JSON. The format follows the mcpServers.json schema.</p>
+              <p>Configure your MCP server using JSON. Click "Test Connection" to verify and discover available tools.</p>
             </div>
             
             <div className="code-editor">
