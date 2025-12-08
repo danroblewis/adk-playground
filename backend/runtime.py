@@ -37,7 +37,7 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="agent_start",
             agent_name=agent.name,
-            data={"instruction": getattr(agent, "instruction", "")[:200] if getattr(agent, "instruction", None) else ""},
+            data={"instruction": getattr(agent, "instruction", "") if getattr(agent, "instruction", None) else ""},
         ))
         return None
     
@@ -63,7 +63,7 @@ class TrackingPlugin:
                     event_type="state_change",
                     agent_name=agent_name,
                     data={
-                        "state_delta": {k: str(v)[:500] for k, v in state_delta.items()},
+                        "state_delta": dict(state_delta),
                     },
                 ))
         return None
@@ -103,8 +103,7 @@ class TrackingPlugin:
                         part_data["name"] = getattr(fr, "name", "unknown")
                         response = getattr(fr, "response", None)
                         if response:
-                            # Truncate large responses
-                            part_data["response"] = str(response)[:1000] if len(str(response)) > 1000 else response
+                            part_data["response"] = response
                     
                     # Thought (for reasoning models)
                     if hasattr(part, "thought") and part.thought:
@@ -132,7 +131,7 @@ class TrackingPlugin:
                 if si and hasattr(si, "parts"):
                     system_instruction = "".join(
                         getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
-                    )[:2000]  # Truncate long instructions
+                    )
         
         # Get tool names
         tool_names = []
@@ -216,7 +215,7 @@ class TrackingPlugin:
             agent_name=agent_name,
             data={
                 "tool_name": tool.name,
-                "args": {k: str(v)[:100] for k, v in tool_args.items()},
+                "args": tool_args,
             },
         ))
         return None
@@ -232,7 +231,7 @@ class TrackingPlugin:
                 event_type="state_change",
                 agent_name=agent_name,
                 data={
-                    "state_delta": {k: str(v)[:500] for k, v in tool_context._event_actions.state_delta.items()},
+                    "state_delta": dict(tool_context._event_actions.state_delta),
                 },
             ))
         
@@ -242,7 +241,7 @@ class TrackingPlugin:
             agent_name=agent_name,
             data={
                 "tool_name": tool.name,
-                "result_preview": str(result)[:500] if result else None,
+                "result": result,
             },
         ))
         return None

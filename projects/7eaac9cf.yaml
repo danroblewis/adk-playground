@@ -157,22 +157,29 @@ agents:
   tools:
   - type: mcp
     server:
-      name: kubernetes
-      description: Interact with Kubernetes clusters
+      name: kubernetes_mcp_server
+      description: a good kubernetes mcp server with restrictions
       connection_type: stdio
-      command: npx
+      command: uvx
       args:
-      - -y
-      - '@anthropics/mcp-kubernetes'
+      - kubernetes-mcp-server@latest
+      - --read-only
+      - --disable-destructive
+      - --kubeconfig
+      - /Users/danroblewis/ro_kubeconfig
       env: {}
       url: null
       headers: {}
-      timeout: 10.0
+      timeout: 60.0
       tool_filter:
-      - get_pods
-      - get_logs
-      - describe_resource
-      - get_events
+      - events_list
+      - namespaces_list
+      - nodes_log
+      - pods_get
+      - pods_list
+      - pods_list_in_namespace
+      - pods_log
+      - pods_top
       tool_name_prefix: null
   sub_agents: []
   before_agent_callbacks: []
