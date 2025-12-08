@@ -5,24 +5,246 @@ app:
   id: app_7eaac9cf
   name: kubernetes_guy
   description: ''
-  root_agent_id: null
+  root_agent_id: agent_miwm4gam
   session_service_uri: memory://
   memory_service_uri: memory://
   artifact_service_uri: memory://
   compaction:
-    enabled: false
+    enabled: true
     max_events: 100
     summarize: true
   context_cache:
-    enabled: false
+    enabled: true
     ttl_seconds: 3600
   resumability:
-    enabled: false
-  plugins: []
-  state_keys: []
+    enabled: true
+  plugins:
+  - type: ReflectAndRetryToolPlugin
+    name: reflect_retry
+    max_retries: 3
+    throw_exception_if_retry_exceeded: true
+  state_keys:
+  - name: orchestrator_output
+    description: ''
+    type: string
+    default_value: null
+    scope: session
+  - name: pod_research
+    description: ''
+    type: string
+    default_value: null
+    scope: session
+  - name: configmap_research
+    description: ''
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
-  models: []
-  default_model_id: null
-agents: []
+  models:
+  - id: model_miwm5iec
+    name: qwen3:8b
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+    is_default: true
+  default_model_id: model_miwm5iec
+agents:
+- type: LlmAgent
+  id: agent_miwm4gam
+  name: kube_orchestrator
+  description: ''
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: ''
+  output_key: orchestrator_output
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: agent
+    agent_id: agent_miwmcoqz
+    skip_summarization: false
+  - type: agent
+    agent_id: agent_miwmdpm8
+    skip_summarization: false
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+- type: LlmAgent
+  id: agent_miwmcoqz
+  name: k8s_pod_issue_researcher
+  description: Researches Kubernetes pod issues using cluster data and web search
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: '## Kubernetes Pod Issue Research Agent
+
+
+    1. **Initial Cluster Analysis**: Use `kubectl` commands to retrieve pod statuses,
+    logs, and events from the Kubernetes cluster
+
+    2. **Issue Identification**: Analyze pod states (CrashLoopBackOff, Error, etc.)
+    and correlate with associated events
+
+    3. **Deep Dive**: For complex issues, use `describe_resource` to get detailed
+    resource configurations
+
+    4. **External Research**: When needed, perform web searches to find documentation,
+    community discussions, and troubleshooting guides
+
+    5. **Pattern Recognition**: Cross-reference findings with known Kubernetes best
+    practices and common pitfalls
+
+    6. **Documentation**: Save key insights to memory for reference across sessions
+
+
+    Use the Kubernetes MCP server tools prioritized for pod diagnostics and web search
+    for external information'
+  output_key: pod_research
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: builtin
+    name: load_memory
+  - type: mcp
+    server:
+      name: kubernetes
+      description: Interact with Kubernetes clusters
+      connection_type: stdio
+      command: npx
+      args:
+      - -y
+      - '@anthropics/mcp-kubernetes'
+      env: {}
+      url: null
+      headers: {}
+      timeout: 10.0
+      tool_filter:
+      - get_pods
+      - get_logs
+      - describe_resource
+      - get_events
+      tool_name_prefix: null
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
+- type: LlmAgent
+  id: agent_miwmdpm8
+  name: kube_configmap_researcher
+  description: Researches Kubernetes ConfigMap issues using search and cluster tools
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: '### Kubernetes ConfigMap Research Agent
+
+
+    1. **Identify Issues**: Use `google_search` to find recent issues, documentation,
+    and best practices related to Kubernetes ConfigMaps
+
+    2. **Cluster Analysis**: Leverage kubectl tools to inspect ConfigMap configurations,
+    check related resources, and analyze cluster events
+
+    3. **Collaborate**: Delegate complex troubleshooting to kube_orchestrator when
+    needed
+
+    4. **Document**: Maintain records of findings in Notion or shared databases
+
+    5. **Validate**: Cross-reference search results with actual cluster data using
+    kubectl commands
+
+
+    Use the following tools:
+
+    - Search the web for recent issues and documentation
+
+    - Inspect ConfigMap details and related resources
+
+    - Analyze cluster events and logs
+
+    - Collaborate with Kubernetes orchestrators for deep troubleshooting'
+  output_key: configmap_research
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: mcp
+    server:
+      name: kubernetes
+      description: Interact with Kubernetes clusters
+      connection_type: stdio
+      command: npx
+      args:
+      - -y
+      - '@anthropics/mcp-kubernetes'
+      env: {}
+      url: null
+      headers: {}
+      timeout: 10.0
+      tool_filter:
+      - describe_resource
+      - get_events
+      - get_logs
+      - kubectl
+      tool_name_prefix: null
+  - type: agent
+    agent_id: agent_miwm4gam
+    skip_summarization: false
+  - type: builtin
+    name: load_memory
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
 custom_tools: []
-mcp_servers: []
+mcp_servers:
+- name: kubernetes_mcp_server
+  description: a good kubernetes mcp server with restrictions
+  connection_type: stdio
+  command: uvx
+  args:
+  - kubernetes-mcp-server@latest
+  - --read-only
+  - --disable-destructive
+  - --kubeconfig
+  - /Users/danroblewis/ro_kubeconfig
+  env: {}
+  url: null
+  headers: {}
+  timeout: 60.0
+  tool_filter: []
+  tool_name_prefix: null

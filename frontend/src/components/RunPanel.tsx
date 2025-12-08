@@ -3120,11 +3120,20 @@ function ModelCallDetails({ data }: { data: any }) {
 function ModelResponseDetails({ data }: { data: any }) {
   const parts = data.parts || [];
   
+  // Handle direct text format (from event stream) vs parts format (from tracking plugin)
+  const hasDirectText = data.text && !parts.length;
+  
   return (
     <div className="model-response-details">
-      {parts.map((part: any, i: number) => (
-        <MessagePart key={i} part={part} />
-      ))}
+      {hasDirectText ? (
+        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{data.text}</div>
+      ) : parts.length > 0 ? (
+        parts.map((part: any, i: number) => (
+          <MessagePart key={i} part={part} />
+        ))
+      ) : (
+        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No content</div>
+      )}
       
       {data.finish_reason && (
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
