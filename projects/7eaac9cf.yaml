@@ -268,5 +268,5 @@ mcp_servers:
   url: null
   headers: {}
   timeout: 60.0
-  tool_filter: []
+  tool_filter: null
   tool_name_prefix: null

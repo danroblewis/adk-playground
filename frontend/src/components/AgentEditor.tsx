@@ -773,7 +773,13 @@ function ToolsEditor({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const buttonRef = React.useRef<HTMLButtonElement>(null);
-  const [mcpConfigDialog, setMcpConfigDialog] = useState<{ server: any; enabledTools: Set<string> } | null>(null);
+  const [mcpConfigDialog, setMcpConfigDialog] = useState<{ 
+    server: any; 
+    enabledTools: Set<string>;
+    availableTools: { name: string; description: string }[];
+    isLoading: boolean;
+    error?: string;
+  } | null>(null);
   const [expandedMcpTools, setExpandedMcpTools] = useState<Set<number>>(new Set());
   
   function openDropdown() {
@@ -811,14 +817,57 @@ function ToolsEditor({
     setDropdownOpen(false);
   }
   
-  function openMcpConfig(server: any) {
-    // Start with all tools enabled if tool_filter has items, otherwise all enabled by default
-    const allTools = server.tool_filter || [];
+  async function openMcpConfig(server: any) {
+    setDropdownOpen(false);
+    
+    // If we already have a tool_filter with items, use those as available tools
+    const existingTools = server.tool_filter || [];
+    
+    // Start the dialog immediately with loading state
     setMcpConfigDialog({
       server,
-      enabledTools: new Set(allTools) // Start with all tools enabled
+      enabledTools: new Set(existingTools),
+      availableTools: existingTools.map((name: string) => ({ name, description: '' })),
+      isLoading: existingTools.length === 0, // Only load if we don't have tools
+      error: undefined
     });
-    setDropdownOpen(false);
+    
+    // If no tools defined, fetch from server
+    if (existingTools.length === 0) {
+      try {
+        const { testMcpServer } = await import('../utils/api');
+        const result = await testMcpServer({
+          connection_type: server.connection_type,
+          command: server.command,
+          args: server.args,
+          env: server.env,
+          url: server.url,
+          headers: server.headers,
+          timeout: server.timeout || 30,
+        });
+        
+        if (result.success) {
+          setMcpConfigDialog(prev => prev ? {
+            ...prev,
+            availableTools: result.tools,
+            enabledTools: new Set(result.tools.map(t => t.name)), // Start with all enabled
+            isLoading: false
+          } : null);
+        } else {
+          setMcpConfigDialog(prev => prev ? {
+            ...prev,
+            isLoading: false,
+            error: result.error || 'Failed to connect to MCP server'
+          } : null);
+        }
+      } catch (e) {
+        setMcpConfigDialog(prev => prev ? {
+          ...prev,
+          isLoading: false,
+          error: (e as Error).message
+        } : null);
+      }
+    }
   }
   
   function toggleMcpTool(toolName: string) {
@@ -1011,6 +1060,51 @@ function ToolsEditor({
           color: var(--text-muted);
           margin-bottom: 16px;
           font-size: 14px;
+        }
+        
+        .mcp-loading {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 32px 16px;
+          gap: 16px;
+        }
+        
+        .mcp-loading .spinner {
+          width: 32px;
+          height: 32px;
+          border: 3px solid var(--border-color);
+          border-top-color: var(--accent-primary);
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        
+        .mcp-loading p {
+          color: var(--text-muted);
+          font-size: 14px;
+        }
+        
+        .mcp-error {
+          background: rgba(255, 107, 107, 0.1);
+          border: 1px solid var(--error);
+          border-radius: var(--radius-md);
+          padding: 16px;
+          margin-bottom: 16px;
+        }
+        
+        .mcp-error p {
+          color: var(--error);
+          margin: 0;
+        }
+        
+        .mcp-error .hint {
+          color: var(--text-muted);
+          font-size: 12px;
+          margin-top: 8px;
         }
         
         .mcp-tools-grid {
@@ -1240,43 +1334,58 @@ function ToolsEditor({
             <h3>Configure {mcpConfigDialog.server.name}</h3>
             <p>{mcpConfigDialog.server.description}</p>
             
-            <div className="mcp-select-actions">
-              <button 
-                className="btn btn-secondary btn-sm"
-                onClick={() => setMcpConfigDialog({
-                  ...mcpConfigDialog,
-                  enabledTools: new Set(mcpConfigDialog.server.tool_filter || [])
-                })}
-              >
-                Select All
-              </button>
-              <button 
-                className="btn btn-secondary btn-sm"
-                onClick={() => setMcpConfigDialog({
-                  ...mcpConfigDialog,
-                  enabledTools: new Set()
-                })}
-              >
-                Select None
-              </button>
-            </div>
-            
-            <div className="mcp-tools-grid">
-              {(mcpConfigDialog.server.tool_filter || []).map((toolName: string) => (
-                <label 
-                  key={toolName}
-                  className={`mcp-tool-toggle ${mcpConfigDialog.enabledTools.has(toolName) ? 'enabled' : ''}`}
-                  onClick={() => toggleMcpTool(toolName)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={mcpConfigDialog.enabledTools.has(toolName)}
-                    onChange={() => {}}
-                  />
-                  {toolName}
-                </label>
-              ))}
-            </div>
+            {mcpConfigDialog.isLoading ? (
+              <div className="mcp-loading">
+                <div className="spinner" />
+                <p>Connecting to MCP server and discovering tools...</p>
+              </div>
+            ) : mcpConfigDialog.error ? (
+              <div className="mcp-error">
+                <p>⚠️ Failed to discover tools: {mcpConfigDialog.error}</p>
+                <p className="hint">You can still add the server, but you won't be able to select specific tools.</p>
+              </div>
+            ) : (
+              <>
+                <div className="mcp-select-actions">
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setMcpConfigDialog({
+                      ...mcpConfigDialog,
+                      enabledTools: new Set(mcpConfigDialog.availableTools.map(t => t.name))
+                    })}
+                  >
+                    Select All ({mcpConfigDialog.availableTools.length})
+                  </button>
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setMcpConfigDialog({
+                      ...mcpConfigDialog,
+                      enabledTools: new Set()
+                    })}
+                  >
+                    Select None
+                  </button>
+                </div>
+                
+                <div className="mcp-tools-grid">
+                  {mcpConfigDialog.availableTools.map((tool) => (
+                    <label 
+                      key={tool.name}
+                      className={`mcp-tool-toggle ${mcpConfigDialog.enabledTools.has(tool.name) ? 'enabled' : ''}`}
+                      onClick={() => toggleMcpTool(tool.name)}
+                      title={tool.description || tool.name}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={mcpConfigDialog.enabledTools.has(tool.name)}
+                        onChange={() => {}}
+                      />
+                      {tool.name}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
             
             <div className="dialog-actions">
               <button 
