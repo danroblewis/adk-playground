@@ -156,6 +156,7 @@ export interface AppConfig {
   artifacts: ArtifactConfig[];
   models: AppModelConfig[];
   default_model_id?: string;
+  env_vars: Record<string, string>;
 }
 
 export interface CustomToolDefinition {

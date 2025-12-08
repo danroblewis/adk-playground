@@ -274,6 +274,13 @@ class RuntimeManager:
         self._running[session_id] = True
         
         try:
+            # Set environment variables from project config
+            import os
+            env_vars = project.app.env_vars or {}
+            for key, value in env_vars.items():
+                if value:  # Only set if value is not empty
+                    os.environ[key] = value
+            
             # Import ADK components
             from google.adk import Agent
             from google.adk.agents import SequentialAgent, LoopAgent, ParallelAgent

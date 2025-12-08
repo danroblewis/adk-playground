@@ -178,6 +178,28 @@ function generatePythonCode(project: Project): string {
   lines.push('"""');
   lines.push('');
   
+  // Environment variables (if any)
+  const envVars = project.app.env_vars || {};
+  const envVarKeys = Object.keys(envVars);
+  if (envVarKeys.length > 0) {
+    lines.push('import os');
+    lines.push('');
+    lines.push('# Environment Variables');
+    lines.push('# Set these before running, or uncomment and add values:');
+    envVarKeys.forEach(key => {
+      const value = envVars[key];
+      if (value) {
+        // Mask sensitive values in generated code
+        const isSensitive = key.toLowerCase().includes('key') || key.toLowerCase().includes('secret');
+        const displayValue = isSensitive ? '***' : value;
+        lines.push(`os.environ["${key}"] = "${displayValue}"  # Set your ${key}`);
+      } else {
+        lines.push(`# os.environ["${key}"] = ""  # TODO: Set your ${key}`);
+      }
+    });
+    lines.push('');
+  }
+  
   // Imports
   const imports = new Set<string>();
   imports.add('from google.adk.agents import Agent');

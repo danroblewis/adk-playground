@@ -259,6 +259,9 @@ class AppConfig(BaseModel):
     # Models
     models: List[AppModelConfig] = Field(default_factory=list)
     default_model_id: Optional[str] = None
+    
+    # Environment variables (for API keys, etc.)
+    env_vars: Dict[str, str] = Field(default_factory=dict)
 
 
 # ============================================================================

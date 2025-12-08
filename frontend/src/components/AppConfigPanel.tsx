@@ -1,7 +1,17 @@
 import { useState } from 'react';
-import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star } from 'lucide-react';
+import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig } from '../utils/types';
+
+// Common environment variables with descriptions
+const COMMON_ENV_VARS = [
+  { key: 'GOOGLE_API_KEY', description: 'API key for Gemini models' },
+  { key: 'OPENAI_API_KEY', description: 'API key for OpenAI models (via LiteLLM)' },
+  { key: 'ANTHROPIC_API_KEY', description: 'API key for Anthropic Claude models' },
+  { key: 'GOOGLE_GENAI_USE_VERTEXAI', description: 'Set to "1" to use Vertex AI instead of API key' },
+  { key: 'GOOGLE_CLOUD_PROJECT', description: 'Google Cloud project ID for Vertex AI' },
+  { key: 'GOOGLE_CLOUD_REGION', description: 'Google Cloud region for Vertex AI (e.g., us-central1)' },
+];
 
 export default function AppConfigPanel() {
   const { project, updateProject } = useStore();
@@ -89,6 +99,32 @@ export default function AppConfigPanel() {
   
   function setDefaultModel(id: string) {
     updateApp({ default_model_id: id });
+  }
+  
+  // Environment variables management
+  const envVars = app.env_vars || {};
+  const [showEnvValues, setShowEnvValues] = useState<Record<string, boolean>>({});
+  const [newEnvKey, setNewEnvKey] = useState('');
+  
+  function addEnvVar(key: string = '') {
+    const envKey = key || newEnvKey.trim();
+    if (!envKey || envVars[envKey] !== undefined) return;
+    updateApp({ env_vars: { ...envVars, [envKey]: '' } });
+    setNewEnvKey('');
+  }
+  
+  function updateEnvVar(key: string, value: string) {
+    updateApp({ env_vars: { ...envVars, [key]: value } });
+  }
+  
+  function removeEnvVar(key: string) {
+    const newEnvVars = { ...envVars };
+    delete newEnvVars[key];
+    updateApp({ env_vars: newEnvVars });
+  }
+  
+  function toggleShowEnvValue(key: string) {
+    setShowEnvValues(prev => ({ ...prev, [key]: !prev[key] }));
   }
   
   return (
@@ -391,6 +427,90 @@ export default function AppConfigPanel() {
               <option value="memory://">In-Memory</option>
             </select>
           </div>
+        </div>
+      </section>
+      
+      {/* Environment Variables */}
+      <section className="section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <Lock size={20} />
+            Environment Variables
+          </h2>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+          Set API keys and other environment variables. These are passed to the agent runtime.
+        </p>
+        
+        {/* Quick add common env vars */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+          {COMMON_ENV_VARS.filter(ev => envVars[ev.key] === undefined).map(ev => (
+            <button
+              key={ev.key}
+              className="btn btn-secondary btn-sm"
+              onClick={() => addEnvVar(ev.key)}
+              title={ev.description}
+            >
+              <Plus size={12} />
+              {ev.key}
+            </button>
+          ))}
+        </div>
+        
+        {/* Env var list */}
+        {Object.keys(envVars).length === 0 ? (
+          <p className="empty-message">
+            No environment variables set. Click a button above to add common variables, or add a custom one below.
+          </p>
+        ) : (
+          Object.entries(envVars).map(([key, value]) => (
+            <div key={key} className="list-item" style={{ alignItems: 'center' }}>
+              <div style={{ flex: 1, display: 'flex', gap: 12, alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, minWidth: 200 }}>
+                  {key}
+                </span>
+                <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type={showEnvValues[key] ? 'text' : 'password'}
+                    value={value}
+                    onChange={(e) => updateEnvVar(key, e.target.value)}
+                    placeholder="Enter value..."
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="delete-item"
+                    onClick={() => toggleShowEnvValue(key)}
+                    title={showEnvValues[key] ? 'Hide value' : 'Show value'}
+                  >
+                    {showEnvValues[key] ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <button className="delete-item" onClick={() => removeEnvVar(key)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
+        
+        {/* Add custom env var */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <input
+            type="text"
+            value={newEnvKey}
+            onChange={(e) => setNewEnvKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+            placeholder="CUSTOM_VAR_NAME"
+            style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
+            onKeyDown={(e) => e.key === 'Enter' && addEnvVar()}
+          />
+          <button 
+            className="btn btn-secondary btn-sm" 
+            onClick={() => addEnvVar()}
+            disabled={!newEnvKey.trim()}
+          >
+            <Plus size={14} />
+            Add Variable
+          </button>
         </div>
       </section>
       
