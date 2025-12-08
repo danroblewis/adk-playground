@@ -2,7 +2,7 @@ import type { Project, AgentConfig, CustomToolDefinition, MCPServerConfig, Built
 
 const API_BASE = '/api';
 
-async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+export async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${url}`, {
     ...options,
     headers: {
