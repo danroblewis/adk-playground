@@ -247,65 +247,6 @@ class TrackingPlugin:
         return None
 
 
-def create_mcp_unwrapper_plugin():
-    """Create an MCP response unwrapper plugin that inherits from BasePlugin."""
-    from google.adk.plugins.base_plugin import BasePlugin
-    
-    class MCPResponseUnwrapperPlugin(BasePlugin):
-        """Plugin that unwraps MCP-style responses so LLMs can understand them.
-        
-        MCP tools return responses in the format:
-            {"content": [{"type": "text", "text": "..."}], "isError": false}
-        
-        This plugin extracts the text content so the LLM receives plain text instead.
-        """
-        
-        def __init__(self):
-            super().__init__(name="mcp_response_unwrapper")
-        
-        def _extract_text_from_mcp_response(self, result: Any) -> Any:
-            """Extract text from MCP-style response format."""
-            if not isinstance(result, dict):
-                return result
-            
-            # Check for MCP content array format
-            content = result.get("content")
-            if content and isinstance(content, list):
-                # Extract text from content array
-                texts = []
-                for item in content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        text = item.get("text", "")
-                        if text:
-                            texts.append(text)
-                
-                if texts:
-                    # If there's an error, indicate it
-                    if result.get("isError"):
-                        return {"error": "\n".join(texts)}
-                    # Return combined text as the result
-                    return "\n".join(texts)
-            
-            # Not an MCP response, return as-is
-            return result
-        
-        async def after_tool_callback(
-            self,
-            *,
-            tool,
-            tool_args: dict,
-            tool_context,
-            result: Any,
-        ):
-            """Unwrap MCP responses after tool execution."""
-            unwrapped = self._extract_text_from_mcp_response(result)
-            if unwrapped != result:
-                return unwrapped
-            return None  # Return None to keep original result
-    
-    return MCPResponseUnwrapperPlugin()
-
-
 class RuntimeManager:
     """Manages agent runtime execution."""
     
@@ -383,16 +324,7 @@ class RuntimeManager:
                 async def on_event_callback(self, *, invocation_context, event):
                     return await self.tracker.on_event_callback(invocation_context=invocation_context, event=event)
             
-            # Create MCP response unwrapper plugin (properly inherits from BasePlugin)
-            mcp_unwrapper = create_mcp_unwrapper_plugin()
-            
-            # Plugin order matters! after_tool_callback uses early exit.
-            # When a plugin returns non-None, subsequent plugins don't run.
-            # So: tracking first (to capture all results), then MCP unwrapper (to transform for LLM)
-            plugins = [
-                TrackingPluginWrapper(tracking),  # Track first to see all results
-                mcp_unwrapper,  # Then unwrap MCP responses for LLM consumption
-            ]
+            plugins = [TrackingPluginWrapper(tracking)]
             
             # Add configured plugins
             for plugin_config in project.app.plugins:

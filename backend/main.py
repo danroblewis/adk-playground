@@ -978,7 +978,6 @@ Provide ONLY the completion text, no explanation.'''
 @app.post("/api/code-completion")
 async def code_completion(request: CodeCompletionRequest):
     """Handle code completion requests from Monacopilot."""
-    return {"completion": None} # TODO: Implement code completion correctly
     try:
         metadata = request.completionMetadata
         text_before = metadata.get("textBeforeCursor", "")
