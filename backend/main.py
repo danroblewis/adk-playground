@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -629,7 +629,7 @@ def my_tool(tool_context: ToolContext, param1: str, param2: int = 10) -> dict:
         A dictionary with the result (converted to JSON for LLM)
     """
     # Implementation
-    return {"result": "value", "status": "success"}
+    return {{"result": "value", "status": "success"}}
 ```
 
 ### Async Tools:
@@ -637,7 +637,7 @@ def my_tool(tool_context: ToolContext, param1: str, param2: int = 10) -> dict:
 async def my_async_tool(tool_context: ToolContext, query: str) -> dict:
     """Async tools can use await for I/O operations."""
     results = await tool_context.search_memory(query)
-    return {"memories": results.memories}
+    return {{"memories": results.memories}}
 ```
 
 ### State Management Patterns:
@@ -645,13 +645,13 @@ async def my_async_tool(tool_context: ToolContext, query: str) -> dict:
 def tool_with_state(tool_context: ToolContext) -> dict:
     # Reading state
     counter = tool_context.state.get('counter', 0)
-    user_prefs = tool_context.state.get('user_preferences', {})
+    user_prefs = tool_context.state.get('user_preferences', {{}})
     
     # Writing state (automatically tracked in state_delta)
     tool_context.state['counter'] = counter + 1
     tool_context.state['last_action'] = 'incremented'
     
-    return {"new_counter": counter + 1}
+    return {{"new_counter": counter + 1}}
 ```
 
 ### Control Flow Tools:
@@ -660,7 +660,7 @@ def exit_loop_tool(tool_context: ToolContext) -> dict:
     """Exit the current loop (LoopAgent)."""
     tool_context.actions.escalate = True
     tool_context.actions.skip_summarization = True
-    return {"status": "exiting loop"}
+    return {{"status": "exiting loop"}}
 
 def continue_without_summary(tool_context: ToolContext, data: dict) -> dict:
     """Return data directly without LLM summarization."""
@@ -675,14 +675,14 @@ async def save_report(tool_context: ToolContext, content: str, filename: str) ->
     from google.genai import types
     artifact = types.Part.from_text(text=content)
     version = await tool_context.save_artifact(filename, artifact)
-    return {"saved": filename, "version": version}
+    return {{"saved": filename, "version": version}}
 
 async def load_document(tool_context: ToolContext, filename: str) -> dict:
     """Load a previously saved artifact."""
     artifact = await tool_context.load_artifact(filename)
     if artifact and hasattr(artifact, 'text'):
-        return {"content": artifact.text}
-    return {"error": "Not found"}
+        return {{"content": artifact.text}}
+    return {{"error": "Not found"}}
 ```
 
 ### Error Handling:
@@ -692,11 +692,11 @@ def safe_tool(tool_context: ToolContext, input_data: str) -> dict:
     try:
         # Processing logic
         result = process(input_data)
-        return {"success": True, "result": result}
-    except ValueError as e:
-        return {"success": False, "error": f"Invalid input: {e}"}
-    except Exception as e:
-        return {"success": False, "error": f"Unexpected error: {e}"}
+        return {{"success": True, "result": result}}
+    except ValueError as err:
+        return {{"success": False, "error": "Invalid input: " + str(err)}}
+    except Exception as err:
+        return {{"success": False, "error": "Unexpected error: " + str(err)}}
 ```
 
 ## Important Guidelines:
@@ -716,17 +716,25 @@ Return ONLY the Python code for the tool function. Do not include any explanatio
 @app.post("/api/projects/{project_id}/generate-tool-code")
 async def generate_tool_code(project_id: str, request: GenerateToolCodeRequest):
     """Generate Python code for an ADK tool using AI."""
+    import traceback
+    import sys
+    
+    print(f"[generate-tool-code] Starting for project {project_id}", file=sys.stderr, flush=True)
+    
     project = project_manager.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Build context about available state keys
-    state_keys_info = []
-    for key in project.app.state_keys:
-        state_keys_info.append(f"- {key.name} ({key.type}): {key.description or 'No description'}")
+    print(f"[generate-tool-code] Project found: {project.name}", file=sys.stderr, flush=True)
     
-    # Build the user prompt
-    user_prompt = f"""Write an ADK tool with the following specifications:
+    try:
+        # Build context about available state keys
+        state_keys_info = []
+        for key in project.app.state_keys:
+            state_keys_info.append(f"- {key.name} ({key.type}): {key.description or 'No description'}")
+        
+        # Build the user prompt
+        user_prompt = f"""Write an ADK tool with the following specifications:
 
 **Tool Name:** {request.tool_name}
 **Description:** {request.tool_description}
@@ -741,8 +749,7 @@ async def generate_tool_code(project_id: str, request: GenerateToolCodeRequest):
 
 Write the complete Python code for this tool. Include appropriate imports at the top if needed (like `from google.adk.tools.tool_context import ToolContext`). Make sure the function name matches the tool name (use snake_case).
 """
-    
-    try:
+        
         from google.adk import Agent
         from google.adk.runners import Runner
         from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -816,6 +823,8 @@ Write the complete Python code for this tool. Include appropriate imports at the
         
     except Exception as e:
         import traceback
+        print(f"[generate-tool-code] ERROR: {e}", file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
         return {
             "code": None,
             "success": False,
