@@ -3,7 +3,7 @@
 from google.adk.tools import ToolContext
 from typing import Any, Optional
 
-# Tool: new_tool
+# Tool: save_story
 # Description: save_story
 # State keys used: 
 

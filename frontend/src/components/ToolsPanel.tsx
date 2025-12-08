@@ -30,7 +30,6 @@ interface ToolsPanelProps {
 export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const { project, updateProject, addCustomTool, updateCustomTool, removeCustomTool, selectedToolId, setSelectedToolId, builtinTools, mcpServers: knownMcpServers } = useStore();
   const [editingCode, setEditingCode] = useState('');
-  const [hasCodeChanges, setHasCodeChanges] = useState(false);
   const [selectedBuiltinTool, setSelectedBuiltinTool] = useState<BuiltinTool | null>(null);
   const [activeTab, setActiveTab] = useState<'tools' | 'mcp'>('tools');
   const [selectedMcpServer, setSelectedMcpServer] = useState<string | null>(null);
@@ -96,16 +95,11 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   }
   
   function handleCodeChange(value: string | undefined) {
-    if (value !== undefined) {
+    if (value !== undefined && selectedTool) {
       setEditingCode(value);
-      setHasCodeChanges(value !== selectedTool?.code);
+      // Auto-save code changes like other fields
+      handleUpdateTool({ code: value });
     }
-  }
-  
-  function handleSaveCode() {
-    if (!selectedTool) return;
-    handleUpdateTool({ code: editingCode });
-    setHasCodeChanges(false);
   }
   
   // MCP Server management
@@ -871,15 +865,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                 onChange={(e) => handleUpdateTool({ name: e.target.value })}
                 placeholder="Tool name"
               />
-              {hasCodeChanges && <span className="unsaved-badge">Unsaved</span>}
-              <button 
-                className="btn btn-primary btn-sm"
-                onClick={handleSaveCode}
-                disabled={!hasCodeChanges}
-              >
-                <Save size={14} />
-                Save
-              </button>
             </div>
             
             <div className="editor-meta">

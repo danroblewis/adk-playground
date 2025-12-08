@@ -174,7 +174,7 @@ agents:
   - agent_critic
 custom_tools:
 - id: tool_miwgt3wz
-  name: new_tool
+  name: save_story
   description: save_story
   module_path: tools.custom
   code: "def save_story(tool_context: ToolContext, param1: str) -> dict:\n    \"\"\
