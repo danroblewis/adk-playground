@@ -253,7 +253,9 @@ function generatePythonCode(project: Project): string {
   // Build agent variable name map (for resolving sub_agents references)
   const agentVarNames = new Map<string, string>();
   project.agents.forEach(agent => {
-    agentVarNames.set(agent.id, `${agent.name}_agent`);
+    // Only add _agent suffix if the name doesn't already end with it
+    const varName = agent.name.endsWith('_agent') ? agent.name : `${agent.name}_agent`;
+    agentVarNames.set(agent.id, varName);
   });
   
   // Topological sort agents (sub-agents must be defined before parent agents)
@@ -323,13 +325,9 @@ function generatePythonCode(project: Project): string {
     lines.push('');
   });
   
-  // Generate root_agent assignment
+  // Get root agent variable name
   const rootAgent = project.agents.find(a => a.id === project.app.root_agent_id);
-  if (rootAgent) {
-    lines.push('');
-    lines.push('# Root Agent');
-    lines.push(`root_agent = ${agentVarNames.get(rootAgent.id)}`);
-  }
+  const rootAgentVarName = rootAgent ? agentVarNames.get(rootAgent.id) : 'root_agent';
   
   // Always generate App
   lines.push('');
@@ -337,7 +335,7 @@ function generatePythonCode(project: Project): string {
   lines.push('# App Configuration');
   lines.push('app = App(');
   lines.push(`    name="${project.app.name}",`);
-  lines.push(`    root_agent=root_agent,`);
+  lines.push(`    root_agent=${rootAgentVarName},`);
   
   if (hasPlugins) {
     const pluginLines = project.app.plugins.map(p => {
