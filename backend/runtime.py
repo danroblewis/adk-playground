@@ -51,6 +51,23 @@ class TrackingPlugin:
         ))
         return None
     
+    async def on_event_callback(self, *, invocation_context, event, **kwargs):
+        """Called for every event - captures state changes from output_key etc."""
+        # Check if the event has state_delta (e.g., from output_key)
+        if hasattr(event, "actions") and event.actions and event.actions.state_delta:
+            state_delta = event.actions.state_delta
+            if state_delta:
+                agent_name = getattr(event, "author", None) or "system"
+                self._emit(RunEvent(
+                    timestamp=time.time(),
+                    event_type="state_change",
+                    agent_name=agent_name,
+                    data={
+                        "state_delta": {k: str(v)[:500] for k, v in state_delta.items()},
+                    },
+                ))
+        return None
+    
     def _serialize_contents(self, contents) -> list:
         """Serialize LLM contents to a structured format for display."""
         if not contents:
@@ -215,7 +232,7 @@ class TrackingPlugin:
                 event_type="state_change",
                 agent_name=agent_name,
                 data={
-                    "state_delta": {k: str(v)[:100] for k, v in tool_context._event_actions.state_delta.items()},
+                    "state_delta": {k: str(v)[:500] for k, v in tool_context._event_actions.state_delta.items()},
                 },
             ))
         
