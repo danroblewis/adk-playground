@@ -321,6 +321,9 @@ class RuntimeManager:
                 
                 async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
                     return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, result=result)
+                
+                async def on_event_callback(self, *, invocation_context, event):
+                    return await self.tracker.on_event_callback(invocation_context=invocation_context, event=event)
             
             plugins = [TrackingPluginWrapper(tracking)]
             

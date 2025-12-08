@@ -172,5 +172,15 @@ agents:
   sub_agents:
   - agent_author
   - agent_critic
-custom_tools: []
+custom_tools:
+- id: tool_miwgt3wz
+  name: new_tool
+  description: save_story
+  module_path: tools.custom
+  code: "def save_story(tool_context: ToolContext, param1: str) -> dict:\n    \"\"\
+    \"Description of what this tool does.\n    \n    Args:\n        param1: Description\
+    \ of this parameter\n    \n    Returns:\n        A dictionary with the result\n\
+    \    \"\"\"\n    # Access state: tool_context.state['key']\n    # Set state: tool_context.state['key']\
+    \ = value\n    \n    return {\"result\": \"success\"}\n"
+  state_keys_used: []
 mcp_servers: []
