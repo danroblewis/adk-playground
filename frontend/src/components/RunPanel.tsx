@@ -323,16 +323,27 @@ export default function RunPanel() {
   
   if (!project) return null;
   
-  // Calculate session state from state_change events
+  // Calculate session state from state_change events up to the selected time range
   const sessionState = useMemo(() => {
     const state: Record<string, any> = {};
+    if (runEvents.length === 0) return state;
+    
+    const minTime = runEvents[0].timestamp;
+    const maxTime = runEvents[runEvents.length - 1].timestamp;
+    const duration = maxTime - minTime || 1;
+    
+    // Only include state changes up to the end of the selected time range
     runEvents.forEach(event => {
-      if (event.event_type === 'state_change' && event.data?.state_delta) {
-        Object.assign(state, event.data.state_delta);
+      const percent = ((event.timestamp - minTime) / duration) * 100;
+      // Include events up to the end of the time range
+      if (percent <= timelineRange[1]) {
+        if (event.event_type === 'state_change' && event.data?.state_delta) {
+          Object.assign(state, event.data.state_delta);
+        }
       }
     });
     return state;
-  }, [runEvents]);
+  }, [runEvents, timelineRange]);
   
   // Get unique agent names for filtering
   const agentNames = useMemo(() => {
