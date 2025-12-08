@@ -676,6 +676,7 @@ Output only the description, nothing else:`;
               onUpdate={updateTool}
               builtinTools={builtinTools}
               mcpServers={mcpServers}
+              projectMcpServers={project.mcp_servers}
               customTools={project.custom_tools}
               agents={availableAgents}
             />
@@ -755,6 +756,7 @@ function ToolsEditor({
   onUpdate,
   builtinTools,
   mcpServers,
+  projectMcpServers,
   customTools,
   agents
 }: {
@@ -764,6 +766,7 @@ function ToolsEditor({
   onUpdate: (index: number, tool: ToolConfig) => void;
   builtinTools: any[];
   mcpServers: any[];
+  projectMcpServers: any[];
   customTools: any[];
   agents: AgentConfig[];
 }) {
@@ -1154,10 +1157,10 @@ function ToolsEditor({
               )}
               
               {/* Project MCP Servers */}
-              {project.mcp_servers.length > 0 && (
+              {projectMcpServers.length > 0 && (
                 <div className="dropdown-section">
-                  <h5>Project MCP Servers ({project.mcp_servers.length})</h5>
-                  {project.mcp_servers.map(server => (
+                  <h5>Project MCP Servers ({projectMcpServers.length})</h5>
+                  {projectMcpServers.map(server => (
                     <button
                       key={`project-${server.id || server.name}`}
                       className="dropdown-item"
