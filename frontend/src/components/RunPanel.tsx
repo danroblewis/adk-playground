@@ -445,11 +445,21 @@ export default function RunPanel() {
   return (
     <div className="run-panel">
       <style>{`
-        /* Instant Tooltips */
+        /* Instant Tooltips - CSS only, no delay */
         [data-tooltip] {
           position: relative;
         }
         
+        [data-tooltip]::before,
+        [data-tooltip]::after {
+          pointer-events: none;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.1s, visibility 0.1s;
+          z-index: 99999;
+        }
+        
+        /* Tooltip text */
         [data-tooltip]::after {
           content: attr(data-tooltip);
           position: absolute;
@@ -457,34 +467,51 @@ export default function RunPanel() {
           left: 50%;
           transform: translateX(-50%);
           padding: 6px 10px;
-          background: rgba(0, 0, 0, 0.9);
-          color: white;
+          background: #1a1a2e;
+          color: #fff;
           font-size: 11px;
           font-weight: 400;
+          font-family: system-ui, -apple-system, sans-serif;
           line-height: 1.4;
           white-space: pre-line;
           border-radius: 6px;
-          pointer-events: none;
-          opacity: 0;
-          visibility: hidden;
-          transition: opacity 0.1s, visibility 0.1s;
-          z-index: 9999;
-          max-width: 280px;
+          max-width: 260px;
+          min-width: max-content;
           text-align: left;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+          border: 1px solid rgba(255,255,255,0.1);
         }
         
+        /* Arrow */
+        [data-tooltip]::before {
+          content: '';
+          position: absolute;
+          bottom: calc(100% + 2px);
+          left: 50%;
+          transform: translateX(-50%);
+          border: 6px solid transparent;
+          border-top-color: #1a1a2e;
+        }
+        
+        [data-tooltip]:hover::before,
         [data-tooltip]:hover::after {
           opacity: 1;
           visibility: visible;
         }
         
-        /* Tooltip positioning variants */
+        /* Bottom position */
         [data-tooltip-pos="bottom"]::after {
           bottom: auto;
           top: calc(100% + 8px);
         }
+        [data-tooltip-pos="bottom"]::before {
+          bottom: auto;
+          top: calc(100% + 2px);
+          border-top-color: transparent;
+          border-bottom-color: #1a1a2e;
+        }
         
+        /* Left position */
         [data-tooltip-pos="left"]::after {
           bottom: auto;
           top: 50%;
@@ -492,12 +519,36 @@ export default function RunPanel() {
           right: calc(100% + 8px);
           transform: translateY(-50%);
         }
+        [data-tooltip-pos="left"]::before {
+          bottom: auto;
+          top: 50%;
+          left: auto;
+          right: calc(100% + 2px);
+          transform: translateY(-50%);
+          border-top-color: transparent;
+          border-left-color: #1a1a2e;
+        }
         
+        /* Right position */
         [data-tooltip-pos="right"]::after {
           bottom: auto;
           top: 50%;
           left: calc(100% + 8px);
           transform: translateY(-50%);
+        }
+        [data-tooltip-pos="right"]::before {
+          bottom: auto;
+          top: 50%;
+          left: calc(100% + 2px);
+          transform: translateY(-50%);
+          border-top-color: transparent;
+          border-right-color: #1a1a2e;
+        }
+        
+        /* Tooltip wrapper for elements that can't have ::after (input, select) */
+        .tooltip-wrapper {
+          position: relative;
+          display: inline-flex;
         }
         
         .run-panel {
@@ -605,8 +656,8 @@ export default function RunPanel() {
           height: 40px;
           background: var(--bg-tertiary);
           border-radius: var(--radius-sm);
-          overflow: hidden;
           margin-bottom: 8px;
+          /* overflow: visible to allow tooltips to show */
         }
         
         .timeline-segment {
@@ -1794,26 +1845,28 @@ export default function RunPanel() {
             })}
           </div>
           
-          <select 
-            className="agent-filter"
-            value={agentFilter}
-            onChange={(e) => setAgentFilter(e.target.value)}
-            data-tooltip="Filter by agent"
-          >
-            <option value="all">All Agents</option>
-            {agentNames.map(name => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
+          <span className="tooltip-wrapper" data-tooltip="Filter by agent">
+            <select 
+              className="agent-filter"
+              value={agentFilter}
+              onChange={(e) => setAgentFilter(e.target.value)}
+            >
+              <option value="all">All Agents</option>
+              {agentNames.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </span>
           
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search events..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            data-tooltip="Search event data"
-          />
+          <span className="tooltip-wrapper" data-tooltip="Search event data">
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search events..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </span>
           
           {searchQuery && (
             <button className="filter-chip" onClick={() => setSearchQuery('')} data-tooltip="Clear search">
