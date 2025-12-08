@@ -445,6 +445,61 @@ export default function RunPanel() {
   return (
     <div className="run-panel">
       <style>{`
+        /* Instant Tooltips */
+        [data-tooltip] {
+          position: relative;
+        }
+        
+        [data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          bottom: calc(100% + 8px);
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 6px 10px;
+          background: rgba(0, 0, 0, 0.9);
+          color: white;
+          font-size: 11px;
+          font-weight: 400;
+          line-height: 1.4;
+          white-space: pre-line;
+          border-radius: 6px;
+          pointer-events: none;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.1s, visibility 0.1s;
+          z-index: 9999;
+          max-width: 280px;
+          text-align: left;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        [data-tooltip]:hover::after {
+          opacity: 1;
+          visibility: visible;
+        }
+        
+        /* Tooltip positioning variants */
+        [data-tooltip-pos="bottom"]::after {
+          bottom: auto;
+          top: calc(100% + 8px);
+        }
+        
+        [data-tooltip-pos="left"]::after {
+          bottom: auto;
+          top: 50%;
+          left: auto;
+          right: calc(100% + 8px);
+          transform: translateY(-50%);
+        }
+        
+        [data-tooltip-pos="right"]::after {
+          bottom: auto;
+          top: 50%;
+          left: calc(100% + 8px);
+          transform: translateY(-50%);
+        }
+        
         .run-panel {
           display: flex;
           flex-direction: column;
@@ -1568,21 +1623,21 @@ export default function RunPanel() {
               Timeline
             </div>
             <div className="timeline-stats">
-              <span title={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`}>
+              <span data-tooltip={`Showing ${filteredEvents.length} of ${runEvents.length} total events (filtered by time range, event type, or agent)`}>
                 {filteredEvents.length} / {runEvents.length} events
               </span>
-              <span title="Total duration of the agent run">
+              <span data-tooltip="Total duration of the agent run">
                 {(duration * 1000).toFixed(0)}ms
               </span>
               {tokenTotals.input + tokenTotals.output > 0 && (
-                <span className="token-stats" title={`Token usage for filtered events:\n• Input (prompt): ${tokenTotals.input} tokens\n• Output (response): ${tokenTotals.output} tokens\n• Total: ${tokenTotals.input + tokenTotals.output} tokens`}>
-                  <span className="token-input" title="Input/prompt tokens">{tokenTotals.input}↓</span>
-                  <span className="token-output" title="Output/response tokens">{tokenTotals.output}↑</span>
-                  <span className="token-total" title="Total tokens">= {tokenTotals.input + tokenTotals.output}</span>
+                <span className="token-stats" data-tooltip={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`}>
+                  <span className="token-input">{tokenTotals.input}↓</span>
+                  <span className="token-output">{tokenTotals.output}↑</span>
+                  <span className="token-total">= {tokenTotals.input + tokenTotals.output}</span>
                 </span>
               )}
               {isRunning && (
-                <span className="running-indicator" title="Agent is currently executing">
+                <span className="running-indicator" data-tooltip="Agent is currently executing">
                   <span className="dot" />
                   Running...
                 </span>
@@ -1606,7 +1661,8 @@ export default function RunPanel() {
                     background: agentColorMap[segment.agent] || '#888'
                   }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`${segment.agent}\n⏱ Duration: ${segmentDurationMs.toFixed(0)}ms\n📍 Start: +${segmentStartMs.toFixed(0)}ms\n🖱 Click to scroll to event`}
+                  data-tooltip={`${segment.agent}\n⏱ ${segmentDurationMs.toFixed(0)}ms\n📍 +${segmentStartMs.toFixed(0)}ms\nClick to scroll`}
+                  data-tooltip-pos="bottom"
                 />
               ) : (
                 <div
@@ -1614,7 +1670,8 @@ export default function RunPanel() {
                   className={`timeline-marker ${segment.eventType}`}
                   style={{ left: `${segment.start}%` }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 Agent: ${segment.agent}\n📍 Time: +${segmentStartMs.toFixed(0)}ms\n🖱 Click to scroll to event`}
+                  data-tooltip={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
+                  data-tooltip-pos="bottom"
                 />
               );
             })}
@@ -1636,7 +1693,8 @@ export default function RunPanel() {
                 window.addEventListener('mousemove', handleDrag);
                 window.addEventListener('mouseup', stopDrag);
               }}
-              title="Drag to set start time"
+              data-tooltip="Drag to set start"
+              data-tooltip-pos="bottom"
             />
             <div 
               className="timeline-range-handle end"
@@ -1655,7 +1713,8 @@ export default function RunPanel() {
                 window.addEventListener('mousemove', handleDrag);
                 window.addEventListener('mouseup', stopDrag);
               }}
-              title="Drag to set end time"
+              data-tooltip="Drag to set end"
+              data-tooltip-pos="bottom"
             />
             {/* Selected range overlay */}
             <div 
@@ -1679,7 +1738,7 @@ export default function RunPanel() {
                   borderColor: agentColorMap[name],
                   background: agentFilter === name ? agentColorMap[name] + '30' : 'transparent'
                 }}
-                title={`Click to filter by ${name}`}
+                data-tooltip={`Filter by ${name}`}
               >
                 <span className="legend-dot" style={{ background: agentColorMap[name] }} />
                 {name}
@@ -1687,11 +1746,11 @@ export default function RunPanel() {
             ))}
             <span className="legend-divider">|</span>
             <span className="legend-label">Markers:</span>
-            <span className="legend-item marker-legend" title="Green circles on the timeline indicate tool calls">
+            <span className="legend-item marker-legend" data-tooltip="Tool calls by agents">
               <span className="legend-dot" style={{ background: '#00f5d4' }} />
               Tool Call
             </span>
-            <span className="legend-item marker-legend" title="Red circles on the timeline indicate state changes (e.g., output_key writes)">
+            <span className="legend-item marker-legend" data-tooltip="State changes (output_key, etc.)">
               <span className="legend-dot" style={{ background: '#ff6b6b' }} />
               State Change
             </span>
@@ -1701,7 +1760,7 @@ export default function RunPanel() {
                 <button 
                   className="reset-range-btn"
                   onClick={() => setTimelineRange([0, 100])}
-                  title="Reset time range to show all events"
+                  data-tooltip="Show all events"
                 >
                   Reset Range
                 </button>
@@ -1715,19 +1774,19 @@ export default function RunPanel() {
       {runEvents.length > 0 && (
         <div className="filters-area">
           <div className="filter-group">
-            <span className="filter-label" title="Filter events by type"><Filter size={12} /></span>
+            <span className="filter-label" data-tooltip="Filter by event type"><Filter size={12} /></span>
             {['tool_call', 'model_call', 'state_change'].map(type => {
               const tooltips: Record<string, string> = {
-                'tool_call': 'Show/hide tool calls (functions invoked by the agent)',
-                'model_call': 'Show/hide LLM model calls and responses',
-                'state_change': 'Show/hide state changes (e.g., output_key writes)',
+                'tool_call': 'Tool calls by agents',
+                'model_call': 'LLM calls & responses',
+                'state_change': 'State changes',
               };
               return (
                 <button
                   key={type}
                   className={`filter-chip ${eventFilters.has(type) ? 'active' : ''}`}
                   onClick={() => toggleEventFilter(type)}
-                  title={tooltips[type] || `Toggle ${type} events`}
+                  data-tooltip={tooltips[type] || `Toggle ${type}`}
                 >
                   {EVENT_CONFIG[type]?.label || type}
                 </button>
@@ -1739,7 +1798,7 @@ export default function RunPanel() {
             className="agent-filter"
             value={agentFilter}
             onChange={(e) => setAgentFilter(e.target.value)}
-            title="Filter events by agent"
+            data-tooltip="Filter by agent"
           >
             <option value="all">All Agents</option>
             {agentNames.map(name => (
@@ -1753,20 +1812,20 @@ export default function RunPanel() {
             placeholder="Search events..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            title="Search through event data (tool names, responses, etc.)"
+            data-tooltip="Search event data"
           />
           
           {searchQuery && (
-            <button className="filter-chip" onClick={() => setSearchQuery('')} title="Clear search filter">
+            <button className="filter-chip" onClick={() => setSearchQuery('')} data-tooltip="Clear search">
               <X size={12} /> Clear
             </button>
           )}
           
           <div className="export-buttons">
-            <button className="export-btn" onClick={exportAsJson} title="Export as JSON">
+            <button className="export-btn" onClick={exportAsJson} data-tooltip="Export as JSON">
               <Download size={12} /> JSON
             </button>
-            <button className="export-btn" onClick={exportAsMarkdown} title="Export as Markdown">
+            <button className="export-btn" onClick={exportAsMarkdown} data-tooltip="Export as Markdown">
               <Download size={12} /> MD
             </button>
           </div>
@@ -1932,14 +1991,14 @@ function EventItem({
           <button 
             className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
             onClick={(e) => { e.stopPropagation(); onBookmark(); }}
-            title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+            data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
           >
             {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
           </button>
           <button 
             className="event-action-btn"
             onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify(event.data, null, 2)); }}
-            title="Copy data"
+            data-tooltip="Copy data"
           >
             <Copy size={14} />
           </button>
