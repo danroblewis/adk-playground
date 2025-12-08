@@ -563,6 +563,15 @@ export default function RunPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [userInput, hasUnsavedChanges]);
   
+  // Cleanup WebSocket on unmount
+  useEffect(() => {
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [ws]);
+  
   // Execute watch tools when events change
   useEffect(() => {
     if (runEvents.length === 0 || watchTools.length === 0) return;
@@ -687,6 +696,14 @@ export default function RunPanel() {
   
   function handleRun() {
     if (!userInput.trim()) return;
+    if (isRunning) return;  // Prevent duplicate runs
+    
+    // Close any existing WebSocket
+    if (ws) {
+      ws.close();
+      setWs(null);
+    }
+    
     setShowUnsavedWarning(false);
     clearRunEvents();
     setIsRunning(true);
@@ -2428,12 +2445,7 @@ export default function RunPanel() {
         <textarea
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              e.preventDefault();
-              handleRunClick();
-            }
-          }}
+          // Cmd+Enter handled by global listener in useEffect
           placeholder="Enter a message to test your agent... (⌘+Enter to run)"
           disabled={isRunning}
         />
