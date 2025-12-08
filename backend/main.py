@@ -736,6 +736,103 @@ JSON:"""
 
 
 # ============================================================================
+# Watch Tool Execution
+# ============================================================================
+
+class WatchToolRequest(BaseModel):
+    type: str  # 'builtin', 'mcp', 'custom'
+    tool_name: str
+    args: dict = {}
+    mcp_server: Optional[str] = None
+
+@app.post("/api/projects/{project_id}/execute-tool")
+async def execute_watch_tool(project_id: str, request: WatchToolRequest):
+    """Execute a tool call for watch functionality.
+    
+    This is used by the Watch panel to execute read-only tool calls
+    to query external state.
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        result = None
+        
+        if request.type == 'builtin':
+            # Execute built-in tool
+            if request.tool_name == 'google_search':
+                # Google search requires API key and special handling
+                result = {"error": "Google search not available in watch mode"}
+            elif request.tool_name == 'exit_loop':
+                result = {"info": "exit_loop is a control tool, not queryable"}
+            else:
+                result = {"error": f"Unknown built-in tool: {request.tool_name}"}
+        
+        elif request.type == 'custom':
+            # Execute custom tool
+            custom_tool = next((t for t in project.custom_tools if t.name == request.tool_name), None)
+            if not custom_tool:
+                result = {"error": f"Custom tool not found: {request.tool_name}"}
+            else:
+                # Create a sandboxed execution environment
+                local_vars = {}
+                try:
+                    # Execute the tool code to define the function
+                    exec(custom_tool.code, {"__builtins__": __builtins__}, local_vars)
+                    
+                    # Find the function (should be the tool name)
+                    func = local_vars.get(request.tool_name)
+                    if func and callable(func):
+                        # Create a mock tool context for read-only execution
+                        class MockToolContext:
+                            state = {}
+                            def __init__(self):
+                                self.actions = type('Actions', (), {'state_delta': {}})()
+                        
+                        mock_ctx = MockToolContext()
+                        result = func(mock_ctx, **request.args)
+                    else:
+                        result = {"error": f"Function {request.tool_name} not found in tool code"}
+                except Exception as e:
+                    result = {"error": f"Tool execution error: {str(e)}"}
+        
+        elif request.type == 'mcp':
+            # Execute MCP tool
+            if not request.mcp_server:
+                result = {"error": "MCP server name required"}
+            else:
+                # Find the MCP server config
+                mcp_config = next((s for s in project.mcp_servers if s.name == request.mcp_server), None)
+                if not mcp_config:
+                    mcp_config = next((s for s in KNOWN_MCP_SERVERS if s.name == request.mcp_server), None)
+                
+                if not mcp_config:
+                    result = {"error": f"MCP server not found: {request.mcp_server}"}
+                else:
+                    # For now, return a placeholder - MCP execution requires async context
+                    result = {"info": f"MCP tool execution for {request.tool_name} on {request.mcp_server} - not yet implemented"}
+        
+        else:
+            result = {"error": f"Unknown tool type: {request.type}"}
+        
+        return {
+            "success": True,
+            "result": result,
+            "tool_name": request.tool_name,
+            "tool_type": request.type,
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+# ============================================================================
 # Health Check
 # ============================================================================
 

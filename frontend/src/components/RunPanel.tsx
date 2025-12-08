@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Save, Download, Filter, Search, 
-  CheckCircle, XCircle, AlertTriangle, Copy, Eye,
-  BookmarkPlus, Bookmark, X, Loader
+  CheckCircle, XCircle, AlertTriangle, Copy, Eye, Plus, Trash2,
+  BookmarkPlus, Bookmark, X, Loader, RefreshCw
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { RunEvent } from '../utils/types';
-import { createRunWebSocket, updateProject as apiUpdateProject } from '../utils/api';
+import type { RunEvent, WatchToolConfig, WatchToolResult } from '../utils/types';
+import { createRunWebSocket, updateProject as apiUpdateProject, fetchJSON } from '../utils/api';
 
 // Tooltip component using portal for guaranteed top-layer rendering
 function Tooltip({ children, text, position = 'top', style }: { 
@@ -100,6 +100,178 @@ function Tooltip({ children, text, position = 'top', style }: {
   );
 }
 
+// Watch Tool Dialog Component
+function WatchToolDialog({ project, onClose, onAdd }: {
+  project: any;
+  onClose: () => void;
+  onAdd: (config: Omit<WatchToolConfig, 'id'>) => void;
+}) {
+  const { builtinTools } = useStore();
+  const [toolType, setToolType] = useState<'builtin' | 'custom' | 'mcp'>('builtin');
+  const [selectedTool, setSelectedTool] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [argsJson, setArgsJson] = useState('{}');
+  const [selectedMcpServer, setSelectedMcpServer] = useState('');
+  
+  // Get available tools based on type
+  const availableTools = useMemo(() => {
+    if (toolType === 'builtin') {
+      return builtinTools.map(t => ({ name: t.name, description: t.description }));
+    } else if (toolType === 'custom') {
+      return project.custom_tools.map((t: any) => ({ name: t.name, description: t.description }));
+    } else if (toolType === 'mcp') {
+      // For MCP, we'd need to query the server for available tools
+      return [];
+    }
+    return [];
+  }, [toolType, builtinTools, project.custom_tools]);
+  
+  const handleSubmit = () => {
+    if (!selectedTool) return;
+    
+    let args = {};
+    try {
+      args = JSON.parse(argsJson);
+    } catch (e) {
+      alert('Invalid JSON in arguments');
+      return;
+    }
+    
+    onAdd({
+      name: displayName || selectedTool,
+      type: toolType,
+      tool_name: selectedTool,
+      args,
+      mcp_server: toolType === 'mcp' ? selectedMcpServer : undefined,
+    });
+  };
+  
+  return createPortal(
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog watch-tool-dialog" onClick={e => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3>Add Watch Tool</h3>
+          <button className="dialog-close" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        
+        <div className="dialog-content">
+          <p className="dialog-description">
+            Watch tools are executed after each event to query external state.
+            Results appear in the Watch panel.
+          </p>
+          
+          <div className="form-field">
+            <label>Tool Type</label>
+            <div className="tool-type-tabs">
+              <button
+                className={`tool-type-tab ${toolType === 'builtin' ? 'active' : ''}`}
+                onClick={() => { setToolType('builtin'); setSelectedTool(''); }}
+              >
+                Built-in
+              </button>
+              <button
+                className={`tool-type-tab ${toolType === 'custom' ? 'active' : ''}`}
+                onClick={() => { setToolType('custom'); setSelectedTool(''); }}
+              >
+                Custom
+              </button>
+              <button
+                className={`tool-type-tab ${toolType === 'mcp' ? 'active' : ''}`}
+                onClick={() => { setToolType('mcp'); setSelectedTool(''); }}
+              >
+                MCP
+              </button>
+            </div>
+          </div>
+          
+          {toolType === 'mcp' && (
+            <div className="form-field">
+              <label>MCP Server</label>
+              <select
+                value={selectedMcpServer}
+                onChange={e => setSelectedMcpServer(e.target.value)}
+              >
+                <option value="">Select server...</option>
+                {project.mcp_servers.map((server: any) => (
+                  <option key={server.name} value={server.name}>{server.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          <div className="form-field">
+            <label>Tool</label>
+            {availableTools.length > 0 ? (
+              <select
+                value={selectedTool}
+                onChange={e => {
+                  setSelectedTool(e.target.value);
+                  if (!displayName) setDisplayName(e.target.value);
+                }}
+              >
+                <option value="">Select tool...</option>
+                {availableTools.map((tool: any) => (
+                  <option key={tool.name} value={tool.name}>{tool.name}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder={toolType === 'mcp' ? "Enter MCP tool name" : "No tools available"}
+                value={selectedTool}
+                onChange={e => setSelectedTool(e.target.value)}
+                disabled={toolType !== 'mcp'}
+              />
+            )}
+            {selectedTool && availableTools.find((t: any) => t.name === selectedTool)?.description && (
+              <span className="field-hint">
+                {availableTools.find((t: any) => t.name === selectedTool)?.description}
+              </span>
+            )}
+          </div>
+          
+          <div className="form-field">
+            <label>Display Name</label>
+            <input
+              type="text"
+              placeholder="Name shown in Watch panel"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+            />
+          </div>
+          
+          <div className="form-field">
+            <label>Arguments (JSON)</label>
+            <textarea
+              placeholder='{"key": "value"}'
+              value={argsJson}
+              onChange={e => setArgsJson(e.target.value)}
+              rows={3}
+              style={{ fontFamily: 'monospace' }}
+            />
+          </div>
+        </div>
+        
+        <div className="dialog-footer">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button 
+            className="btn btn-primary" 
+            onClick={handleSubmit}
+            disabled={!selectedTool}
+          >
+            Add Watch
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // Event type configurations
 const EVENT_CONFIG: Record<string, { icon: React.FC<{ size: number }>, color: string, label: string }> = {
   agent_start: { icon: GitBranch, color: '#7b2cbf', label: 'Agent Start' },
@@ -139,6 +311,12 @@ export default function RunPanel() {
   
   // Timeline state
   const [timelineRange, setTimelineRange] = useState<[number, number]>([0, 100]);
+  
+  // Watch tools state
+  const [watchTools, setWatchTools] = useState<WatchToolConfig[]>([]);
+  const [watchResults, setWatchResults] = useState<Record<string, WatchToolResult>>({});
+  const [showWatchDialog, setShowWatchDialog] = useState(false);
+  const [watchToolsLoading, setWatchToolsLoading] = useState<Set<string>>(new Set());
   
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const eventsAreaRef = useRef<HTMLDivElement>(null);
@@ -282,6 +460,119 @@ export default function RunPanel() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [userInput, hasUnsavedChanges]);
+  
+  // Execute watch tools when events change
+  useEffect(() => {
+    if (runEvents.length === 0 || watchTools.length === 0) return;
+    
+    // Execute each watch tool
+    watchTools.forEach(async (watchTool) => {
+      if (watchToolsLoading.has(watchTool.id)) return;
+      
+      setWatchToolsLoading(prev => new Set([...prev, watchTool.id]));
+      
+      try {
+        const response = await fetchJSON(`/projects/${project.id}/execute-tool`, {
+          method: 'POST',
+          body: JSON.stringify({
+            type: watchTool.type,
+            tool_name: watchTool.tool_name,
+            args: watchTool.args,
+            mcp_server: watchTool.mcp_server,
+          }),
+        });
+        
+        setWatchResults(prev => ({
+          ...prev,
+          [watchTool.id]: {
+            watch_id: watchTool.id,
+            result: response.result,
+            error: response.error,
+            timestamp: Date.now(),
+          },
+        }));
+      } catch (error: any) {
+        setWatchResults(prev => ({
+          ...prev,
+          [watchTool.id]: {
+            watch_id: watchTool.id,
+            result: null,
+            error: error.message,
+            timestamp: Date.now(),
+          },
+        }));
+      } finally {
+        setWatchToolsLoading(prev => {
+          const next = new Set(prev);
+          next.delete(watchTool.id);
+          return next;
+        });
+      }
+    });
+  }, [runEvents.length, watchTools, project?.id]);
+  
+  // Add a new watch tool
+  function addWatchTool(config: Omit<WatchToolConfig, 'id'>) {
+    const newTool: WatchToolConfig = {
+      ...config,
+      id: `watch_${Date.now()}`,
+    };
+    setWatchTools(prev => [...prev, newTool]);
+    setShowWatchDialog(false);
+  }
+  
+  // Remove a watch tool
+  function removeWatchTool(id: string) {
+    setWatchTools(prev => prev.filter(t => t.id !== id));
+    setWatchResults(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+  
+  // Refresh a single watch tool
+  async function refreshWatchTool(watchTool: WatchToolConfig) {
+    setWatchToolsLoading(prev => new Set([...prev, watchTool.id]));
+    
+    try {
+      const response = await fetchJSON(`/projects/${project.id}/execute-tool`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: watchTool.type,
+          tool_name: watchTool.tool_name,
+          args: watchTool.args,
+          mcp_server: watchTool.mcp_server,
+        }),
+      });
+      
+      setWatchResults(prev => ({
+        ...prev,
+        [watchTool.id]: {
+          watch_id: watchTool.id,
+          result: response.result,
+          error: response.error,
+          timestamp: Date.now(),
+        },
+      }));
+    } catch (error: any) {
+      setWatchResults(prev => ({
+        ...prev,
+        [watchTool.id]: {
+          watch_id: watchTool.id,
+          result: null,
+          error: error.message,
+          timestamp: Date.now(),
+        },
+      }));
+    } finally {
+      setWatchToolsLoading(prev => {
+        const next = new Set(prev);
+        next.delete(watchTool.id);
+        return next;
+      });
+    }
+  }
   
   function handleRunClick() {
     if (!userInput.trim()) return;
@@ -1178,6 +1469,266 @@ export default function RunPanel() {
           overflow-y: auto;
         }
         
+        .value-loading {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+        
+        .value-error {
+          color: #ff6b6b;
+        }
+        
+        .value-pending {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+        
+        /* Watch Tools */
+        .add-watch-btn {
+          padding: 4px;
+          background: transparent;
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          color: var(--text-muted);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .add-watch-btn:hover {
+          background: var(--bg-hover);
+          color: var(--accent-primary);
+          border-color: var(--accent-primary);
+        }
+        
+        .watch-section {
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .watch-section:last-child {
+          border-bottom: none;
+        }
+        
+        .watch-section-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-muted);
+          background: var(--bg-tertiary);
+        }
+        
+        .watch-section-header svg {
+          opacity: 0.6;
+        }
+        
+        .watch-section-count {
+          margin-left: auto;
+          padding: 1px 6px;
+          background: var(--bg-secondary);
+          border-radius: 999px;
+          font-size: 10px;
+        }
+        
+        .watch-tool-item {
+          background: rgba(167, 139, 250, 0.05);
+        }
+        
+        .watch-tool-info {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-bottom: 4px;
+        }
+        
+        .watch-tool-type {
+          font-size: 9px;
+          padding: 1px 6px;
+          background: var(--accent-primary);
+          color: white;
+          border-radius: 3px;
+          text-transform: uppercase;
+        }
+        
+        .watch-tool-name {
+          font-size: 10px;
+          color: var(--text-muted);
+        }
+        
+        .watch-actions {
+          display: flex;
+          gap: 4px;
+        }
+        
+        .watch-action-btn {
+          padding: 2px;
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          border-radius: 3px;
+        }
+        
+        .watch-action-btn:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+        
+        .watch-action-btn.delete:hover {
+          color: #ff6b6b;
+        }
+        
+        .watch-action-btn .spinning {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        /* Watch Tool Dialog */
+        .dialog-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 99999;
+        }
+        
+        .dialog {
+          background: var(--bg-secondary);
+          border-radius: var(--radius-lg);
+          border: 1px solid var(--border-color);
+          max-width: 480px;
+          width: 90%;
+          max-height: 80vh;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+        }
+        
+        .dialog-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .dialog-header h3 {
+          margin: 0;
+          font-size: 16px;
+        }
+        
+        .dialog-close {
+          padding: 4px;
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          border-radius: var(--radius-sm);
+        }
+        
+        .dialog-close:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+        
+        .dialog-content {
+          padding: 16px;
+          overflow-y: auto;
+        }
+        
+        .dialog-description {
+          font-size: 13px;
+          color: var(--text-muted);
+          margin-bottom: 16px;
+        }
+        
+        .dialog-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          padding: 16px;
+          border-top: 1px solid var(--border-color);
+        }
+        
+        .form-field {
+          margin-bottom: 16px;
+        }
+        
+        .form-field label {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          margin-bottom: 6px;
+          color: var(--text-secondary);
+        }
+        
+        .form-field input,
+        .form-field select,
+        .form-field textarea {
+          width: 100%;
+          padding: 8px 12px;
+          font-size: 13px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          color: var(--text-primary);
+        }
+        
+        .form-field input:focus,
+        .form-field select:focus,
+        .form-field textarea:focus {
+          outline: none;
+          border-color: var(--accent-primary);
+        }
+        
+        .field-hint {
+          display: block;
+          font-size: 11px;
+          color: var(--text-muted);
+          margin-top: 4px;
+        }
+        
+        .tool-type-tabs {
+          display: flex;
+          gap: 4px;
+        }
+        
+        .tool-type-tab {
+          flex: 1;
+          padding: 8px 12px;
+          font-size: 12px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+          color: var(--text-secondary);
+        }
+        
+        .tool-type-tab:hover {
+          background: var(--bg-hover);
+        }
+        
+        .tool-type-tab.active {
+          background: var(--accent-primary);
+          border-color: var(--accent-primary);
+          color: white;
+        }
+        
         /* Agent Group */
         .agent-group {
           margin-bottom: 12px;
@@ -2031,40 +2582,135 @@ export default function RunPanel() {
                 <Eye size={14} />
                 Watch
               </h4>
-              <span className="state-count">{Object.keys(sessionState).length} keys</span>
+              <Tooltip text="Add a watch tool call" style={{ display: 'inline-flex' }}>
+                <button 
+                  className="add-watch-btn"
+                  onClick={() => setShowWatchDialog(true)}
+                >
+                  <Plus size={14} />
+                </button>
+              </Tooltip>
             </div>
             <div className="state-content">
-              {Object.keys(sessionState).length === 0 ? (
+              {/* Session State Section */}
+              {Object.keys(sessionState).length > 0 && (
+                <div className="watch-section">
+                  <div className="watch-section-header">
+                    <Database size={12} />
+                    Session State
+                    <span className="watch-section-count">{Object.keys(sessionState).length}</span>
+                  </div>
+                  <div className="watch-list">
+                    {Object.entries(sessionState).map(([key, value]) => (
+                      <div key={key} className="watch-item">
+                        <div className="watch-row">
+                          <span className="watch-key">{key}</span>
+                          <span className="watch-type">{typeof value}</span>
+                        </div>
+                        <div className="watch-value">
+                          {typeof value === 'string' ? (
+                            <span className="value-string">"{value}"</span>
+                          ) : typeof value === 'number' ? (
+                            <span className="value-number">{value}</span>
+                          ) : typeof value === 'boolean' ? (
+                            <span className="value-boolean">{String(value)}</span>
+                          ) : (
+                            <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Watch Tools Section */}
+              {watchTools.length > 0 && (
+                <div className="watch-section">
+                  <div className="watch-section-header">
+                    <Wrench size={12} />
+                    Tool Watches
+                    <span className="watch-section-count">{watchTools.length}</span>
+                  </div>
+                  <div className="watch-list">
+                    {watchTools.map(watchTool => {
+                      const result = watchResults[watchTool.id];
+                      const isLoading = watchToolsLoading.has(watchTool.id);
+                      
+                      return (
+                        <div key={watchTool.id} className="watch-item watch-tool-item">
+                          <div className="watch-row">
+                            <span className="watch-key">{watchTool.name}</span>
+                            <div className="watch-actions">
+                              <button 
+                                className="watch-action-btn"
+                                onClick={() => refreshWatchTool(watchTool)}
+                                disabled={isLoading}
+                                title="Refresh"
+                              >
+                                <RefreshCw size={12} className={isLoading ? 'spinning' : ''} />
+                              </button>
+                              <button 
+                                className="watch-action-btn delete"
+                                onClick={() => removeWatchTool(watchTool.id)}
+                                title="Remove"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="watch-tool-info">
+                            <span className="watch-tool-type">{watchTool.type}</span>
+                            <span className="watch-tool-name">{watchTool.tool_name}</span>
+                          </div>
+                          <div className="watch-value">
+                            {isLoading ? (
+                              <span className="value-loading">Loading...</span>
+                            ) : result?.error ? (
+                              <span className="value-error">{result.error}</span>
+                            ) : result?.result !== undefined ? (
+                              typeof result.result === 'string' ? (
+                                <span className="value-string">"{result.result}"</span>
+                              ) : (
+                                <pre className="value-object">{JSON.stringify(result.result, null, 2)}</pre>
+                              )
+                            ) : (
+                              <span className="value-pending">Pending...</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {/* Empty state */}
+              {Object.keys(sessionState).length === 0 && watchTools.length === 0 && (
                 <div className="state-empty">
                   <Database size={20} />
-                  <span>No state yet</span>
+                  <span>No watches yet</span>
                   <span className="state-hint">State changes will appear here</span>
-                </div>
-              ) : (
-                <div className="watch-list">
-                  {Object.entries(sessionState).map(([key, value]) => (
-                    <div key={key} className="watch-item">
-                      <div className="watch-row">
-                        <span className="watch-key">{key}</span>
-                        <span className="watch-type">{typeof value}</span>
-                      </div>
-                      <div className="watch-value">
-                        {typeof value === 'string' ? (
-                          <span className="value-string">"{value}"</span>
-                        ) : typeof value === 'number' ? (
-                          <span className="value-number">{value}</span>
-                        ) : typeof value === 'boolean' ? (
-                          <span className="value-boolean">{String(value)}</span>
-                        ) : (
-                          <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setShowWatchDialog(true)}
+                    style={{ marginTop: 12 }}
+                  >
+                    <Plus size={14} /> Add Watch Tool
+                  </button>
                 </div>
               )}
             </div>
           </div>
+        )}
+        
+        {/* Watch Tool Dialog */}
+        {showWatchDialog && (
+          <WatchToolDialog
+            project={project}
+            onClose={() => setShowWatchDialog(false)}
+            onAdd={addWatchTool}
+          />
         )}
       </div>
     </div>

@@ -201,3 +201,19 @@ export interface BuiltinTool {
   description: string;
 }
 
+export interface WatchToolConfig {
+  id: string;
+  name: string;  // Display name
+  type: 'builtin' | 'mcp' | 'custom';
+  tool_name: string;  // Actual tool function name
+  args: Record<string, any>;  // Tool arguments
+  mcp_server?: string;  // For MCP tools
+}
+
+export interface WatchToolResult {
+  watch_id: string;
+  result: any;
+  error?: string;
+  timestamp: number;
+}
+
