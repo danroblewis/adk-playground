@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe } from 'lucide-react';
+import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe, Sparkles, Loader } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { CustomToolDefinition, BuiltinTool, MCPServerConfig } from '../utils/types';
 import Editor from '@monaco-editor/react';
+import { generateToolCode } from '../utils/api';
 
 function generateId() {
   return `tool_${Date.now().toString(36)}`;
@@ -36,6 +37,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [mcpJsonCode, setMcpJsonCode] = useState('');
   const [hasMcpChanges, setHasMcpChanges] = useState(false);
   const [selectedKnownMcp, setSelectedKnownMcp] = useState<MCPServerConfig | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   
   if (!project) return null;
   
@@ -98,6 +100,33 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       setEditingCode(value);
       // Auto-save code changes like other fields
       handleUpdateTool({ code: value });
+    }
+  }
+  
+  async function handleWriteTool() {
+    if (!selectedTool) return;
+    
+    setIsGeneratingCode(true);
+    try {
+      const result = await generateToolCode(
+        project.id,
+        selectedTool.name,
+        selectedTool.description,
+        selectedTool.state_keys_used
+      );
+      
+      if (result.success && result.code) {
+        setEditingCode(result.code);
+        handleUpdateTool({ code: result.code });
+      } else {
+        console.error('Failed to generate tool code:', result.error);
+        alert('Failed to generate tool code: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error generating tool code:', error);
+      alert('Error generating tool code: ' + (error as Error).message);
+    } finally {
+      setIsGeneratingCode(false);
     }
   }
   
@@ -340,6 +369,35 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
         
         .meta-field.grow {
           flex: 1;
+        }
+        
+        .code-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 16px;
+          background: var(--bg-tertiary);
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .code-actions .btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        
+        .code-actions .action-hint {
+          font-size: 11px;
+          color: var(--text-muted);
+        }
+        
+        .spinning {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
         
         .code-editor {
@@ -886,6 +944,30 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                   style={{ width: 180 }}
                 />
               </div>
+            </div>
+            
+            <div className="code-actions">
+              <button 
+                className="btn btn-secondary btn-sm"
+                onClick={handleWriteTool}
+                disabled={isGeneratingCode || !selectedTool.name || !selectedTool.description}
+                title={!selectedTool.name || !selectedTool.description ? 'Add a name and description first' : 'Generate code using AI'}
+              >
+                {isGeneratingCode ? (
+                  <>
+                    <Loader size={14} className="spinning" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    Write Tool
+                  </>
+                )}
+              </button>
+              <span className="action-hint">
+                AI will generate code based on the tool name, description, and selected state keys
+              </span>
             </div>
             
             <div className="code-editor">

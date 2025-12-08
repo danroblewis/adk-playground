@@ -175,3 +175,29 @@ export async function generateAgentConfig(
   return data;
 }
 
+// AI-assisted tool code generation
+export interface GenerateToolCodeResult {
+  code: string | null;
+  success: boolean;
+  error?: string;
+}
+
+export async function generateToolCode(
+  projectId: string,
+  toolName: string,
+  toolDescription: string,
+  stateKeysUsed: string[] = [],
+  context?: string
+): Promise<GenerateToolCodeResult> {
+  const data = await fetchJSON<GenerateToolCodeResult>(`/projects/${projectId}/generate-tool-code`, {
+    method: 'POST',
+    body: JSON.stringify({
+      tool_name: toolName,
+      tool_description: toolDescription,
+      state_keys_used: stateKeysUsed,
+      context,
+    }),
+  });
+  return data;
+}
+

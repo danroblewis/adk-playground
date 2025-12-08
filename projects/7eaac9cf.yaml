@@ -247,9 +247,6 @@ agents:
       - get_logs
       - kubectl
       tool_name_prefix: null
-  - type: agent
-    agent_id: agent_miwm4gam
-    skip_summarization: false
   - type: builtin
     name: load_memory
   sub_agents: []
