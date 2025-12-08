@@ -19,10 +19,11 @@ function generateModelCode(model: LlmAgentConfig['model'], modelName: string = '
   
   const params: string[] = [`model="${model.model_name}"`];
   if (model.api_base) params.push(`api_base="${model.api_base}"`);
-  if (model.temperature !== undefined) params.push(`temperature=${model.temperature}`);
-  if (model.max_output_tokens !== undefined) params.push(`max_output_tokens=${model.max_output_tokens}`);
-  if (model.top_p !== undefined) params.push(`top_p=${model.top_p}`);
-  if (model.top_k !== undefined) params.push(`top_k=${model.top_k}`);
+  // Only include numeric params if they have actual values (not null/undefined)
+  if (model.temperature != null) params.push(`temperature=${model.temperature}`);
+  if (model.max_output_tokens != null) params.push(`max_output_tokens=${model.max_output_tokens}`);
+  if (model.top_p != null) params.push(`top_p=${model.top_p}`);
+  if (model.top_k != null) params.push(`top_k=${model.top_k}`);
   
   if (model.provider === 'litellm') {
     return `${modelName} = LiteLlm(\n    ${params.join(',\n    ')}\n)`;
