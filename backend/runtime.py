@@ -567,16 +567,20 @@ class RuntimeManager:
     def _build_mcp_toolset(self, server_config):
         """Build an MCP toolset from config."""
         try:
-            from google.adk.tools.mcp_tool import MCPToolset, StdioConnectionParams, SseConnectionParams
-            from mcp import StdioServerParameters
+            from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+            from google.adk.tools.mcp_tool.mcp_session_manager import (
+                StdioConnectionParams,
+                SseConnectionParams,
+            )
             
             if server_config.connection_type.value == "stdio":
+                # Pass server_params as a dict - Pydantic will convert to StdioServerParameters
                 connection_params = StdioConnectionParams(
-                    server_params=StdioServerParameters(
-                        command=server_config.command,
-                        args=server_config.args,
-                        env=server_config.env if server_config.env else None,
-                    ),
+                    server_params={
+                        "command": server_config.command,
+                        "args": server_config.args or [],
+                        "env": server_config.env if server_config.env else None,
+                    },
                     timeout=server_config.timeout,
                 )
             elif server_config.connection_type.value == "sse":
@@ -586,6 +590,7 @@ class RuntimeManager:
                     timeout=server_config.timeout,
                 )
             else:
+                print(f"Unknown MCP connection type: {server_config.connection_type}")
                 return None
             
             return MCPToolset(
@@ -594,6 +599,8 @@ class RuntimeManager:
                 tool_name_prefix=server_config.tool_name_prefix,
             )
         except Exception as e:
+            import traceback
             print(f"Error building MCP toolset: {e}")
+            print(traceback.format_exc())
             return None
 

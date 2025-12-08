@@ -51,7 +51,19 @@ app:
     top_p: null
     top_k: null
     is_default: true
-  default_model_id: model_miwm5iec
+  - id: model_miwsyd4y
+    name: New Model
+    provider: litellm
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+    is_default: false
+  default_model_id: model_miwsyd4y
+  env_vars:
+    GOOGLE_API_KEY: AIzaSyCl3XW20OPsj3sXau4IX-5sW6Cc5Qa21Wo
 agents:
 - type: LlmAgent
   id: agent_miwm4gam
@@ -155,8 +167,6 @@ agents:
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
   tools:
-  - type: builtin
-    name: exit_loop
   - type: mcp
     server:
       name: brave-search
@@ -173,6 +183,38 @@ agents:
       timeout: 10.0
       tool_filter:
       - brave_web_search
+      tool_name_prefix: null
+  - type: mcp
+    server:
+      name: kubernetes_mcp_server
+      description: a good kubernetes mcp server with restrictions
+      connection_type: stdio
+      command: uvx
+      args:
+      - kubernetes-mcp-server@latest
+      - --read-only
+      - --disable-destructive
+      - --kubeconfig
+      - /Users/danroblewis/ro_kubeconfig
+      env: {}
+      url: null
+      headers: {}
+      timeout: 60.0
+      tool_filter:
+      - configuration_view
+      - events_list
+      - helm_list
+      - namespaces_list
+      - nodes_log
+      - nodes_stats_summary
+      - nodes_top
+      - pods_get
+      - pods_list
+      - pods_list_in_namespace
+      - pods_log
+      - pods_top
+      - resources_get
+      - resources_list
       tool_name_prefix: null
   sub_agents: []
   before_agent_callbacks: []
