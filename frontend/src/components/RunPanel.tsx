@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Save, Download, Filter, Search, 
-  CheckCircle, XCircle, AlertTriangle, Copy, Eye, EyeOff, Pause,
-  SkipForward, Rewind, BookmarkPlus, Bookmark, X, Loader
+  CheckCircle, XCircle, AlertTriangle, Copy, Eye,
+  BookmarkPlus, Bookmark, X, Loader
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent } from '../utils/types';
@@ -39,7 +39,6 @@ export default function RunPanel() {
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [showStateSidebar, setShowStateSidebar] = useState(true);
   
   // Filtering state
   const [eventFilters, setEventFilters] = useState<Set<string>>(new Set(['tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'agent_start', 'agent_end']));
@@ -49,9 +48,6 @@ export default function RunPanel() {
   
   // Timeline state
   const [timelineRange, setTimelineRange] = useState<[number, number]>([0, 100]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const [playbackIndex, setPlaybackIndex] = useState(0);
   
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const eventsAreaRef = useRef<HTMLDivElement>(null);
@@ -181,28 +177,8 @@ export default function RunPanel() {
   
   // Auto-scroll effect
   useEffect(() => {
-    if (!isPlaying) {
-      eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [runEvents.length, isPlaying]);
-  
-  // Playback effect
-  useEffect(() => {
-    if (!isPlaying || runEvents.length === 0) return;
-    
-    const interval = setInterval(() => {
-      setPlaybackIndex(prev => {
-        const next = prev + 1;
-        if (next >= runEvents.length) {
-          setIsPlaying(false);
-          return prev;
-        }
-        return next;
-      });
-    }, 500 / playbackSpeed);
-    
-    return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed, runEvents.length]);
+    eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [runEvents.length]);
   
   // Keyboard shortcut
   useEffect(() => {
@@ -231,7 +207,6 @@ export default function RunPanel() {
     clearRunEvents();
     setIsRunning(true);
     setExpandedEvents(new Set());
-    setPlaybackIndex(0);
     
     const websocket = createRunWebSocket(project.id);
     setWs(websocket);
@@ -619,6 +594,114 @@ export default function RunPanel() {
           pointer-events: none;
         }
         
+        /* Timeline Range Handles */
+        .timeline-range-handle {
+          position: absolute;
+          top: -4px;
+          width: 8px;
+          height: calc(100% + 8px);
+          background: var(--accent-primary);
+          cursor: ew-resize;
+          z-index: 10;
+          border-radius: 2px;
+          transform: translateX(-50%);
+          opacity: 0.8;
+          transition: opacity 0.15s;
+        }
+        
+        .timeline-range-handle:hover {
+          opacity: 1;
+        }
+        
+        .timeline-range-handle::after {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 2px;
+          height: 12px;
+          background: white;
+          border-radius: 1px;
+        }
+        
+        .timeline-range-selection {
+          position: absolute;
+          top: 0;
+          height: 100%;
+          background: rgba(167, 139, 250, 0.15);
+          pointer-events: none;
+          border-left: 1px solid var(--accent-primary);
+          border-right: 1px solid var(--accent-primary);
+        }
+        
+        /* Timeline Legend */
+        .timeline-legend {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          font-size: 11px;
+          color: var(--text-muted);
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid var(--border-color);
+        }
+        
+        .legend-label {
+          font-weight: 500;
+          color: var(--text-secondary);
+        }
+        
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 2px 8px;
+          border: 1px solid var(--border-color);
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .legend-item:hover {
+          background: var(--bg-tertiary);
+        }
+        
+        .legend-item.marker-legend {
+          cursor: default;
+        }
+        
+        .legend-item.marker-legend:hover {
+          background: transparent;
+        }
+        
+        .legend-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        
+        .legend-divider {
+          color: var(--border-color);
+        }
+        
+        .reset-range-btn {
+          padding: 2px 8px;
+          font-size: 11px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          border-radius: 999px;
+          color: var(--text-secondary);
+          cursor: pointer;
+        }
+        
+        .reset-range-btn:hover {
+          background: var(--accent-primary);
+          color: white;
+          border-color: var(--accent-primary);
+        }
+        
         .timeline-controls {
           display: flex;
           align-items: center;
@@ -764,9 +847,10 @@ export default function RunPanel() {
           padding: 12px;
         }
         
-        /* State Sidebar */
+        /* State Sidebar - Watch Panel */
         .state-sidebar {
-          width: 300px;
+          width: 280px;
+          min-width: 280px;
           background: var(--bg-secondary);
           border-radius: var(--radius-lg);
           border: 1px solid var(--border-color);
@@ -775,83 +859,126 @@ export default function RunPanel() {
           overflow: hidden;
         }
         
-        .state-sidebar.collapsed {
-          width: auto;
-        }
-        
         .state-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px;
+          padding: 8px 12px;
           border-bottom: 1px solid var(--border-color);
+          background: var(--bg-tertiary);
         }
         
         .state-header h4 {
           display: flex;
           align-items: center;
-          gap: 8px;
-          font-size: 13px;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 600;
           margin: 0;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-secondary);
         }
         
         .state-header h4 svg {
-          color: var(--accent-primary);
+          color: var(--accent-secondary);
         }
         
-        .state-toggle {
-          padding: 4px;
-          background: transparent;
-          border: none;
+        .state-count {
+          font-size: 11px;
           color: var(--text-muted);
-          cursor: pointer;
+          font-family: var(--font-mono);
         }
         
         .state-content {
           flex: 1;
           overflow-y: auto;
-          padding: 12px;
+          font-size: 12px;
         }
         
         .state-empty {
           color: var(--text-muted);
           font-size: 12px;
           text-align: center;
-          padding: 20px;
+          padding: 24px 16px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
         }
         
-        .state-item {
-          margin-bottom: 12px;
-          padding: 10px;
+        .state-empty svg {
+          opacity: 0.3;
+        }
+        
+        .state-hint {
+          font-size: 11px;
+          opacity: 0.6;
+        }
+        
+        .watch-list {
+          font-family: var(--font-mono);
+        }
+        
+        .watch-item {
+          border-bottom: 1px solid var(--border-color);
+          padding: 8px 12px;
+        }
+        
+        .watch-item:last-child {
+          border-bottom: none;
+        }
+        
+        .watch-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 4px;
+        }
+        
+        .watch-key {
+          color: var(--accent-primary);
+          font-weight: 500;
+          font-size: 12px;
+        }
+        
+        .watch-type {
+          font-size: 10px;
+          color: var(--text-muted);
+          background: var(--bg-tertiary);
+          padding: 1px 6px;
+          border-radius: 3px;
+        }
+        
+        .watch-value {
+          font-size: 11px;
+          line-height: 1.5;
+          max-height: 120px;
+          overflow-y: auto;
+        }
+        
+        .value-string {
+          color: #ce9178;
+        }
+        
+        .value-number {
+          color: #b5cea8;
+        }
+        
+        .value-boolean {
+          color: #569cd6;
+        }
+        
+        .value-object {
+          color: var(--text-secondary);
+          margin: 4px 0 0 0;
+          padding: 8px;
           background: var(--bg-tertiary);
           border-radius: var(--radius-sm);
-        }
-        
-        .state-key {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--accent-primary);
-          font-family: var(--font-mono);
-          margin-bottom: 6px;
-        }
-        
-        .state-value {
-          font-size: 12px;
-          font-family: var(--font-mono);
-          color: var(--text-secondary);
-          max-height: 150px;
-          overflow-y: auto;
           white-space: pre-wrap;
           word-break: break-all;
-        }
-        
-        .state-item.new {
-          animation: stateFlash 1s ease-out;
-        }
-        
-        @keyframes stateFlash {
-          0% { background: rgba(0, 245, 212, 0.3); }
-          100% { background: var(--bg-tertiary); }
+          max-height: 100px;
+          overflow-y: auto;
         }
         
         /* Agent Group */
@@ -1472,7 +1599,7 @@ export default function RunPanel() {
                     background: agentColorMap[segment.agent] || '#888'
                   }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`${segment.agent}`}
+                  title={`Agent: ${segment.agent}`}
                 />
               ) : (
                 <div
@@ -1480,43 +1607,98 @@ export default function RunPanel() {
                   className={`timeline-marker ${segment.eventType}`}
                   style={{ left: `${segment.start}%` }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`${segment.eventType} - ${segment.agent}`}
+                  title={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType} by ${segment.agent}`}
                 />
               )
             ))}
-            {isPlaying && (
-              <div 
-                className="timeline-playhead" 
-                style={{ left: `${(playbackIndex / runEvents.length) * 100}%` }} 
-              />
-            )}
+            {/* Time range handles */}
+            <div 
+              className="timeline-range-handle start"
+              style={{ left: `${timelineRange[0]}%` }}
+              onMouseDown={(e) => {
+                const timeline = e.currentTarget.parentElement!;
+                const rect = timeline.getBoundingClientRect();
+                const handleDrag = (ev: MouseEvent) => {
+                  const percent = Math.max(0, Math.min(timelineRange[1] - 1, ((ev.clientX - rect.left) / rect.width) * 100));
+                  setTimelineRange([percent, timelineRange[1]]);
+                };
+                const stopDrag = () => {
+                  window.removeEventListener('mousemove', handleDrag);
+                  window.removeEventListener('mouseup', stopDrag);
+                };
+                window.addEventListener('mousemove', handleDrag);
+                window.addEventListener('mouseup', stopDrag);
+              }}
+              title="Drag to set start time"
+            />
+            <div 
+              className="timeline-range-handle end"
+              style={{ left: `${timelineRange[1]}%` }}
+              onMouseDown={(e) => {
+                const timeline = e.currentTarget.parentElement!;
+                const rect = timeline.getBoundingClientRect();
+                const handleDrag = (ev: MouseEvent) => {
+                  const percent = Math.max(timelineRange[0] + 1, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+                  setTimelineRange([timelineRange[0], percent]);
+                };
+                const stopDrag = () => {
+                  window.removeEventListener('mousemove', handleDrag);
+                  window.removeEventListener('mouseup', stopDrag);
+                };
+                window.addEventListener('mousemove', handleDrag);
+                window.addEventListener('mouseup', stopDrag);
+              }}
+              title="Drag to set end time"
+            />
+            {/* Selected range overlay */}
+            <div 
+              className="timeline-range-selection"
+              style={{ 
+                left: `${timelineRange[0]}%`, 
+                width: `${timelineRange[1] - timelineRange[0]}%` 
+              }}
+            />
           </div>
           
-          {/* Timeline Controls */}
-          <div className="timeline-controls">
-            <button onClick={() => setPlaybackIndex(0)} title="Rewind">
-              <Rewind size={12} />
-            </button>
-            <button 
-              onClick={() => setIsPlaying(!isPlaying)} 
-              className={isPlaying ? 'active' : ''}
-              title={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
-            </button>
-            <button onClick={() => setPlaybackIndex(Math.min(playbackIndex + 1, runEvents.length - 1))} title="Step Forward">
-              <SkipForward size={12} />
-            </button>
-            <select 
-              className="speed-selector"
-              value={playbackSpeed}
-              onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
-            >
-              <option value="0.5">0.5x</option>
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="4">4x</option>
-            </select>
+          {/* Agent Legend */}
+          <div className="timeline-legend">
+            <span className="legend-label">Agents:</span>
+            {agentNames.map(name => (
+              <span 
+                key={name} 
+                className="legend-item"
+                onClick={() => setAgentFilter(agentFilter === name ? 'all' : name)}
+                style={{ 
+                  borderColor: agentColorMap[name],
+                  background: agentFilter === name ? agentColorMap[name] + '30' : 'transparent'
+                }}
+                title={`Click to filter by ${name}`}
+              >
+                <span className="legend-dot" style={{ background: agentColorMap[name] }} />
+                {name}
+              </span>
+            ))}
+            <span className="legend-divider">|</span>
+            <span className="legend-label">Markers:</span>
+            <span className="legend-item marker-legend">
+              <span className="legend-dot" style={{ background: '#00f5d4' }} />
+              Tool Call
+            </span>
+            <span className="legend-item marker-legend">
+              <span className="legend-dot" style={{ background: '#ff6b6b' }} />
+              State Change
+            </span>
+            {(timelineRange[0] > 0 || timelineRange[1] < 100) && (
+              <>
+                <span className="legend-divider">|</span>
+                <button 
+                  className="reset-range-btn"
+                  onClick={() => setTimelineRange([0, 100])}
+                >
+                  Reset Range
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1590,30 +1772,45 @@ export default function RunPanel() {
           )}
         </div>
         
-        {/* State Sidebar */}
-        {showStateSidebar && runEvents.length > 0 && (
-          <div className={`state-sidebar ${!showStateSidebar ? 'collapsed' : ''}`}>
+        {/* State Sidebar - Watch Panel */}
+        {runEvents.length > 0 && (
+          <div className="state-sidebar">
             <div className="state-header">
               <h4>
-                <Database size={14} />
-                Session State
+                <Eye size={14} />
+                Watch
               </h4>
-              <button className="state-toggle" onClick={() => setShowStateSidebar(!showStateSidebar)}>
-                {showStateSidebar ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              <span className="state-count">{Object.keys(sessionState).length} keys</span>
             </div>
             <div className="state-content">
               {Object.keys(sessionState).length === 0 ? (
-                <div className="state-empty">No state changes yet</div>
+                <div className="state-empty">
+                  <Database size={20} />
+                  <span>No state yet</span>
+                  <span className="state-hint">State changes will appear here</span>
+                </div>
               ) : (
-                Object.entries(sessionState).map(([key, value]) => (
-                  <div key={key} className="state-item">
-                    <div className="state-key">{key}</div>
-                    <div className="state-value">
-                      {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                <div className="watch-list">
+                  {Object.entries(sessionState).map(([key, value]) => (
+                    <div key={key} className="watch-item">
+                      <div className="watch-row">
+                        <span className="watch-key">{key}</span>
+                        <span className="watch-type">{typeof value}</span>
+                      </div>
+                      <div className="watch-value">
+                        {typeof value === 'string' ? (
+                          <span className="value-string">"{value}"</span>
+                        ) : typeof value === 'number' ? (
+                          <span className="value-number">{value}</span>
+                        ) : typeof value === 'boolean' ? (
+                          <span className="value-boolean">{String(value)}</span>
+                        ) : (
+                          <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           </div>
