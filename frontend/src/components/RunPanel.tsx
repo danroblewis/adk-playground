@@ -313,11 +313,22 @@ const EVENT_CONFIG: Record<string, { icon: React.FC<{ size: number }>, color: st
   agent_end: { icon: GitBranch, color: '#7b2cbf', label: 'Agent End' },
   tool_call: { icon: Wrench, color: '#00f5d4', label: 'Tool Call' },
   tool_result: { icon: Wrench, color: '#00f5d4', label: 'Tool Result' },
+  tool_interaction: { icon: Wrench, color: '#00f5d4', label: 'Tool' },
   model_call: { icon: Cpu, color: '#ffd93d', label: 'Model Call' },
   model_response: { icon: MessageSquare, color: '#ffd93d', label: 'Model Response' },
+  model_interaction: { icon: Cpu, color: '#ffd93d', label: 'Model' },
   state_change: { icon: Database, color: '#ff6b6b', label: 'State Change' },
   transfer: { icon: Zap, color: '#00d4ff', label: 'Transfer' },
 };
+
+// Grouped event type - combines call/response pairs
+interface GroupedEvent {
+  type: 'single' | 'tool_interaction' | 'model_interaction';
+  events: RunEvent[];
+  indices: number[];
+  agent_name: string;
+  timestamp: number;
+}
 
 // Agent colors for timeline
 const AGENT_COLORS = [
@@ -338,8 +349,8 @@ export default function RunPanel() {
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
-  // Filtering state
-  const [eventFilters, setEventFilters] = useState<Set<string>>(new Set(['tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'agent_start', 'agent_end']));
+  // Filtering state - use combined types for cleaner UI
+  const [eventFilters, setEventFilters] = useState<Set<string>>(new Set(['tool_interaction', 'model_interaction', 'state_change', 'agent_start', 'agent_end']));
   const [agentFilter, setAgentFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarkedEvents, setBookmarkedEvents] = useState<Set<number>>(new Set());
@@ -445,29 +456,102 @@ export default function RunPanel() {
   const maxTime = runEvents.length > 0 ? runEvents[runEvents.length - 1].timestamp : 0;
   const duration = maxTime - minTime || 1;
   
-  // Filter events
-  const filteredEvents = useMemo(() => {
-    return runEvents.filter((event, i) => {
+  // Group related events (call + response pairs)
+  const groupedEvents = useMemo(() => {
+    const groups: GroupedEvent[] = [];
+    let i = 0;
+    
+    while (i < runEvents.length) {
+      const event = runEvents[i];
+      
+      // Try to pair tool_call with tool_result
+      if (event.event_type === 'tool_call' && i + 1 < runEvents.length) {
+        const next = runEvents[i + 1];
+        if (next.event_type === 'tool_result' && 
+            next.agent_name === event.agent_name &&
+            next.data?.tool_name === event.data?.tool_name) {
+          groups.push({
+            type: 'tool_interaction',
+            events: [event, next],
+            indices: [i, i + 1],
+            agent_name: event.agent_name,
+            timestamp: event.timestamp,
+          });
+          i += 2;
+          continue;
+        }
+      }
+      
+      // Try to pair model_call with model_response
+      if (event.event_type === 'model_call' && i + 1 < runEvents.length) {
+        const next = runEvents[i + 1];
+        if (next.event_type === 'model_response' && next.agent_name === event.agent_name) {
+          groups.push({
+            type: 'model_interaction',
+            events: [event, next],
+            indices: [i, i + 1],
+            agent_name: event.agent_name,
+            timestamp: event.timestamp,
+          });
+          i += 2;
+          continue;
+        }
+      }
+      
+      // Single event (not paired)
+      groups.push({
+        type: 'single',
+        events: [event],
+        indices: [i],
+        agent_name: event.agent_name,
+        timestamp: event.timestamp,
+      });
+      i++;
+    }
+    
+    return groups;
+  }, [runEvents]);
+  
+  // Filter grouped events
+  const filteredGroups = useMemo(() => {
+    return groupedEvents.filter((group) => {
+      const event = group.events[0];
+      
       // Timeline range filter
       const percent = ((event.timestamp - minTime) / duration) * 100;
       if (percent < timelineRange[0] || percent > timelineRange[1]) return false;
       
-      // Event type filter
-      if (!eventFilters.has(event.event_type)) return false;
+      // Event type filter - map grouped types to filter types
+      let filterType = group.type;
+      if (group.type === 'single') {
+        filterType = event.event_type;
+        // Map individual types to combined filter types
+        if (filterType === 'tool_call' || filterType === 'tool_result') {
+          filterType = 'tool_interaction';
+        } else if (filterType === 'model_call' || filterType === 'model_response') {
+          filterType = 'model_interaction';
+        }
+      }
+      if (!eventFilters.has(filterType)) return false;
       
       // Agent filter
-      if (agentFilter !== 'all' && event.agent_name !== agentFilter) return false;
+      if (agentFilter !== 'all' && group.agent_name !== agentFilter) return false;
       
       // Search filter
       if (searchQuery) {
         const searchLower = searchQuery.toLowerCase();
-        const eventStr = JSON.stringify(event).toLowerCase();
+        const eventStr = JSON.stringify(group.events).toLowerCase();
         if (!eventStr.includes(searchLower)) return false;
       }
       
       return true;
     });
-  }, [runEvents, timelineRange, eventFilters, agentFilter, searchQuery, minTime, duration]);
+  }, [groupedEvents, timelineRange, eventFilters, agentFilter, searchQuery, minTime, duration]);
+  
+  // Legacy filteredEvents for token counting (keep backwards compatible)
+  const filteredEvents = useMemo(() => {
+    return filteredGroups.flatMap(g => g.events);
+  }, [filteredGroups]);
   
   // Token totals
   const tokenTotals = useMemo(() => {
@@ -851,31 +935,34 @@ export default function RunPanel() {
   // Render events grouped by agent
   function renderEvents() {
     let currentAgent: string | null = null;
-    let agentEvents: { event: RunEvent; index: number }[] = [];
+    let agentGroups: GroupedEvent[] = [];
     const elements: React.ReactNode[] = [];
     
     function flushAgent() {
-      if (currentAgent && agentEvents.length > 0) {
+      if (currentAgent && agentGroups.length > 0) {
         const agentName = currentAgent;
-        const events = [...agentEvents];
-        const groupKey = `${agentName}-${events[0].index}`;
+        const groups = [...agentGroups];
+        const groupKey = `${agentName}-${groups[0].indices[0]}`;
         const isCollapsed = collapsedAgents.has(groupKey);
         const agentColor = agentColorMap[agentName] || '#888';
         
-        // Calculate agent stats
-        const toolCalls = events.filter(e => e.event.event_type === 'tool_call').length;
-        const stateChanges = events.filter(e => e.event.event_type === 'state_change').length;
-        const hasError = events.some(e => e.event.data?.error);
-        const agentDuration = events.length > 1 
-          ? ((events[events.length - 1].event.timestamp - events[0].event.timestamp) * 1000).toFixed(0)
+        // Calculate agent stats - count tool interactions
+        const toolCalls = groups.filter(g => g.type === 'tool_interaction' || 
+          (g.type === 'single' && (g.events[0].event_type === 'tool_call' || g.events[0].event_type === 'tool_result'))).length;
+        const stateChanges = groups.filter(g => g.type === 'single' && g.events[0].event_type === 'state_change').length;
+        const hasError = groups.some(g => g.events.some(e => e.data?.error));
+        const allEvents = groups.flatMap(g => g.events);
+        const agentDuration = allEvents.length > 1 
+          ? ((allEvents[allEvents.length - 1].timestamp - allEvents[0].timestamp) * 1000).toFixed(0)
           : '0';
         
         // Determine current status
-        const lastEvent = events[events.length - 1].event;
+        const lastGroup = groups[groups.length - 1];
+        const lastEvent = lastGroup.events[lastGroup.events.length - 1];
         let status = 'complete';
         if (isRunning && lastEvent.agent_name === agentName) {
-          if (lastEvent.event_type === 'model_call') status = 'thinking';
-          else if (lastEvent.event_type === 'tool_call') status = 'tool';
+          if (lastEvent.event_type === 'model_call' || lastGroup.type === 'model_interaction') status = 'thinking';
+          else if (lastEvent.event_type === 'tool_call' || lastGroup.type === 'tool_interaction') status = 'tool';
           else status = 'running';
         }
         if (hasError) status = 'error';
@@ -905,20 +992,19 @@ export default function RunPanel() {
                   </span>
                 )}
                 <span className="agent-stat time-stat">{agentDuration}ms</span>
-                <span className="event-count">{events.length} events</span>
+                <span className="event-count">{groups.length} items</span>
               </div>
             </div>
             {!isCollapsed && (
               <div className="agent-events">
-                {events.map(({ event, index }) => (
-                  <EventItem 
-                    key={index}
-                    event={event}
-                    index={index}
-                    expanded={expandedEvents.has(index)}
-                    onToggle={() => toggleEventExpand(index)}
-                    isBookmarked={bookmarkedEvents.has(index)}
-                    onBookmark={() => toggleBookmark(index)}
+                {groups.map((group) => (
+                  <GroupedEventItem 
+                    key={group.indices.join('-')}
+                    group={group}
+                    expanded={expandedEvents.has(group.indices[0])}
+                    onToggle={() => toggleEventExpand(group.indices[0])}
+                    isBookmarked={group.indices.some(i => bookmarkedEvents.has(i))}
+                    onBookmark={() => toggleBookmark(group.indices[0])}
                     onCopy={copyToClipboard}
                   />
                 ))}
@@ -926,17 +1012,16 @@ export default function RunPanel() {
             )}
           </div>
         );
-        agentEvents = [];
+        agentGroups = [];
       }
     }
     
-    filteredEvents.forEach((event) => {
-      const globalIndex = runEvents.indexOf(event);
-      if (event.agent_name !== currentAgent) {
+    filteredGroups.forEach((group) => {
+      if (group.agent_name !== currentAgent) {
         flushAgent();
-        currentAgent = event.agent_name;
+        currentAgent = group.agent_name;
       }
-      agentEvents.push({ event, index: globalIndex });
+      agentGroups.push(group);
     });
     flushAgent();
     
@@ -2063,6 +2148,69 @@ export default function RunPanel() {
           color: var(--accent-secondary);
         }
         
+        /* Combined Event Styles */
+        .combined-event .tool-name-inline {
+          font-family: var(--font-mono);
+          font-weight: 600;
+          color: var(--accent-primary);
+          font-size: 12px;
+        }
+        
+        .tool-status-badge {
+          display: flex;
+          align-items: center;
+          margin-left: 4px;
+        }
+        
+        .tool-status-badge.success { color: #10b981; }
+        .tool-status-badge.error { color: #ff6b6b; }
+        
+        .combined-details {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .combined-section {
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+          overflow: hidden;
+        }
+        
+        .combined-section-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 500;
+          color: var(--text-secondary);
+          background: var(--bg-secondary);
+          border-bottom: 1px solid var(--border-color);
+        }
+        
+        .combined-section-header:hover {
+          background: var(--bg-tertiary);
+        }
+        
+        .combined-section-header .status-indicator {
+          margin-left: auto;
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: var(--radius-sm);
+        }
+        
+        .combined-section-header .status-indicator.success {
+          background: rgba(16, 185, 129, 0.15);
+          color: #10b981;
+        }
+        
+        .combined-section-header .status-indicator.error {
+          background: rgba(255, 107, 107, 0.15);
+          color: #ff6b6b;
+        }
+        
         /* Event Details */
         .event-details {
           margin-top: 12px;
@@ -2660,10 +2808,10 @@ export default function RunPanel() {
         <div className="filters-area">
           <div className="filter-group">
             <span className="filter-label" data-tooltip="Filter by event type"><Filter size={12} /></span>
-            {['tool_call', 'model_call', 'state_change'].map(type => {
+            {['tool_interaction', 'model_interaction', 'state_change'].map(type => {
               const tooltips: Record<string, string> = {
-                'tool_call': 'Tool calls by agents',
-                'model_call': 'LLM calls & responses',
+                'tool_interaction': 'Tool calls & results',
+                'model_interaction': 'LLM calls & responses',
                 'state_change': 'State changes',
               };
               return (
@@ -2920,7 +3068,284 @@ function AgentStatusBadge({ status }: { status: string }) {
   );
 }
 
-// Event Item Component
+// Grouped Event Item Component - handles combined call/response pairs
+function GroupedEventItem({ 
+  group, 
+  expanded, 
+  onToggle,
+  isBookmarked,
+  onBookmark,
+  onCopy
+}: { 
+  group: GroupedEvent;
+  expanded: boolean; 
+  onToggle: () => void;
+  isBookmarked: boolean;
+  onBookmark: () => void;
+  onCopy: (text: string) => void;
+}) {
+  const [showRequest, setShowRequest] = useState(false);
+  const [showResponse, setShowResponse] = useState(false);
+  
+  // For single events, delegate to original rendering
+  if (group.type === 'single') {
+    const event = group.events[0];
+    const config = EVENT_CONFIG[event.event_type] || { icon: MessageSquare, color: '#888', label: event.event_type };
+    const Icon = config.icon;
+    const hasError = event.data?.error;
+    
+    function getPreview() {
+      switch (event.event_type) {
+        case 'state_change':
+          const keys = Object.keys(event.data.state_delta || {});
+          return keys.length > 0 ? `Updated: ${keys.join(', ')}` : '';
+        case 'agent_start':
+          return event.data?.instruction?.slice(0, 60) + '...' || '';
+        case 'agent_end':
+          return event.data?.error || 'Complete';
+        default:
+          return '';
+      }
+    }
+    
+    return (
+      <div 
+        id={`event-${group.indices[0]}`}
+        className={`event-item ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
+      >
+        <div className="event-header" onClick={onToggle}>
+          <div className="event-icon" style={{ background: `${config.color}20` }}>
+            <Icon size={14} style={{ color: config.color }} />
+          </div>
+          <div className="event-main">
+            <div className="event-title">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span className="event-type-badge">{config.label}</span>
+            </div>
+            {!expanded && (
+              <div className="event-preview">{getPreview()}</div>
+            )}
+          </div>
+          <div className="event-actions">
+            <button 
+              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
+              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
+              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+            >
+              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
+            </button>
+            <button 
+              className="event-action-btn"
+              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify(event.data, null, 2)); }}
+              data-tooltip="Copy data"
+            >
+              <Copy size={14} />
+            </button>
+          </div>
+        </div>
+        
+        {expanded && (
+          <div className="event-details">
+            <EventDetails event={event} onCopy={onCopy} />
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  // Combined tool interaction
+  if (group.type === 'tool_interaction') {
+    const callEvent = group.events[0];
+    const resultEvent = group.events[1];
+    const config = EVENT_CONFIG['tool_interaction'];
+    const Icon = config.icon;
+    const toolName = callEvent.data?.tool_name;
+    const hasError = resultEvent?.data?.result?.isError === true || resultEvent?.data?.error;
+    const resultText = extractToolResultText(resultEvent?.data?.result);
+    
+    return (
+      <div 
+        id={`event-${group.indices[0]}`}
+        className={`event-item combined-event ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
+      >
+        <div className="event-header" onClick={onToggle}>
+          <div className="event-icon" style={{ background: `${config.color}20` }}>
+            <Icon size={14} style={{ color: config.color }} />
+          </div>
+          <div className="event-main">
+            <div className="event-title">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span className="event-type-badge">{config.label}</span>
+              <span className="tool-name-inline">{toolName}</span>
+              <span className={`tool-status-badge ${hasError ? 'error' : 'success'}`}>
+                {hasError ? <XCircle size={10} /> : <CheckCircle size={10} />}
+              </span>
+            </div>
+            {!expanded && (
+              <div className="event-preview">
+                {`(${Object.keys(callEvent.data?.args || {}).join(', ')})` + 
+                  (resultText ? ` → ${resultText.slice(0, 50)}...` : '')}
+              </div>
+            )}
+          </div>
+          <div className="event-actions">
+            <button 
+              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
+              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
+              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+            >
+              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
+            </button>
+            <button 
+              className="event-action-btn"
+              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify({ call: callEvent.data, result: resultEvent?.data }, null, 2)); }}
+              data-tooltip="Copy data"
+            >
+              <Copy size={14} />
+            </button>
+          </div>
+        </div>
+        
+        {expanded && (
+          <div className="event-details combined-details">
+            <div className="combined-section">
+              <div className="combined-section-header" onClick={() => setShowRequest(!showRequest)}>
+                {showRequest ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span>Request Parameters</span>
+              </div>
+              {showRequest && (
+                <div className="tool-params">
+                  {Object.entries(callEvent.data.args || {}).map(([key, value]) => (
+                    <div key={key} className="param-row">
+                      <span className="param-key">{key}:</span>
+                      <span className={`param-value ${typeof value}`}>
+                        {typeof value === 'string' ? `"${value}"` : JSON.stringify(value)}
+                      </span>
+                    </div>
+                  ))}
+                  {Object.keys(callEvent.data.args || {}).length === 0 && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No parameters</div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="combined-section">
+              <div className="combined-section-header" onClick={() => setShowResponse(!showResponse)}>
+                {showResponse ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span>Response</span>
+                <span className={`status-indicator ${hasError ? 'error' : 'success'}`}>
+                  {hasError ? 'Error' : 'Success'}
+                </span>
+              </div>
+              {showResponse && resultText && (
+                <div className="tool-response" style={{ whiteSpace: 'pre-wrap' }}>{resultText}</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  // Combined model interaction
+  if (group.type === 'model_interaction') {
+    const callEvent = group.events[0];
+    const responseEvent = group.events[1];
+    const config = EVENT_CONFIG['model_interaction'];
+    const Icon = config.icon;
+    const hasError = responseEvent?.data?.error;
+    const tokenCounts = responseEvent?.data?.token_counts;
+    
+    // Extract response preview
+    const responseParts = responseEvent?.data?.response_content?.parts || responseEvent?.data?.parts || [];
+    const fnCall = responseParts.find((p: any) => p.type === 'function_call');
+    const textPart = responseParts.find((p: any) => p.type === 'text');
+    let responsePreview = '';
+    if (fnCall) responsePreview = `→ ${fnCall.name}()`;
+    else if (textPart) responsePreview = textPart.text?.slice(0, 60) + '...';
+    
+    return (
+      <div 
+        id={`event-${group.indices[0]}`}
+        className={`event-item combined-event ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
+      >
+        <div className="event-header" onClick={onToggle}>
+          <div className="event-icon" style={{ background: `${config.color}20` }}>
+            <Icon size={14} style={{ color: config.color }} />
+          </div>
+          <div className="event-main">
+            <div className="event-title">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span className="event-type-badge">{config.label}</span>
+              {tokenCounts && (
+                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {tokenCounts.input}↓ {tokenCounts.output}↑
+                </span>
+              )}
+            </div>
+            {!expanded && (
+              <div className="event-preview">
+                {`${callEvent.data?.contents?.length || 0} msgs` + 
+                  (responsePreview ? ` ${responsePreview}` : '')}
+              </div>
+            )}
+          </div>
+          <div className="event-actions">
+            <button 
+              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
+              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
+              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+            >
+              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
+            </button>
+            <button 
+              className="event-action-btn"
+              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify({ request: callEvent.data, response: responseEvent?.data }, null, 2)); }}
+              data-tooltip="Copy data"
+            >
+              <Copy size={14} />
+            </button>
+          </div>
+        </div>
+        
+        {expanded && (
+          <div className="event-details combined-details">
+            <div className="combined-section">
+              <div className="combined-section-header" onClick={() => setShowRequest(!showRequest)}>
+                {showRequest ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span>Request ({callEvent.data?.contents?.length || 0} messages)</span>
+              </div>
+              {showRequest && (
+                <ModelCallDetails data={callEvent.data} />
+              )}
+            </div>
+            
+            <div className="combined-section">
+              <div className="combined-section-header response-header" onClick={() => setShowResponse(!showResponse)}>
+                {showResponse ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span>Response</span>
+                {tokenCounts && (
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>
+                    {tokenCounts.input + tokenCounts.output} tokens
+                  </span>
+                )}
+              </div>
+              {showResponse && (
+                <ModelResponseDetails data={responseEvent?.data} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  
+  // Fallback - shouldn't happen
+  return null;
+}
+
+// Event Item Component (legacy, for backwards compatibility)
 function EventItem({ 
   event, 
   index, 

@@ -29,8 +29,8 @@ app:
   - id: model_miwrj05u
     name: New Model
     provider: litellm
-    model_name: gemini/gemini-2.5-flash
-    api_base: null
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
     temperature: null
     max_output_tokens: null
     top_p: null
@@ -46,8 +46,8 @@ agents:
   description: an agent that performs actions for the user using a web browser
   model:
     provider: litellm
-    model_name: gemini/gemini-2.5-flash
-    api_base: null
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null

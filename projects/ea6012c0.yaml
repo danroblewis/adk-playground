@@ -3,7 +3,7 @@ name: Iterative Writer
 description: Demo of LoopAgent with author/critic workflow
 app:
   id: app_ea6012c0
-  name: Iterative Writer
+  name: iterative_writer
   description: ''
   root_agent_id: agent_loop
   session_service_uri: memory://
@@ -35,13 +35,14 @@ app:
     name: New Model
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    api_base: http://localhost:11434
     temperature: null
     max_output_tokens: null
     top_p: null
     top_k: null
     is_default: true
   default_model_id: model_miw9xh0n
+  env_vars: {}
 agents:
 - type: LlmAgent
   id: agent_writer
@@ -50,7 +51,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -83,7 +84,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null

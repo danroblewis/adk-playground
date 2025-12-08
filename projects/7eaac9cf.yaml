@@ -5,7 +5,7 @@ app:
   id: app_7eaac9cf
   name: kubernetes_guy
   description: ''
-  root_agent_id: agent_miwmcoqz
+  root_agent_id: agent_miwm4gam
   session_service_uri: memory://
   memory_service_uri: memory://
   artifact_service_uri: memory://
@@ -44,24 +44,24 @@ app:
   - id: model_miwm5iec
     name: qwen3:8b
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
-    temperature: null
-    max_output_tokens: null
-    top_p: null
-    top_k: null
-    is_default: true
-  - id: model_miwsyd4y
-    name: New Model
-    provider: litellm
     model_name: gemini/gemini-2.5-flash
     api_base: null
     temperature: null
     max_output_tokens: null
     top_p: null
     top_k: null
+    is_default: true
+  - id: model_mixcvom5
+    name: New Model
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
     is_default: false
-  default_model_id: model_miwsyd4y
+  default_model_id: model_mixcvom5
   env_vars:
     GOOGLE_API_KEY: AIzaSyCl3XW20OPsj3sXau4IX-5sW6Cc5Qa21Wo
 agents:
@@ -71,8 +71,8 @@ agents:
   description: kubernetes triage research orchestrator
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -132,8 +132,8 @@ agents:
   description: Researches Kubernetes pod issues using cluster data and web search
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -212,8 +212,8 @@ agents:
   description: Researches Kubernetes ConfigMap issues using search and cluster tools
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
