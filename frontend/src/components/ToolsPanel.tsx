@@ -172,7 +172,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       env: {},
       headers: {},
       timeout: 10,
-      tool_filter: [],
+      // tool_filter: null means no filter (all tools available)
     };
     updateProject({
       mcp_servers: [...projectMcpServers, newServer]
@@ -1346,7 +1346,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                 </div>
                 <div className="schema-field">
                   <code>tool_filter</code>
-                  <span>Array of tool names to include (empty = all)</span>
+                  <span>Array of tool names to include (null/omit = all tools, [] = no tools)</span>
                 </div>
               </div>
             </div>

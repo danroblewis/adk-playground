@@ -1068,7 +1068,7 @@ function ToolsEditor({
                 <div className="mcp-tool-info">
                   <div className="mcp-tool-name">{tool.server.name}</div>
                   <div className="mcp-tool-count">
-                    {tool.server.tool_filter?.length || 0} tools enabled
+                    {tool.server.tool_filter === null || tool.server.tool_filter === undefined ? 'all tools' : `${tool.server.tool_filter.length} tools enabled`}
                   </div>
                 </div>
                 <button className="delete-btn" onClick={(e) => { e.stopPropagation(); onRemove(index); }}>
@@ -1167,7 +1167,7 @@ function ToolsEditor({
                       <div className="dropdown-item-name">
                         {server.name}
                         <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
-                          {server.tool_filter?.length || 0} tools
+                          {server.tool_filter === null || server.tool_filter === undefined ? 'all tools' : `${server.tool_filter.length} tools`}
                         </span>
                       </div>
                       <div className="dropdown-item-desc">{server.description}</div>
@@ -1189,7 +1189,7 @@ function ToolsEditor({
                       <div className="dropdown-item-name">
                         {server.name}
                         <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
-                          {server.tool_filter?.length || 0} tools
+                          {server.tool_filter === null || server.tool_filter === undefined ? 'all tools' : `${server.tool_filter.length} tools`}
                         </span>
                       </div>
                       <div className="dropdown-item-desc">{server.description || 'Custom MCP server'}</div>

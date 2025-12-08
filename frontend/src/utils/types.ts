@@ -22,7 +22,7 @@ export interface MCPServerConfig {
   url?: string;
   headers: Record<string, string>;
   timeout: number;
-  tool_filter: string[];
+  tool_filter?: string[] | null;  // null = no filter (all tools), [] = no tools, ["a","b"] = only those
   tool_name_prefix?: string;
 }
 

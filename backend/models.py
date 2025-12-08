@@ -68,8 +68,8 @@ class MCPServerConfig(BaseModel):
     url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
     timeout: float = 10.0
-    # Tool filtering
-    tool_filter: List[str] = Field(default_factory=list)
+    # Tool filtering (null = no filter/all tools, [] = no tools, ["a","b"] = only those tools)
+    tool_filter: Optional[List[str]] = None
     tool_name_prefix: Optional[str] = None
 
 
