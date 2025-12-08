@@ -913,6 +913,26 @@ function ToolsEditor({
           background: var(--bg-tertiary);
         }
         
+        .mcp-tool-header .delete-btn {
+          padding: 6px;
+          color: var(--text-muted);
+          background: transparent;
+          border: none;
+          border-radius: var(--radius-sm);
+          opacity: 0.6;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        
+        .mcp-tool-header:hover .delete-btn {
+          opacity: 1;
+        }
+        
+        .mcp-tool-header .delete-btn:hover {
+          color: var(--error);
+          background: rgba(255, 107, 107, 0.1);
+        }
+        
         .mcp-tool-info {
           flex: 1;
         }
