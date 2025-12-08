@@ -324,15 +324,33 @@ export default function RunPanel() {
   if (!project) return null;
   
   // Calculate session state from state_change events up to the selected time range
+  // Also include known state keys from App config and agent output_keys
   const sessionState = useMemo(() => {
     const state: Record<string, any> = {};
+    
+    // Start with known state keys from App config (with their default values)
+    if (project?.app?.state_keys) {
+      project.app.state_keys.forEach((keyConfig: any) => {
+        state[keyConfig.name] = keyConfig.default_value ?? undefined;
+      });
+    }
+    
+    // Also include output_key values from agents (they create state keys at runtime)
+    if (project?.agents) {
+      project.agents.forEach((agent: any) => {
+        if (agent.output_key && !(agent.output_key in state)) {
+          state[agent.output_key] = undefined;
+        }
+      });
+    }
+    
     if (runEvents.length === 0) return state;
     
     const minTime = runEvents[0].timestamp;
     const maxTime = runEvents[runEvents.length - 1].timestamp;
     const duration = maxTime - minTime || 1;
     
-    // Only include state changes up to the end of the selected time range
+    // Apply state changes up to the end of the selected time range
     runEvents.forEach(event => {
       const percent = ((event.timestamp - minTime) / duration) * 100;
       // Include events up to the end of the time range
@@ -343,7 +361,31 @@ export default function RunPanel() {
       }
     });
     return state;
-  }, [runEvents, timelineRange]);
+  }, [runEvents, timelineRange, project?.app?.state_keys, project?.agents]);
+  
+  // Get state key configs for metadata display (from App config + agent output_keys)
+  const stateKeyConfigs = useMemo(() => {
+    const configs: Record<string, any> = {};
+    if (project?.app?.state_keys) {
+      project.app.state_keys.forEach((keyConfig: any) => {
+        configs[keyConfig.name] = keyConfig;
+      });
+    }
+    // Add output_key info from agents
+    if (project?.agents) {
+      project.agents.forEach((agent: any) => {
+        if (agent.output_key && !configs[agent.output_key]) {
+          configs[agent.output_key] = {
+            name: agent.output_key,
+            description: `Output from agent "${agent.name}"`,
+            type: 'string',
+            source: 'agent_output'
+          };
+        }
+      });
+    }
+    return configs;
+  }, [project?.app?.state_keys, project?.agents]);
   
   // Get unique agent names for filtering
   const agentNames = useMemo(() => {
@@ -1494,6 +1536,49 @@ export default function RunPanel() {
           font-style: italic;
         }
         
+        .value-undefined {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+        
+        .value-null {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+        
+        .watch-item-undefined {
+          opacity: 0.7;
+        }
+        
+        .watch-item-undefined .watch-value {
+          color: var(--text-muted);
+        }
+        
+        .watch-item-agent {
+          border-left: 2px solid var(--accent-secondary);
+          padding-left: 8px;
+        }
+        
+        .watch-source {
+          margin-left: 4px;
+          font-size: 10px;
+        }
+        
+        .watch-empty {
+          padding: 12px;
+          text-align: center;
+          color: var(--text-muted);
+          font-size: 11px;
+          font-style: italic;
+        }
+        
+        .watch-description {
+          font-size: 10px;
+          color: var(--text-muted);
+          margin-bottom: 4px;
+          font-family: system-ui, -apple-system, sans-serif;
+        }
+        
         /* Watch Tools */
         .add-watch-btn {
           padding: 4px;
@@ -2608,37 +2693,57 @@ export default function RunPanel() {
               </Tooltip>
             </div>
             <div className="state-content">
-              {/* Session State Section */}
-              {Object.keys(sessionState).length > 0 && (
-                <div className="watch-section">
-                  <div className="watch-section-header">
-                    <Database size={12} />
-                    Session State
-                    <span className="watch-section-count">{Object.keys(sessionState).length}</span>
-                  </div>
-                  <div className="watch-list">
-                    {Object.entries(sessionState).map(([key, value]) => (
-                      <div key={key} className="watch-item">
-                        <div className="watch-row">
-                          <span className="watch-key">{key}</span>
-                          <span className="watch-type">{typeof value}</span>
-                        </div>
-                        <div className="watch-value">
-                          {typeof value === 'string' ? (
-                            <span className="value-string">"{value}"</span>
-                          ) : typeof value === 'number' ? (
-                            <span className="value-number">{value}</span>
-                          ) : typeof value === 'boolean' ? (
-                            <span className="value-boolean">{String(value)}</span>
-                          ) : (
-                            <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              {/* Session State Section - Always show */}
+              <div className="watch-section">
+                <div className="watch-section-header">
+                  <Database size={12} />
+                  Session State
+                  <span className="watch-section-count">{Object.keys(sessionState).length}</span>
                 </div>
-              )}
+                <div className="watch-list">
+                  {Object.keys(sessionState).length === 0 ? (
+                    <div className="watch-empty">
+                      No state keys configured. Add state keys in App Config or set output_key on agents.
+                    </div>
+                  ) : (
+                    Object.entries(sessionState).map(([key, value]) => {
+                      const config = stateKeyConfigs[key];
+                      const isUndefined = value === undefined;
+                      const isFromAgent = config?.source === 'agent_output';
+                      
+                      return (
+                        <div key={key} className={`watch-item ${isUndefined ? 'watch-item-undefined' : ''} ${isFromAgent ? 'watch-item-agent' : ''}`}>
+                          <div className="watch-row">
+                            <span className="watch-key">{key}</span>
+                            <span className="watch-type">
+                              {config?.type || (isUndefined ? 'undefined' : typeof value)}
+                              {isFromAgent && <span className="watch-source" title="From agent output_key"> ⚡</span>}
+                            </span>
+                          </div>
+                          {config?.description && (
+                            <div className="watch-description">{config.description}</div>
+                          )}
+                          <div className="watch-value">
+                            {isUndefined ? (
+                              <span className="value-undefined">— not set —</span>
+                            ) : typeof value === 'string' ? (
+                              <span className="value-string">"{value}"</span>
+                            ) : typeof value === 'number' ? (
+                              <span className="value-number">{value}</span>
+                            ) : typeof value === 'boolean' ? (
+                              <span className="value-boolean">{String(value)}</span>
+                            ) : value === null ? (
+                              <span className="value-null">null</span>
+                            ) : (
+                              <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
               
               {/* Watch Tools Section */}
               {watchTools.length > 0 && (
