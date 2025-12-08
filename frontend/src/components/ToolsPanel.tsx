@@ -55,7 +55,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   useEffect(() => {
     if (selectedTool) {
       setEditingCode(selectedTool.code);
-      setHasCodeChanges(false);
     }
   }, [selectedToolId]);
   
