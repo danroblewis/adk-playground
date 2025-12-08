@@ -272,6 +272,41 @@ function WatchToolDialog({ project, onClose, onAdd }: {
   );
 }
 
+// Helper to extract readable text from various tool result formats
+function extractToolResultText(result: any): string {
+  if (!result) return '';
+  
+  // Direct string result
+  if (typeof result === 'string') return result;
+  
+  // MCP-style result with content array
+  // Format: { content: [{ type: 'text', text: '...' }], isError: false }
+  if (result.content && Array.isArray(result.content)) {
+    const texts = result.content
+      .filter((item: any) => item.type === 'text' && item.text)
+      .map((item: any) => item.text);
+    if (texts.length > 0) return texts.join('\n');
+  }
+  
+  // Result with direct text property
+  if (result.text) return result.text;
+  
+  // Error result
+  if (result.error) return `Error: ${result.error}`;
+  if (result.isError && result.content) {
+    // Try to extract error text from content
+    const errorText = extractToolResultText({ content: result.content });
+    if (errorText) return `Error: ${errorText}`;
+  }
+  
+  // Fallback to JSON
+  try {
+    return JSON.stringify(result, null, 2);
+  } catch {
+    return String(result);
+  }
+}
+
 // Event type configurations
 const EVENT_CONFIG: Record<string, { icon: React.FC<{ size: number }>, color: string, label: string }> = {
   agent_start: { icon: GitBranch, color: '#7b2cbf', label: 'Agent Start' },
@@ -2900,8 +2935,8 @@ function EventItem({
       case 'tool_call':
         return `${event.data.tool_name}(${Object.keys(event.data.args || {}).join(', ')})`;
       case 'tool_result':
-        const preview = event.data.result_preview?.slice(0, 80);
-        return preview ? `${preview}...` : 'No response';
+        const resultText = extractToolResultText(event.data.result);
+        return resultText ? (resultText.length > 80 ? resultText.slice(0, 80) + '...' : resultText) : 'No response';
       case 'model_call':
         return `${event.data.contents?.length || 0} messages, ${event.data.tool_count || 0} tools`;
       case 'model_response':
@@ -3001,14 +3036,17 @@ function EventDetails({ event, onCopy }: { event: RunEvent; onCopy: (text: strin
   }
   
   if (event.event_type === 'tool_result') {
-    const hasResult = event.data.result_preview;
+    const resultText = extractToolResultText(event.data.result);
+    const hasResult = !!resultText;
+    const isError = event.data.result?.isError === true;
     return (
       <div className="tool-call-card">
         <div className="tool-call-header">
           <Wrench size={16} style={{ color: '#00f5d4' }} />
           <span className="tool-name">{event.data.tool_name}</span>
-          <span className="tool-status success">
-            <CheckCircle size={10} /> Complete
+          <span className={`tool-status ${isError ? 'error' : 'success'}`}>
+            {isError ? <XCircle size={10} /> : <CheckCircle size={10} />} 
+            {isError ? 'Error' : 'Complete'}
           </span>
         </div>
         {hasResult && (
@@ -3021,7 +3059,7 @@ function EventDetails({ event, onCopy }: { event: RunEvent; onCopy: (text: strin
               {showResponse ? 'Hide Response' : 'Show Response'}
             </div>
             {showResponse && (
-              <div className="tool-response">{event.data.result_preview}</div>
+              <div className="tool-response" style={{ whiteSpace: 'pre-wrap' }}>{resultText}</div>
             )}
           </>
         )}
