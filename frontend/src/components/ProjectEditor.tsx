@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Settings, Bot, Wrench, Play, TestTube, FileCode, Save } from 'lucide-react';
+import { ArrowLeft, Settings, Bot, Wrench, Play, TestTube, FileCode, Code, Save } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { getProject, updateProject as apiUpdateProject } from '../utils/api';
 import AppConfigPanel from './AppConfigPanel';
@@ -9,6 +9,7 @@ import ToolsPanel from './ToolsPanel';
 import RunPanel from './RunPanel';
 import EvalPanel from './EvalPanel';
 import YamlPanel from './YamlPanel';
+import CodePanel from './CodePanel';
 
 const tabs = [
   { id: 'app' as const, label: 'App Config', icon: Settings },
@@ -17,10 +18,11 @@ const tabs = [
   { id: 'run' as const, label: 'Run', icon: Play },
   { id: 'eval' as const, label: 'Evaluate', icon: TestTube },
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
+  { id: 'code' as const, label: 'Code', icon: Code },
 ];
 
-type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml';
-const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml'];
+type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code';
+const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml', 'code'];
 
 export default function ProjectEditor() {
   const { projectId, tab, itemId } = useParams<{ projectId: string; tab?: string; itemId?: string }>();
@@ -284,6 +286,7 @@ export default function ProjectEditor() {
         {activeTab === 'run' && <RunPanel />}
         {activeTab === 'eval' && <EvalPanel />}
         {activeTab === 'yaml' && <YamlPanel />}
+        {activeTab === 'code' && <CodePanel />}
       </main>
     </div>
   );

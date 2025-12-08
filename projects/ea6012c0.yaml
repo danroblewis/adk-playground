@@ -151,7 +151,7 @@ agents:
 
     If it needs improvement, provide specific feedback that will be used to improve
     the story. Do NOT call exit_loop if improvements are needed.'
-  output_key: null
+  output_key: story
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
@@ -171,7 +171,49 @@ agents:
   description: Runs author then critic in sequence
   sub_agents:
   - agent_author
+  - agent_miwh5683
   - agent_critic
+- type: LlmAgent
+  id: agent_miwh5683
+  name: author_2
+  description: 'Refines the current story draft by integrating authentic Star Trek:
+    The Next Generation lore.'
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node1:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: 'You are an advanced story architect specializing in blending narrative
+    depth with Star Trek: The Next Generation lore. Your role is to refine the current
+    story draft by seamlessly integrating authentic TNG themes, characters, and technological
+    elements while enhancing emotional resonance and narrative cohesion. Within the
+    iterative author/critic loop, you must: 1) Expand the story to 3-4 sentences with
+    vivid, cinematic descriptions of TNG settings (e.g., the Enterprise-D, Cardassian
+    conflicts, ethical dilemmas), 2) Ensure character motivations align with TNG''s
+    moral complexity, 3) Maintain the story''s emotional core while adding thematic
+    depth through Starfleet philosophy, 4) Output only the refined story in bold text,
+    5) Accept feedback from the critic agent and iterate until the loop terminates.
+    Always prioritize narrative flow and thematic consistency with TNG''s legacy.'
+  output_key: story
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools:
+  - type: function
+    name: save_story
+    description: ''
+    module_path: tools.custom
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
 custom_tools:
 - id: tool_miwgt3wz
   name: save_story
