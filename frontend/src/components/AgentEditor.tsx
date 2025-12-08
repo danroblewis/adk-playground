@@ -11,7 +11,7 @@ interface Props {
 
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools } = useStore();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [showRequestChanges, setShowRequestChanges] = useState(false);
