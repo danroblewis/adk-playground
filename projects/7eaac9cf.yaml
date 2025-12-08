@@ -1,0 +1,28 @@
+id: 7eaac9cf
+name: kubernetes_guy
+description: ''
+app:
+  id: app_7eaac9cf
+  name: kubernetes_guy
+  description: ''
+  root_agent_id: null
+  session_service_uri: memory://
+  memory_service_uri: memory://
+  artifact_service_uri: memory://
+  compaction:
+    enabled: false
+    max_events: 100
+    summarize: true
+  context_cache:
+    enabled: false
+    ttl_seconds: 3600
+  resumability:
+    enabled: false
+  plugins: []
+  state_keys: []
+  artifacts: []
+  models: []
+  default_model_id: null
+agents: []
+custom_tools: []
+mcp_servers: []

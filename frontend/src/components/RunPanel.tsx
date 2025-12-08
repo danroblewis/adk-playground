@@ -450,7 +450,7 @@ export default function RunPanel() {
   
   // Timeline segments for visual timeline
   const timelineSegments = useMemo(() => {
-    const segments: { agent: string; start: number; end: number; eventType: string; eventIndex: number }[] = [];
+    const segments: { agent: string; start: number; end: number; eventType: string; eventIndex: number; detail?: string }[] = [];
     let currentAgent: string | null = null;
     let segmentStart = 0;
     
@@ -471,14 +471,28 @@ export default function RunPanel() {
         segmentStart = percent;
       }
       
-      // Add markers for important events
-      if (event.event_type === 'tool_call' || event.event_type === 'state_change') {
+      // Add markers for important events with details
+      if (event.event_type === 'tool_call') {
+        const toolName = event.data?.tool_name || event.data?.name || 'unknown';
         segments.push({
           agent: event.agent_name,
           start: percent,
           end: percent + 0.5,
           eventType: event.event_type,
-          eventIndex: i
+          eventIndex: i,
+          detail: toolName
+        });
+      } else if (event.event_type === 'state_change') {
+        const stateKeys = event.data?.state_delta 
+          ? Object.keys(event.data.state_delta).join(', ')
+          : 'unknown';
+        segments.push({
+          agent: event.agent_name,
+          start: percent,
+          end: percent + 0.5,
+          eventType: event.event_type,
+          eventIndex: i,
+          detail: stateKeys
         });
       }
     });
@@ -2472,7 +2486,7 @@ export default function RunPanel() {
               ) : (
                 <Tooltip
                   key={i}
-                  text={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
+                  text={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}${segment.detail ? `\n🔧 ${segment.detail}` : ''}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
                   position="bottom"
                   style={{
                     position: 'absolute',
