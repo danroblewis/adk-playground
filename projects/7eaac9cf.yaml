@@ -21,8 +21,8 @@ app:
   plugins:
   - type: ReflectAndRetryToolPlugin
     name: reflect_retry
-    max_retries: 3
-    throw_exception_if_retry_exceeded: true
+    max_retries: 5
+    throw_exception_if_retry_exceeded: false
   state_keys:
   - name: orchestrator_output
     description: ''

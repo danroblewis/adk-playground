@@ -1020,7 +1020,7 @@ export default function RunPanel() {
         
         .input-area textarea {
           flex: 1;
-          min-height: 60px;
+          height: 40px;
           resize: none;
         }
         
@@ -3118,11 +3118,17 @@ function ModelCallDetails({ data }: { data: any }) {
 }
 
 function ModelResponseDetails({ data }: { data: any }) {
-  const parts = data.parts || [];
+  // Handle multiple response formats:
+  // 1. data.parts (from tracking plugin serialization)
+  // 2. data.content (from tool responses or raw MCP responses)
+  // 3. data.text (direct text)
+  // 4. data.response_content.parts (from after_model_callback)
+  const parts = data.parts || data.response_content?.parts || [];
+  const contentArray = data.content || [];
   
-  // Handle direct text format (from event stream) vs parts format (from tracking plugin)
-  const hasDirectText = data.text && !parts.length;
-  const hasContent = hasDirectText || parts.length > 0;
+  // Handle direct text format
+  const hasDirectText = data.text && !parts.length && !contentArray.length;
+  const hasContent = hasDirectText || parts.length > 0 || contentArray.length > 0;
   
   return (
     <div className="model-response-details">
@@ -3131,6 +3137,10 @@ function ModelResponseDetails({ data }: { data: any }) {
       ) : parts.length > 0 ? (
         parts.map((part: any, i: number) => (
           <MessagePart key={i} part={part} />
+        ))
+      ) : contentArray.length > 0 ? (
+        contentArray.map((item: any, i: number) => (
+          <MessagePart key={i} part={item} />
         ))
       ) : null}
       
@@ -3171,7 +3181,8 @@ function ModelResponseDetails({ data }: { data: any }) {
 }
 
 function MessagePart({ part }: { part: any }) {
-  if (part.type === 'text') {
+  // Handle text parts (type: 'text' or just has .text property)
+  if (part.type === 'text' || (part.text && !part.type)) {
     if (part.thought) {
       return (
         <div className="thought-part">
@@ -3183,22 +3194,29 @@ function MessagePart({ part }: { part: any }) {
     return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{part.text}</div>;
   }
   
-  if (part.type === 'function_call') {
+  if (part.type === 'function_call' || part.function_call) {
+    const fc = part.function_call || part;
     return (
       <div className="function-call-part">
-        <span style={{ color: '#00f5d4', fontWeight: 600 }}>{part.name}</span>
-        <span style={{ color: 'var(--text-muted)' }}>({JSON.stringify(part.args)})</span>
+        <span style={{ color: '#00f5d4', fontWeight: 600 }}>{fc.name || part.name}</span>
+        <span style={{ color: 'var(--text-muted)' }}>({JSON.stringify(fc.args || part.args)})</span>
       </div>
     );
   }
   
-  if (part.type === 'function_response') {
+  if (part.type === 'function_response' || part.function_response) {
+    const fr = part.function_response || part;
     return (
       <div className="function-response-part">
-        <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{part.name} response:</div>
-        <div>{typeof part.response === 'string' ? part.response : JSON.stringify(part.response, null, 2)}</div>
+        <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{fr.name || part.name} response:</div>
+        <div style={{ whiteSpace: 'pre-wrap' }}>{typeof (fr.response || part.response) === 'string' ? (fr.response || part.response) : JSON.stringify(fr.response || part.response, null, 2)}</div>
       </div>
     );
+  }
+  
+  // Fallback for unknown formats - try to display something useful
+  if (typeof part === 'string') {
+    return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{part}</div>;
   }
   
   return null;
