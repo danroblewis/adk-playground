@@ -11,14 +11,15 @@ import type { RunEvent } from '../utils/types';
 import { createRunWebSocket, updateProject as apiUpdateProject } from '../utils/api';
 
 // Tooltip component using portal for guaranteed top-layer rendering
-function Tooltip({ children, text, position = 'top' }: { 
+function Tooltip({ children, text, position = 'top', style }: { 
   children: React.ReactNode; 
   text: string; 
   position?: 'top' | 'bottom' | 'left' | 'right';
+  style?: React.CSSProperties;
 }) {
   const [show, setShow] = useState(false);
   const [coords, setCoords] = useState({ x: 0, y: 0 });
-  const triggerRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
   
   const updatePosition = useCallback(() => {
     if (!triggerRef.current) return;
@@ -84,18 +85,18 @@ function Tooltip({ children, text, position = 'top' }: {
   };
   
   return (
-    <span 
+    <div 
       ref={triggerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setShow(false)}
-      style={{ display: 'inline-flex', position: 'relative' }}
+      style={style}
     >
       {children}
       {show && createPortal(
         <div style={tooltipStyle}>{text}</div>,
         document.body
       )}
-    </span>
+    </div>
   );
 }
 
@@ -1764,14 +1765,14 @@ export default function RunPanel() {
               Timeline
             </div>
             <div className="timeline-stats">
-              <Tooltip text={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`}>
+              <Tooltip text={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`} style={{ display: 'inline-flex' }}>
                 <span>{filteredEvents.length} / {runEvents.length} events</span>
               </Tooltip>
-              <Tooltip text="Total duration of the agent run">
+              <Tooltip text="Total duration of the agent run" style={{ display: 'inline-flex' }}>
                 <span>{(duration * 1000).toFixed(0)}ms</span>
               </Tooltip>
               {tokenTotals.input + tokenTotals.output > 0 && (
-                <Tooltip text={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`}>
+                <Tooltip text={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`} style={{ display: 'inline-flex' }}>
                   <span className="token-stats">
                     <span className="token-input">{tokenTotals.input}↓</span>
                     <span className="token-output">{tokenTotals.output}↑</span>
@@ -1799,14 +1800,20 @@ export default function RunPanel() {
                   key={i}
                   text={`${segment.agent}\n⏱ ${segmentDurationMs.toFixed(0)}ms\n📍 +${segmentStartMs.toFixed(0)}ms\nClick to scroll`}
                   position="bottom"
+                  style={{
+                    position: 'absolute',
+                    left: `${segment.start}%`,
+                    width: `${segment.end - segment.start}%`,
+                    top: 0,
+                    height: '100%',
+                    background: agentColorMap[segment.agent] || '#888',
+                    cursor: 'pointer',
+                    opacity: 0.6,
+                    transition: 'opacity 0.15s',
+                  }}
                 >
                   <div
-                    className="timeline-segment activity"
-                    style={{
-                      left: `${segment.start}%`,
-                      width: `${segment.end - segment.start}%`,
-                      background: agentColorMap[segment.agent] || '#888'
-                    }}
+                    style={{ width: '100%', height: '100%' }}
                     onClick={() => scrollToEvent(segment.eventIndex)}
                   />
                 </Tooltip>
@@ -1815,10 +1822,22 @@ export default function RunPanel() {
                   key={i}
                   text={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
                   position="bottom"
+                  style={{
+                    position: 'absolute',
+                    left: `${segment.start}%`,
+                    top: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: segment.eventType === 'tool_call' ? '#00f5d4' : '#ff6b6b',
+                    border: '2px solid var(--bg-secondary)',
+                    cursor: 'pointer',
+                    zIndex: 1,
+                  }}
                 >
                   <div
-                    className={`timeline-marker ${segment.eventType}`}
-                    style={{ left: `${segment.start}%` }}
+                    style={{ width: '100%', height: '100%' }}
                     onClick={() => scrollToEvent(segment.eventIndex)}
                   />
                 </Tooltip>
@@ -1879,7 +1898,7 @@ export default function RunPanel() {
           <div className="timeline-legend">
             <span className="legend-label">Agents:</span>
             {agentNames.map(name => (
-              <Tooltip key={name} text={`Click to filter by ${name}`}>
+              <Tooltip key={name} text={`Click to filter by ${name}`} style={{ display: 'inline-flex' }}>
                 <span 
                   className="legend-item"
                   onClick={() => setAgentFilter(agentFilter === name ? 'all' : name)}
@@ -1895,13 +1914,13 @@ export default function RunPanel() {
             ))}
             <span className="legend-divider">|</span>
             <span className="legend-label">Markers:</span>
-            <Tooltip text="Tool calls by agents">
+            <Tooltip text="Tool calls by agents" style={{ display: 'inline-flex' }}>
               <span className="legend-item marker-legend">
                 <span className="legend-dot" style={{ background: '#00f5d4' }} />
                 Tool Call
               </span>
             </Tooltip>
-            <Tooltip text="State changes (output_key, etc.)">
+            <Tooltip text="State changes (output_key, etc.)" style={{ display: 'inline-flex' }}>
               <span className="legend-item marker-legend">
                 <span className="legend-dot" style={{ background: '#ff6b6b' }} />
                 State Change
