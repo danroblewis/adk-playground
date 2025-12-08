@@ -1568,17 +1568,21 @@ export default function RunPanel() {
               Timeline
             </div>
             <div className="timeline-stats">
-              <span>{filteredEvents.length} / {runEvents.length} events</span>
-              <span>{(duration * 1000).toFixed(0)}ms</span>
+              <span title={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`}>
+                {filteredEvents.length} / {runEvents.length} events
+              </span>
+              <span title="Total duration of the agent run">
+                {(duration * 1000).toFixed(0)}ms
+              </span>
               {tokenTotals.input + tokenTotals.output > 0 && (
-                <span className="token-stats">
-                  <span className="token-input">{tokenTotals.input}↓</span>
-                  <span className="token-output">{tokenTotals.output}↑</span>
-                  <span className="token-total">= {tokenTotals.input + tokenTotals.output}</span>
+                <span className="token-stats" title={`Token usage for filtered events:\n• Input (prompt): ${tokenTotals.input} tokens\n• Output (response): ${tokenTotals.output} tokens\n• Total: ${tokenTotals.input + tokenTotals.output} tokens`}>
+                  <span className="token-input" title="Input/prompt tokens">{tokenTotals.input}↓</span>
+                  <span className="token-output" title="Output/response tokens">{tokenTotals.output}↑</span>
+                  <span className="token-total" title="Total tokens">= {tokenTotals.input + tokenTotals.output}</span>
                 </span>
               )}
               {isRunning && (
-                <span className="running-indicator">
+                <span className="running-indicator" title="Agent is currently executing">
                   <span className="dot" />
                   Running...
                 </span>
@@ -1588,8 +1592,11 @@ export default function RunPanel() {
           
           {/* Visual Timeline */}
           <div className="visual-timeline">
-            {timelineSegments.map((segment, i) => (
-              segment.eventType === 'agent_activity' ? (
+            {timelineSegments.map((segment, i) => {
+              const segmentDurationMs = ((segment.end - segment.start) / 100) * duration * 1000;
+              const segmentStartMs = (segment.start / 100) * duration * 1000;
+              
+              return segment.eventType === 'agent_activity' ? (
                 <div
                   key={i}
                   className="timeline-segment activity"
@@ -1599,7 +1606,7 @@ export default function RunPanel() {
                     background: agentColorMap[segment.agent] || '#888'
                   }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`Agent: ${segment.agent}`}
+                  title={`${segment.agent}\n⏱ Duration: ${segmentDurationMs.toFixed(0)}ms\n📍 Start: +${segmentStartMs.toFixed(0)}ms\n🖱 Click to scroll to event`}
                 />
               ) : (
                 <div
@@ -1607,10 +1614,10 @@ export default function RunPanel() {
                   className={`timeline-marker ${segment.eventType}`}
                   style={{ left: `${segment.start}%` }}
                   onClick={() => scrollToEvent(segment.eventIndex)}
-                  title={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType} by ${segment.agent}`}
+                  title={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 Agent: ${segment.agent}\n📍 Time: +${segmentStartMs.toFixed(0)}ms\n🖱 Click to scroll to event`}
                 />
-              )
-            ))}
+              );
+            })}
             {/* Time range handles */}
             <div 
               className="timeline-range-handle start"
@@ -1680,11 +1687,11 @@ export default function RunPanel() {
             ))}
             <span className="legend-divider">|</span>
             <span className="legend-label">Markers:</span>
-            <span className="legend-item marker-legend">
+            <span className="legend-item marker-legend" title="Green circles on the timeline indicate tool calls">
               <span className="legend-dot" style={{ background: '#00f5d4' }} />
               Tool Call
             </span>
-            <span className="legend-item marker-legend">
+            <span className="legend-item marker-legend" title="Red circles on the timeline indicate state changes (e.g., output_key writes)">
               <span className="legend-dot" style={{ background: '#ff6b6b' }} />
               State Change
             </span>
@@ -1694,6 +1701,7 @@ export default function RunPanel() {
                 <button 
                   className="reset-range-btn"
                   onClick={() => setTimelineRange([0, 100])}
+                  title="Reset time range to show all events"
                 >
                   Reset Range
                 </button>
@@ -1707,22 +1715,31 @@ export default function RunPanel() {
       {runEvents.length > 0 && (
         <div className="filters-area">
           <div className="filter-group">
-            <span className="filter-label"><Filter size={12} /></span>
-            {['tool_call', 'model_call', 'state_change'].map(type => (
-              <button
-                key={type}
-                className={`filter-chip ${eventFilters.has(type) ? 'active' : ''}`}
-                onClick={() => toggleEventFilter(type)}
-              >
-                {EVENT_CONFIG[type]?.label || type}
-              </button>
-            ))}
+            <span className="filter-label" title="Filter events by type"><Filter size={12} /></span>
+            {['tool_call', 'model_call', 'state_change'].map(type => {
+              const tooltips: Record<string, string> = {
+                'tool_call': 'Show/hide tool calls (functions invoked by the agent)',
+                'model_call': 'Show/hide LLM model calls and responses',
+                'state_change': 'Show/hide state changes (e.g., output_key writes)',
+              };
+              return (
+                <button
+                  key={type}
+                  className={`filter-chip ${eventFilters.has(type) ? 'active' : ''}`}
+                  onClick={() => toggleEventFilter(type)}
+                  title={tooltips[type] || `Toggle ${type} events`}
+                >
+                  {EVENT_CONFIG[type]?.label || type}
+                </button>
+              );
+            })}
           </div>
           
           <select 
             className="agent-filter"
             value={agentFilter}
             onChange={(e) => setAgentFilter(e.target.value)}
+            title="Filter events by agent"
           >
             <option value="all">All Agents</option>
             {agentNames.map(name => (
@@ -1736,10 +1753,11 @@ export default function RunPanel() {
             placeholder="Search events..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            title="Search through event data (tool names, responses, etc.)"
           />
           
           {searchQuery && (
-            <button className="filter-chip" onClick={() => setSearchQuery('')}>
+            <button className="filter-chip" onClick={() => setSearchQuery('')} title="Clear search filter">
               <X size={12} /> Clear
             </button>
           )}
