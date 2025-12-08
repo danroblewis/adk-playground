@@ -2357,6 +2357,10 @@ export default function RunPanel() {
               const segmentDurationMs = ((segment.end - segment.start) / 100) * duration * 1000;
               const segmentStartMs = (segment.start / 100) * duration * 1000;
               
+              // Ensure minimum visible width for short segments
+              const minWidthPx = 4;
+              const segmentWidthPercent = segment.end - segment.start;
+              
               return segment.eventType === 'agent_activity' ? (
                 <Tooltip 
                   key={i}
@@ -2365,7 +2369,8 @@ export default function RunPanel() {
                   style={{
                     position: 'absolute',
                     left: `${segment.start}%`,
-                    width: `${segment.end - segment.start}%`,
+                    width: `${segmentWidthPercent}%`,
+                    minWidth: `${minWidthPx}px`,
                     top: 0,
                     height: '100%',
                     background: agentColorMap[segment.agent] || '#888',
