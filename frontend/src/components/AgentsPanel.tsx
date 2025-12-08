@@ -239,8 +239,9 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       const color = getAgentColor(agent.type);
       const hasSubAgents = 'sub_agents' in agent && agent.sub_agents.length > 0;
       const isExpanded = expandedAgents.has(agent.id);
+      // Map over sub_agents to preserve order, not filter which loses order
       const subAgents = hasSubAgents 
-        ? project.agents.filter(a => agent.sub_agents.includes(a.id))
+        ? agent.sub_agents.map(id => project.agents.find(a => a.id === id)).filter((a): a is AgentConfig => a !== undefined)
         : [];
       
       return (
