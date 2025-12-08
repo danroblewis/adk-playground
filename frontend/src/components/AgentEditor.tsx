@@ -1131,12 +1131,13 @@ function ToolsEditor({
                 ))}
               </div>
               
+              {/* Known MCP Servers */}
               {mcpServers.length > 0 && (
                 <div className="dropdown-section">
-                  <h5>MCP Servers ({mcpServers.length})</h5>
+                  <h5>Known MCP Servers ({mcpServers.length})</h5>
                   {mcpServers.map(server => (
                     <button
-                      key={server.name}
+                      key={`known-${server.name}`}
                       className="dropdown-item"
                       onClick={() => openMcpConfig(server)}
                     >
@@ -1147,6 +1148,28 @@ function ToolsEditor({
                         </span>
                       </div>
                       <div className="dropdown-item-desc">{server.description}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {/* Project MCP Servers */}
+              {project.mcp_servers.length > 0 && (
+                <div className="dropdown-section">
+                  <h5>Project MCP Servers ({project.mcp_servers.length})</h5>
+                  {project.mcp_servers.map(server => (
+                    <button
+                      key={`project-${server.id || server.name}`}
+                      className="dropdown-item"
+                      onClick={() => openMcpConfig(server)}
+                    >
+                      <div className="dropdown-item-name">
+                        {server.name}
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
+                          {server.tool_filter?.length || 0} tools
+                        </span>
+                      </div>
+                      <div className="dropdown-item-desc">{server.description || 'Custom MCP server'}</div>
                     </button>
                   ))}
                 </div>

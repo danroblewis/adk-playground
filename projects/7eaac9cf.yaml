@@ -5,7 +5,7 @@ app:
   id: app_7eaac9cf
   name: kubernetes_guy
   description: ''
-  root_agent_id: agent_miwm4gam
+  root_agent_id: agent_miwmcoqz
   session_service_uri: memory://
   memory_service_uri: memory://
   artifact_service_uri: memory://
