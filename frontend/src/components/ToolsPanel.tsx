@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe, Sparkles, Loader } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { CustomToolDefinition, BuiltinTool, MCPServerConfig } from '../utils/types';
-import Editor from '@monaco-editor/react';
+import Editor, { Monaco } from '@monaco-editor/react';
 import { generateToolCode } from '../utils/api';
+import { registerCompletion } from 'monacopilot';
 
 function generateId() {
   return `tool_${Date.now().toString(36)}`;
@@ -129,6 +130,34 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       setIsGeneratingCode(false);
     }
   }
+  
+  // Monaco editor mount handler for Monacopilot
+  const completionCleanupRef = useRef<(() => void) | null>(null);
+  
+  const handleEditorMount = useCallback((editor: any, monaco: Monaco) => {
+    // Clean up previous completion registration
+    if (completionCleanupRef.current) {
+      completionCleanupRef.current();
+    }
+    
+    // Register Monacopilot completion
+    const cleanup = registerCompletion(monaco, editor, {
+      language: 'python',
+      endpoint: '/api/code-completion',
+      trigger: 'onTyping', // Also supports 'onIdle' or 'onDemand'
+    });
+    
+    completionCleanupRef.current = cleanup;
+  }, []);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (completionCleanupRef.current) {
+        completionCleanupRef.current();
+      }
+    };
+  }, []);
   
   // MCP Server management
   function handleAddMcpServer() {
@@ -977,6 +1006,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                 theme="vs-dark"
                 value={editingCode}
                 onChange={handleCodeChange}
+                onMount={handleEditorMount}
                 options={{
                   minimap: { enabled: false },
                   fontSize: 13,

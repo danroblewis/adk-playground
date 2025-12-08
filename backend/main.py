@@ -825,6 +825,133 @@ Write the complete Python code for this tool. Include appropriate imports at the
 
 
 # ============================================================================
+# Code Completion (Monacopilot)
+# ============================================================================
+
+class CodeCompletionRequest(BaseModel):
+    """Request format from Monacopilot."""
+    completionMetadata: dict
+    
+ADK_CODE_COMPLETION_CONTEXT = '''You are an expert Python code completion assistant for the Google Agent Development Kit (ADK).
+
+## ADK Tool Patterns:
+- Tools use `ToolContext` as first parameter: `def my_tool(tool_context: ToolContext, ...)`
+- Access state: `tool_context.state.get('key')` or `tool_context.state['key'] = value`
+- Control flow: `tool_context.actions.escalate = True`, `tool_context.actions.skip_summarization = True`
+- Async methods: `await tool_context.search_memory(query)`, `await tool_context.list_artifacts()`
+- Return dictionaries from tools (they become JSON for the LLM)
+
+## Common Imports:
+- `from google.adk.tools.tool_context import ToolContext`
+- `from google.adk.agents import Agent, LlmAgent, SequentialAgent, LoopAgent, ParallelAgent`
+- `from google.adk.runners import Runner`
+- `from google.adk.tools import google_search, exit_loop`
+- `from google.genai import types`
+
+## Tool Function Template:
+```python
+def tool_name(tool_context: ToolContext, param: str) -> dict:
+    """Description for LLM."""
+    result = ...
+    return {"result": result}
+```
+
+Provide ONLY the completion text, no explanation.'''
+
+@app.post("/api/code-completion")
+async def code_completion(request: CodeCompletionRequest):
+    """Handle code completion requests from Monacopilot."""
+    try:
+        metadata = request.completionMetadata
+        text_before = metadata.get("textBeforeCursor", "")
+        text_after = metadata.get("textAfterCursor", "")
+        language = metadata.get("language", "python")
+        filename = metadata.get("filename", "")
+        
+        # Build the completion prompt
+        user_prompt = f"""Complete this {language} code. Return ONLY the completion text that should be inserted at the cursor position.
+
+Code before cursor:
+```{language}
+{text_before[-1500:]}
+```
+
+Code after cursor:
+```{language}
+{text_after[:500]}
+```
+
+Provide the code completion (just the code to insert, no markdown):"""
+        
+        # Use a default model for completion (fast model preferred)
+        from google.adk import Agent
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+        from google.adk.models.lite_llm import LiteLlm
+        from google.genai import types
+        
+        # Use a fast model for completions
+        model = LiteLlm(
+            model="ollama/qwen3:8b",
+            api_base="http://node1:11434",
+        )
+        
+        completion_agent = Agent(
+            name="code_completer",
+            model=model,
+            instruction=ADK_CODE_COMPLETION_CONTEXT,
+        )
+        
+        runner = Runner(
+            app_name="code_completer",
+            agent=completion_agent,
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+            artifact_service=InMemoryArtifactService(),
+        )
+        
+        session = await runner.session_service.create_session(
+            app_name="code_completer",
+            user_id="completion_user",
+        )
+        
+        completion_text = ""
+        async for event in runner.run_async(
+            session_id=session.id,
+            user_id="completion_user",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=user_prompt)]
+            ),
+        ):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        completion_text += part.text
+        
+        # Clean up the completion (remove markdown if present)
+        completion = completion_text.strip()
+        if completion.startswith("```"):
+            lines = completion.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            completion = "\n".join(lines)
+        
+        return {
+            "completion": completion.strip(),
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"Code completion error: {e}\n{traceback.format_exc()}")
+        return {"completion": None}
+
+
+# ============================================================================
 # AI-Assisted Agent Configuration
 # ============================================================================
 
