@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Save, Download, Filter, Search, 
@@ -8,6 +9,95 @@ import {
 import { useStore } from '../hooks/useStore';
 import type { RunEvent } from '../utils/types';
 import { createRunWebSocket, updateProject as apiUpdateProject } from '../utils/api';
+
+// Tooltip component using portal for guaranteed top-layer rendering
+function Tooltip({ children, text, position = 'top' }: { 
+  children: React.ReactNode; 
+  text: string; 
+  position?: 'top' | 'bottom' | 'left' | 'right';
+}) {
+  const [show, setShow] = useState(false);
+  const [coords, setCoords] = useState({ x: 0, y: 0 });
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    let x = rect.left + rect.width / 2;
+    let y = rect.top;
+    
+    if (position === 'bottom') {
+      y = rect.bottom + 8;
+    } else if (position === 'top') {
+      y = rect.top - 8;
+    } else if (position === 'left') {
+      x = rect.left - 8;
+      y = rect.top + rect.height / 2;
+    } else if (position === 'right') {
+      x = rect.right + 8;
+      y = rect.top + rect.height / 2;
+    }
+    
+    setCoords({ x, y });
+  }, [position]);
+  
+  const handleMouseEnter = () => {
+    updatePosition();
+    setShow(true);
+  };
+  
+  const tooltipStyle: React.CSSProperties = {
+    position: 'fixed',
+    zIndex: 999999,
+    padding: '6px 10px',
+    background: '#1a1a2e',
+    color: '#fff',
+    fontSize: '11px',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    lineHeight: 1.4,
+    whiteSpace: 'pre-line',
+    borderRadius: '6px',
+    maxWidth: '260px',
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    pointerEvents: 'none',
+    ...(position === 'top' && {
+      left: coords.x,
+      top: coords.y,
+      transform: 'translate(-50%, -100%)',
+    }),
+    ...(position === 'bottom' && {
+      left: coords.x,
+      top: coords.y,
+      transform: 'translate(-50%, 0)',
+    }),
+    ...(position === 'left' && {
+      left: coords.x,
+      top: coords.y,
+      transform: 'translate(-100%, -50%)',
+    }),
+    ...(position === 'right' && {
+      left: coords.x,
+      top: coords.y,
+      transform: 'translate(0, -50%)',
+    }),
+  };
+  
+  return (
+    <span 
+      ref={triggerRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setShow(false)}
+      style={{ display: 'inline-flex', position: 'relative' }}
+    >
+      {children}
+      {show && createPortal(
+        <div style={tooltipStyle}>{text}</div>,
+        document.body
+      )}
+    </span>
+  );
+}
 
 // Event type configurations
 const EVENT_CONFIG: Record<string, { icon: React.FC<{ size: number }>, color: string, label: string }> = {
@@ -1674,18 +1764,20 @@ export default function RunPanel() {
               Timeline
             </div>
             <div className="timeline-stats">
-              <span data-tooltip={`Showing ${filteredEvents.length} of ${runEvents.length} total events (filtered by time range, event type, or agent)`}>
-                {filteredEvents.length} / {runEvents.length} events
-              </span>
-              <span data-tooltip="Total duration of the agent run">
-                {(duration * 1000).toFixed(0)}ms
-              </span>
+              <Tooltip text={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`}>
+                <span>{filteredEvents.length} / {runEvents.length} events</span>
+              </Tooltip>
+              <Tooltip text="Total duration of the agent run">
+                <span>{(duration * 1000).toFixed(0)}ms</span>
+              </Tooltip>
               {tokenTotals.input + tokenTotals.output > 0 && (
-                <span className="token-stats" data-tooltip={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`}>
-                  <span className="token-input">{tokenTotals.input}↓</span>
-                  <span className="token-output">{tokenTotals.output}↑</span>
-                  <span className="token-total">= {tokenTotals.input + tokenTotals.output}</span>
-                </span>
+                <Tooltip text={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`}>
+                  <span className="token-stats">
+                    <span className="token-input">{tokenTotals.input}↓</span>
+                    <span className="token-output">{tokenTotals.output}↑</span>
+                    <span className="token-total">= {tokenTotals.input + tokenTotals.output}</span>
+                  </span>
+                </Tooltip>
               )}
               {isRunning && (
                 <span className="running-indicator" data-tooltip="Agent is currently executing">
@@ -1703,27 +1795,33 @@ export default function RunPanel() {
               const segmentStartMs = (segment.start / 100) * duration * 1000;
               
               return segment.eventType === 'agent_activity' ? (
-                <div
+                <Tooltip 
                   key={i}
-                  className="timeline-segment activity"
-                  style={{
-                    left: `${segment.start}%`,
-                    width: `${segment.end - segment.start}%`,
-                    background: agentColorMap[segment.agent] || '#888'
-                  }}
-                  onClick={() => scrollToEvent(segment.eventIndex)}
-                  data-tooltip={`${segment.agent}\n⏱ ${segmentDurationMs.toFixed(0)}ms\n📍 +${segmentStartMs.toFixed(0)}ms\nClick to scroll`}
-                  data-tooltip-pos="bottom"
-                />
+                  text={`${segment.agent}\n⏱ ${segmentDurationMs.toFixed(0)}ms\n📍 +${segmentStartMs.toFixed(0)}ms\nClick to scroll`}
+                  position="bottom"
+                >
+                  <div
+                    className="timeline-segment activity"
+                    style={{
+                      left: `${segment.start}%`,
+                      width: `${segment.end - segment.start}%`,
+                      background: agentColorMap[segment.agent] || '#888'
+                    }}
+                    onClick={() => scrollToEvent(segment.eventIndex)}
+                  />
+                </Tooltip>
               ) : (
-                <div
+                <Tooltip
                   key={i}
-                  className={`timeline-marker ${segment.eventType}`}
-                  style={{ left: `${segment.start}%` }}
-                  onClick={() => scrollToEvent(segment.eventIndex)}
-                  data-tooltip={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
-                  data-tooltip-pos="bottom"
-                />
+                  text={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
+                  position="bottom"
+                >
+                  <div
+                    className={`timeline-marker ${segment.eventType}`}
+                    style={{ left: `${segment.start}%` }}
+                    onClick={() => scrollToEvent(segment.eventIndex)}
+                  />
+                </Tooltip>
               );
             })}
             {/* Time range handles */}
@@ -1781,30 +1879,34 @@ export default function RunPanel() {
           <div className="timeline-legend">
             <span className="legend-label">Agents:</span>
             {agentNames.map(name => (
-              <span 
-                key={name} 
-                className="legend-item"
-                onClick={() => setAgentFilter(agentFilter === name ? 'all' : name)}
-                style={{ 
-                  borderColor: agentColorMap[name],
-                  background: agentFilter === name ? agentColorMap[name] + '30' : 'transparent'
-                }}
-                data-tooltip={`Filter by ${name}`}
-              >
-                <span className="legend-dot" style={{ background: agentColorMap[name] }} />
-                {name}
-              </span>
+              <Tooltip key={name} text={`Click to filter by ${name}`}>
+                <span 
+                  className="legend-item"
+                  onClick={() => setAgentFilter(agentFilter === name ? 'all' : name)}
+                  style={{ 
+                    borderColor: agentColorMap[name],
+                    background: agentFilter === name ? agentColorMap[name] + '30' : 'transparent'
+                  }}
+                >
+                  <span className="legend-dot" style={{ background: agentColorMap[name] }} />
+                  {name}
+                </span>
+              </Tooltip>
             ))}
             <span className="legend-divider">|</span>
             <span className="legend-label">Markers:</span>
-            <span className="legend-item marker-legend" data-tooltip="Tool calls by agents">
-              <span className="legend-dot" style={{ background: '#00f5d4' }} />
-              Tool Call
-            </span>
-            <span className="legend-item marker-legend" data-tooltip="State changes (output_key, etc.)">
-              <span className="legend-dot" style={{ background: '#ff6b6b' }} />
-              State Change
-            </span>
+            <Tooltip text="Tool calls by agents">
+              <span className="legend-item marker-legend">
+                <span className="legend-dot" style={{ background: '#00f5d4' }} />
+                Tool Call
+              </span>
+            </Tooltip>
+            <Tooltip text="State changes (output_key, etc.)">
+              <span className="legend-item marker-legend">
+                <span className="legend-dot" style={{ background: '#ff6b6b' }} />
+                State Change
+              </span>
+            </Tooltip>
             {(timelineRange[0] > 0 || timelineRange[1] < 100) && (
               <>
                 <span className="legend-divider">|</span>
