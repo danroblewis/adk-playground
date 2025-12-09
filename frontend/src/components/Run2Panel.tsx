@@ -388,7 +388,11 @@ function applyTransform(text: string, transform: string | undefined): string {
 // Tool Watch Panel component
 function ToolWatchPanel({ project }: { project: Project }) {
   // Use global store for watches so they persist across tab switches
-  const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch } = useStore();
+  const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch, runEvents } = useStore();
+  
+  // Track last event count to detect new events
+  const lastEventCountRef = useRef(0);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   
   const [showDialog, setShowDialog] = useState(false);
   const [editingWatchId, setEditingWatchId] = useState<string | null>(null);  // null = adding new
@@ -411,6 +415,24 @@ function ToolWatchPanel({ project }: { project: Project }) {
   useEffect(() => {
     getMcpServers().then(setKnownServers).catch(console.error);
   }, []);
+  
+  // Auto-refresh watches when new events are added
+  useEffect(() => {
+    if (!autoRefresh) return;
+    if (runEvents.length > lastEventCountRef.current && watches.length > 0) {
+      // New event(s) added, refresh all watches
+      watches.forEach(watch => {
+        // Don't re-run if already loading
+        if (!watch.isLoading) {
+          runWatchRef.current?.(watch);
+        }
+      });
+    }
+    lastEventCountRef.current = runEvents.length;
+  }, [runEvents.length, autoRefresh, watches]);
+  
+  // Keep a ref to runWatch so the effect doesn't need it as dependency
+  const runWatchRef = useRef<typeof runWatch | null>(null);
   
   // Combine project servers with known servers
   const mcpServers = useMemo(() => {
@@ -582,7 +604,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
     storeRemoveWatch(id);
   };
   
-  const runWatch = async (watch: WatchExpression) => {
+  const runWatch = useCallback(async (watch: WatchExpression) => {
     updateWatch(watch.id, { isLoading: true, error: undefined });
     
     try {
@@ -599,7 +621,12 @@ function ToolWatchPanel({ project }: { project: Project }) {
     } catch (err) {
       updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: Date.now() });
     }
-  };
+  }, [project.id, updateWatch]);
+  
+  // Keep ref updated for the auto-refresh effect
+  useEffect(() => {
+    runWatchRef.current = runWatch;
+  }, [runWatch]);
   
   const runAllWatches = () => {
     watches.forEach(watch => runWatch(watch));
@@ -617,6 +644,13 @@ function ToolWatchPanel({ project }: { project: Project }) {
         <Eye size={14} />
         <span>Tool Watch</span>
         <div className="watch-actions">
+          <button 
+            className={`watch-btn ${autoRefresh ? 'active' : ''}`} 
+            onClick={() => setAutoRefresh(!autoRefresh)} 
+            title={autoRefresh ? 'Auto-refresh ON (after every event)' : 'Auto-refresh OFF'}
+          >
+            <Zap size={12} />
+          </button>
           <button className="watch-btn" onClick={runAllWatches} title="Refresh all">
             <RefreshCw size={12} />
           </button>
@@ -1747,6 +1781,15 @@ export default function Run2Panel() {
         .watch-btn:hover {
           background: #27272a;
           color: #e4e4e7;
+        }
+        
+        .watch-btn.active {
+          background: #22c55e30;
+          color: #22c55e;
+        }
+        
+        .watch-btn.active:hover {
+          background: #22c55e50;
         }
         
         .watch-empty {
