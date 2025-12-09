@@ -314,8 +314,22 @@ function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; sel
 
 // Import WatchExpression type from store
 import type { WatchExpression } from '../hooks/useStore';
-// @ts-ignore - jq-web doesn't have types
-import jq from 'jq-web';
+
+// jq-web for JSON transforms - loaded lazily to handle WASM loading
+let jq: any = null;
+let jqLoadError: string | null = null;
+
+// Try to load jq-web asynchronously
+(async () => {
+  try {
+    // @ts-ignore - jq-web doesn't have types
+    const jqModule = await import('jq-web');
+    jq = jqModule.default;
+  } catch (e: any) {
+    console.warn('jq-web failed to load:', e.message);
+    jqLoadError = e.message;
+  }
+})();
 
 // Extract clean result text from MCP response
 function extractResultText(result: any): { text: string; isError: boolean } {
@@ -391,26 +405,62 @@ function applyTransform(text: string, transform: string | undefined): string {
     }
   }
   
-  // jq query (default)
-  try {
-    const result = jq.json(data, trimmed);
-    if (result === null || result === undefined) {
-      return '[No match]';
+  // jq query (default) - but fallback if jq isn't loaded
+  if (jq) {
+    try {
+      const result = jq.json(data, trimmed);
+      if (result === null || result === undefined) {
+        return '[No match]';
+      }
+      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    } catch (e: any) {
+      // If jq fails and doesn't start with ".", try as JS expression
+      if (!trimmed.startsWith('.')) {
+        try {
+          // eslint-disable-next-line no-new-func
+          const fn = new Function('value', 'data', `return ${trimmed}`);
+          const result = fn(text, data);
+          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch {
+          // Return jq error
+        }
+      }
+      return `[jq error: ${e.message || e}]`;
     }
-    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-  } catch (e: any) {
-    // If jq fails and doesn't start with ".", try as JS expression
-    if (!trimmed.startsWith('.')) {
+  } else {
+    // jq not loaded, try as JS expression or return error
+    if (jqLoadError) {
+      // Try simple property access for dot notation
+      if (trimmed.startsWith('.') && !trimmed.includes('|')) {
+        try {
+          const path = trimmed.slice(1).split('.').filter(Boolean);
+          let result: any = data;
+          for (const key of path) {
+            // Handle array index like [0]
+            const match = key.match(/^(\w+)?\[(\d+)\]$/);
+            if (match) {
+              if (match[1]) result = result[match[1]];
+              result = result[parseInt(match[2])];
+            } else {
+              result = result[key];
+            }
+          }
+          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch {
+          // Fall through to JS
+        }
+      }
+      // Try as JS expression
       try {
         // eslint-disable-next-line no-new-func
         const fn = new Function('value', 'data', `return ${trimmed}`);
         const result = fn(text, data);
         return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-      } catch {
-        // Return jq error
+      } catch (e: any) {
+        return `[jq not loaded: ${jqLoadError}. JS fallback failed: ${e.message}]`;
       }
     }
-    return `[jq error: ${e.message || e}]`;
+    return '[jq loading...]';
   }
 }
 
