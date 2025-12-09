@@ -551,6 +551,16 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
   const [formTransform, setFormTransform] = useState('');
   const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
   
+  // Test run state for dialog
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  
+  // Fetch known MCP servers on mount
+  useEffect(() => {
+    getMcpServers().then(setKnownServers).catch(console.error);
+  }, []);
+  
   // Combine project servers with known servers
   const mcpServers = useMemo(() => {
     const projectServers = project.mcp_servers || [];
