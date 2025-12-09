@@ -570,14 +570,68 @@ export default function Run2Panel() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Enter to run
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         handleRun();
+        return;
+      }
+      
+      // Arrow keys to navigate event list
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Don't intercept if user is typing in an input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+          return;
+        }
+        
+        e.preventDefault();
+        
+        if (filteredEvents.length === 0) return;
+        
+        if (e.key === 'ArrowDown') {
+          if (selectedEventIndex === null) {
+            // Select first event
+            const firstIndex = runEvents.indexOf(filteredEvents[0]);
+            setSelectedEventIndex(firstIndex);
+          } else {
+            // Find current position in filtered list and move down
+            const currentFilteredIndex = filteredEvents.findIndex(
+              ev => runEvents.indexOf(ev) === selectedEventIndex
+            );
+            if (currentFilteredIndex < filteredEvents.length - 1) {
+              const nextIndex = runEvents.indexOf(filteredEvents[currentFilteredIndex + 1]);
+              setSelectedEventIndex(nextIndex);
+            }
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (selectedEventIndex === null) {
+            // Select last event
+            const lastIndex = runEvents.indexOf(filteredEvents[filteredEvents.length - 1]);
+            setSelectedEventIndex(lastIndex);
+          } else {
+            // Find current position in filtered list and move up
+            const currentFilteredIndex = filteredEvents.findIndex(
+              ev => runEvents.indexOf(ev) === selectedEventIndex
+            );
+            if (currentFilteredIndex > 0) {
+              const prevIndex = runEvents.indexOf(filteredEvents[currentFilteredIndex - 1]);
+              setSelectedEventIndex(prevIndex);
+            }
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleRun]);
+  }, [handleRun, filteredEvents, selectedEventIndex, runEvents]);
+  
+  // Scroll selected event into view
+  useEffect(() => {
+    if (selectedEventIndex !== null) {
+      const element = document.querySelector(`.event-row.selected`);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [selectedEventIndex]);
   
   if (!project) {
     return <div className="run2-panel empty">No project loaded</div>;
