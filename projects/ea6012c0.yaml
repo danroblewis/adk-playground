@@ -62,7 +62,8 @@ app:
     top_k: null
     is_default: false
   default_model_id: model_miw9xh0n
-  env_vars: {}
+  env_vars:
+    GOOGLE_API_KEY: AIzaSyCl3XW20OPsj3sXau4IX-5sW6Cc5Qa21Wo
 agents:
 - type: LlmAgent
   id: agent_writer
@@ -107,8 +108,8 @@ agents:
   description: Story author
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node2:32504
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -248,8 +249,8 @@ agents:
   description: Writes TNG stories, collaborates with critic, saves drafts
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node2:32504
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null

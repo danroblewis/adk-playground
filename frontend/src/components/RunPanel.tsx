@@ -534,13 +534,10 @@ function applyTransform(text: string, transform: string | undefined): string {
 }
 
 // Tool Watch Panel component
+// Note: Auto-refresh is now handled at the RunPanel level so watches run even when this tab isn't visible
 function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; selectedEventIndex: number | null }) {
   // Use global store for watches so they persist across tab switches
   const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch, runEvents } = useStore();
-  
-  // Track last event count to detect new events
-  const lastEventCountRef = useRef(0);
-  const [autoRefresh, setAutoRefresh] = useState(true);
   
   const [showDialog, setShowDialog] = useState(false);
   const [editingWatchId, setEditingWatchId] = useState<string | null>(null);  // null = adding new
@@ -553,35 +550,6 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
   const [formArgs, setFormArgs] = useState<Record<string, any>>({});
   const [formTransform, setFormTransform] = useState('');
   const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
-  
-  // Test run state for dialog
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [isTestRunning, setIsTestRunning] = useState(false);
-  
-  // Fetch known MCP servers on mount
-  useEffect(() => {
-    getMcpServers().then(setKnownServers).catch(console.error);
-  }, []);
-  
-  // Auto-refresh watches when new events are added
-  useEffect(() => {
-    if (!autoRefresh) return;
-    if (runEvents.length > lastEventCountRef.current && watches.length > 0) {
-      const newEventIndex = runEvents.length - 1;
-      // New event(s) added, refresh all watches
-      watches.forEach(watch => {
-        // Don't re-run if already loading
-        if (!watch.isLoading) {
-          runWatchRef.current?.(watch, newEventIndex);
-        }
-      });
-    }
-    lastEventCountRef.current = runEvents.length;
-  }, [runEvents.length, autoRefresh, watches]);
-  
-  // Keep a ref to runWatch so the effect doesn't need it as dependency
-  const runWatchRef = useRef<typeof runWatch | null>(null);
   
   // Combine project servers with known servers
   const mcpServers = useMemo(() => {
@@ -785,10 +753,6 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
     }
   }, [project.id, updateWatch, runEvents.length]);
   
-  // Keep ref updated for the auto-refresh effect
-  useEffect(() => {
-    runWatchRef.current = runWatch;
-  }, [runWatch]);
   
   const runAllWatches = () => {
     watches.forEach(watch => runWatch(watch));
@@ -805,14 +769,8 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
       <div className="watch-header">
         <Eye size={14} />
         <span>Tool Watch</span>
+        <span className="watch-auto-badge" title="Watches auto-refresh on every event">⚡ Auto</span>
         <div className="watch-actions">
-          <button 
-            className={`watch-btn ${autoRefresh ? 'active' : ''}`} 
-            onClick={() => setAutoRefresh(!autoRefresh)} 
-            title={autoRefresh ? 'Auto-refresh ON (after every event)' : 'Auto-refresh OFF'}
-          >
-            <Zap size={12} />
-          </button>
           <button className="watch-btn" onClick={runAllWatches} title="Refresh all">
             <RefreshCw size={12} />
           </button>
@@ -1064,7 +1022,7 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch } = useStore();
   
   // UI state
   const [userInput, setUserInput] = useState('');
@@ -1077,6 +1035,56 @@ export default function RunPanel() {
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
+  
+  // Auto-refresh watches at the panel level (so they run even when Tool tab isn't visible)
+  const lastWatchEventCountRef = useRef(0);
+  
+  // Run a single watch - defined at panel level for auto-refresh
+  const runWatchFromPanel = useCallback(async (watch: WatchExpression, eventIndex?: number) => {
+    if (!project) return;
+    updateWatch(watch.id, { isLoading: true, error: undefined });
+    
+    const currentEventIndex = eventIndex ?? runEvents.length - 1;
+    const timestamp = Date.now();
+    
+    try {
+      const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_name: watch.serverName,
+          tool_name: watch.toolName,
+          arguments: watch.args,
+        }),
+      });
+      
+      // Add to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, result };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { result, isLoading: false, lastRun: timestamp, history });
+    } catch (err) {
+      // Add error to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, error: String(err) };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: timestamp, history });
+    }
+  }, [project?.id, updateWatch, runEvents.length]);
+  
+  // Auto-refresh watches when new events are added (runs at panel level, not ToolWatchPanel)
+  useEffect(() => {
+    if (runEvents.length > lastWatchEventCountRef.current && watches.length > 0) {
+      const newEventIndex = runEvents.length - 1;
+      // New event(s) added, refresh all watches that aren't already loading
+      watches.forEach(watch => {
+        if (!watch.isLoading) {
+          runWatchFromPanel(watch, newEventIndex);
+        }
+      });
+    }
+    lastWatchEventCountRef.current = runEvents.length;
+  }, [runEvents.length, watches, runWatchFromPanel]);
   
   // Initialize selectedAgentId from store (allows opening Run with specific agent)
   useEffect(() => {
@@ -1988,6 +1996,15 @@ export default function RunPanel() {
           border-radius: 4px;
           font-weight: 600;
           font-size: 12px;
+        }
+        
+        .watch-auto-badge {
+          font-size: 9px;
+          color: #10b981;
+          background: rgba(16, 185, 129, 0.15);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-weight: 500;
         }
         
         .watch-header .watch-actions {
