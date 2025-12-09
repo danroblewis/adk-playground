@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import time
 import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# Add parent directory to path for file_session_service and file_memory_service
+_parent_dir = Path(__file__).parent.parent
+if str(_parent_dir) not in sys.path:
+    sys.path.insert(0, str(_parent_dir))
 
 from models import (
     Project, RunSession, RunEvent, AgentConfig, LlmAgentConfig,
@@ -269,6 +277,9 @@ class RuntimeManager:
             user_message: User's input message
             event_callback: Callback for events
             agent_id: Optional agent ID to run. If None, uses project's root_agent_id
+            
+        Yields:
+            RunEvent objects, with the first event containing session_id in data
         """
         session_id = str(uuid.uuid4())[:8]
         
@@ -449,6 +460,14 @@ class RuntimeManager:
             session.status = "completed"
             session.ended_at = time.time()
             
+            # Automatically save session to memory if memory service is available
+            if memory_service and final_session:
+                try:
+                    await memory_service.add_session_to_memory(final_session)
+                    logger.info(f"Session {final_session.id} saved to memory")
+                except Exception as e:
+                    logger.warning(f"Failed to save session to memory: {e}")
+            
             await runner.close()
             
         except Exception as e:
@@ -470,6 +489,70 @@ class RuntimeManager:
     def get_session(self, session_id: str) -> Optional[RunSession]:
         """Get a session by ID."""
         return self.sessions.get(session_id)
+    
+    async def save_session_to_memory(self, project: Project, session_id: str) -> dict:
+        """Save a session to memory service.
+        
+        Args:
+            project: The project configuration
+            session_id: The session ID to save
+            
+        Returns:
+            dict with success status and message
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return {"success": False, "error": "Session not found"}
+        
+        try:
+            # Create memory service based on project config
+            def create_memory_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_memory_service import FileMemoryService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileMemoryService(base_dir=path)
+                else:
+                    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+                    return InMemoryMemoryService()
+            
+            memory_service = create_memory_service(project.app.memory_service_uri or "memory://")
+            
+            # Get the actual ADK session from the session service
+            def create_session_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_session_service import FileSessionService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileSessionService(base_dir=path)
+                elif uri.startswith("sqlite://"):
+                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
+                    db_path = uri[9:]  # Remove "sqlite://" prefix
+                    return SqliteSessionService(db_path=db_path)
+                else:
+                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+                    return InMemorySessionService()
+            
+            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            
+            # Get the ADK session
+            adk_session = await session_service.get_session(
+                app_name=project.app.name,
+                user_id="playground_user",
+                session_id=session_id,
+            )
+            
+            if not adk_session:
+                return {"success": False, "error": "ADK session not found"}
+            
+            # Save to memory
+            await memory_service.add_session_to_memory(adk_session)
+            
+            return {"success": True, "message": f"Session {session_id} saved to memory"}
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to save session to memory: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
     
     def _build_agents(self, project: Project) -> Dict[str, Any]:
         """Build ADK agents from project config."""

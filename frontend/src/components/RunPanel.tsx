@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
-import { createRunWebSocket, fetchJSON, getMcpServers } from '../utils/api';
+import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory } from '../utils/api';
 
 // Wireshark-inspired color scheme for event types
 const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -1105,7 +1105,7 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch, currentSessionId, setCurrentSessionId } = useStore();
   
   // UI state
   const [userInput, setUserInput] = useState('');
@@ -1268,6 +1268,7 @@ export default function RunPanel() {
     
     clearRunEvents();
     clearWatchHistories();  // Clear watch histories when starting a new run
+    setCurrentSessionId(null);  // Clear session ID when starting new run
     setIsRunning(true);
     setSelectedEventIndex(null);
     setTimeRange(null);
@@ -1284,7 +1285,9 @@ export default function RunPanel() {
     
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'completed') {
+      if (data.type === 'session_started') {
+        setCurrentSessionId(data.session_id);
+      } else if (data.type === 'completed') {
         setIsRunning(false);
         websocket.close();
       } else if (data.type === 'error') {
@@ -1402,6 +1405,25 @@ export default function RunPanel() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, [runEvents, project, selectedAgentIdLocal]);
+  
+  // Save session to memory
+  const handleSaveToMemory = useCallback(async () => {
+    if (!currentSessionId) {
+      alert('No active session to save');
+      return;
+    }
+    
+    try {
+      const result = await saveSessionToMemory(currentSessionId);
+      if (result.success) {
+        alert(result.message || 'Session saved to memory successfully');
+      } else {
+        alert(`Failed to save to memory: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      alert(`Error saving to memory: ${error.message || 'Unknown error'}`);
+    }
+  }, [currentSessionId]);
   
   // Upload run from JSON file
   const handleUploadRun = useCallback(() => {
@@ -3066,6 +3088,15 @@ export default function RunPanel() {
         >
           <Download size={12} />
           Save
+        </button>
+        <button 
+          className="stats-bar-btn" 
+          onClick={handleSaveToMemory}
+          disabled={!currentSessionId || runEvents.length === 0}
+          title="Save current session to memory"
+        >
+          <Database size={12} />
+          Save to Memory
         </button>
       </div>
     </div>

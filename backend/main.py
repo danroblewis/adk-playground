@@ -729,6 +729,9 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         
         await connection_manager.connect(websocket, session_id)
         
+        # Send session_id to client
+        await websocket.send_json({"type": "session_started", "session_id": session_id})
+        
         async def event_callback(event: RunEvent):
             await connection_manager.send_event(session_id, event.model_dump(mode="json"))
         
@@ -803,6 +806,25 @@ async def get_session(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session.model_dump(mode="json")}
+
+
+@app.post("/api/sessions/{session_id}/save-to-memory")
+async def save_session_to_memory(session_id: str):
+    """Save a session to memory service."""
+    session = runtime_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Get the project for this session
+    project = project_manager.get_project(session.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found for session")
+    
+    result = await runtime_manager.save_session_to_memory(project, session_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to save to memory"))
+    
+    return result
 
 
 # ============================================================================

@@ -6,9 +6,9 @@ app:
   name: iterative_writer
   description: ''
   root_agent_id: agent_loop
-  session_service_uri: file://./tmp/sessions
-  memory_service_uri: memory://
-  artifact_service_uri: memory://
+  session_service_uri: file:///Users/danroblewis/adk_tmp/sessions
+  memory_service_uri: file:///Users/danroblewis/adk_tmp/memory
+  artifact_service_uri: file:///Users/danroblewis/adk_tmp/artifacts
   compaction:
     enabled: false
     max_events: 100

@@ -72,6 +72,10 @@ interface Store {
   runAgentId: string | null;
   setRunAgentId: (agentId: string | null) => void;
   
+  // Current session ID (for saving to memory)
+  currentSessionId: string | null;
+  setCurrentSessionId: (sessionId: string | null) => void;
+  
   // Actions
   updateProject: (updates: Partial<Project>) => void;
   addAgent: (agent: AgentConfig) => void;
@@ -96,6 +100,7 @@ export const useStore = create<Store>((set, get) => ({
   sidebarOpen: true,
   hasUnsavedChanges: false,
   runAgentId: null,
+  currentSessionId: null,
   
   // Setters
   setProject: (project) => {
@@ -174,6 +179,7 @@ export const useStore = create<Store>((set, get) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHasUnsavedChanges: (has) => set({ hasUnsavedChanges: has }),
   setRunAgentId: (agentId) => set({ runAgentId: agentId }),
+  setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
   
   // Complex actions
   updateProject: (updates) => {

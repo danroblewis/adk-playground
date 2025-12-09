@@ -50,6 +50,13 @@ export async function deleteProject(id: string): Promise<void> {
   await fetchJSON(`/projects/${id}`, { method: 'DELETE' });
 }
 
+// Sessions
+export async function saveSessionToMemory(sessionId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  return fetchJSON(`/sessions/${sessionId}/save-to-memory`, {
+    method: 'POST',
+  });
+}
+
 // YAML
 export async function getProjectYaml(id: string): Promise<string> {
   const data = await fetchJSON<{ yaml: string }>(`/projects/${id}/yaml`);
