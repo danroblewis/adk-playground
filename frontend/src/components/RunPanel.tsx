@@ -86,7 +86,7 @@ function formatTimestamp(timestamp: number, baseTime: number): string {
 
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'data']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'response', 'data']));
   
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections);
@@ -242,6 +242,42 @@ function EventDetail({ event }: { event: RunEvent }) {
                 {event.data?.result?.content?.[0]?.text || 
                  (typeof event.data?.result === 'string' ? event.data.result : JSON.stringify(event.data?.result, null, 2))}
               </pre>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {event.event_type === 'model_response' && event.data?.parts && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('response')}>
+            {expandedSections.has('response') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>Response ({event.data.parts.length} part{event.data.parts.length !== 1 ? 's' : ''})</span>
+            {event.data.tokens && (
+              <span className="token-badge">
+                {event.data.tokens.input}↑ {event.data.tokens.output}↓
+              </span>
+            )}
+          </div>
+          {expandedSections.has('response') && (
+            <div className="section-content">
+              {event.data.parts.map((part: any, i: number) => (
+                <div key={i} className="response-part">
+                  {part.type === 'text' && part.text && (
+                    <pre className="response-text">{part.text}</pre>
+                  )}
+                  {part.type === 'function_call' && (
+                    <div className="function-call">
+                      <strong>→ {part.name}()</strong>
+                      {part.args && Object.keys(part.args).length > 0 && (
+                        <pre>{JSON.stringify(part.args, null, 2)}</pre>
+                      )}
+                    </div>
+                  )}
+                  {part.thought && (
+                    <div className="thought-indicator">💭 Thinking</div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1868,6 +1904,41 @@ export default function RunPanel() {
           border-radius: 4px;
           max-height: 300px;
           overflow-y: auto;
+        }
+        
+        .token-badge {
+          margin-left: auto;
+          font-size: 10px;
+          color: #71717a;
+          background: #27272a;
+          padding: 2px 6px;
+          border-radius: 4px;
+        }
+        
+        .response-part {
+          margin-bottom: 8px;
+        }
+        
+        .response-part:last-child {
+          margin-bottom: 0;
+        }
+        
+        .response-text {
+          white-space: pre-wrap;
+          word-break: break-word;
+          background: #18181b;
+          padding: 8px;
+          border-radius: 4px;
+          margin: 0;
+          font-size: 11px;
+          max-height: 400px;
+          overflow-y: auto;
+        }
+        
+        .thought-indicator {
+          font-size: 10px;
+          color: #a855f7;
+          margin-top: 4px;
         }
         
         /* State Snapshot */
