@@ -1114,7 +1114,7 @@ export default function RunPanel() {
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change']));
-  const [hideEmptyResponses, setHideEmptyResponses] = useState(true);
+  const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
@@ -1228,11 +1228,13 @@ export default function RunPanel() {
       // Event type filter
       if (eventTypeFilter.size > 0 && !eventTypeFilter.has(event.event_type)) return false;
       
-      // Hide empty model responses (those with no text or function_call)
-      if (hideEmptyResponses && event.event_type === 'model_response') {
+      // Hide "LLM_RESP (complete)" type responses - those without text or function_call in parts
+      if (hideCompleteResponses && event.event_type === 'model_response') {
         const parts = event.data?.response_content?.parts || event.data?.parts || [];
-        const hasContent = parts.some((p: any) => p.type === 'text' || p.type === 'function_call');
-        if (!hasContent && !event.data?.text) return false;
+        const hasFnCall = parts.some((p: any) => p.type === 'function_call');
+        const hasText = parts.some((p: any) => p.type === 'text');
+        // If no function_call and no text part, this would display as "LLM_RSP (complete)"
+        if (!hasFnCall && !hasText) return false;
       }
       
       // Search filter
@@ -1243,7 +1245,7 @@ export default function RunPanel() {
       
       return true;
     });
-  }, [runEvents, timeRange, eventTypeFilter, searchQuery, hideEmptyResponses]);
+  }, [runEvents, timeRange, eventTypeFilter, searchQuery, hideCompleteResponses]);
   
   const selectedEvent = selectedEventIndex !== null ? runEvents[selectedEventIndex] : null;
   
@@ -2873,11 +2875,11 @@ export default function RunPanel() {
             </button>
           ))}
           <button
-            className={`filter-chip ${hideEmptyResponses ? 'active' : ''}`}
-            onClick={() => setHideEmptyResponses(!hideEmptyResponses)}
-            title="Hide model responses with no text or function calls"
+            className={`filter-chip ${hideCompleteResponses ? 'active' : ''}`}
+            onClick={() => setHideCompleteResponses(!hideCompleteResponses)}
+            title="Hide LLM_RESP (complete) events"
           >
-            hide empty
+            hide (complete)
           </button>
         </div>
         
