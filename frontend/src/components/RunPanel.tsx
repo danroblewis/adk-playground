@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
-  CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X
+  CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
+  Download, Upload
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
@@ -1296,6 +1297,66 @@ export default function RunPanel() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleRun, filteredEvents, selectedEventIndex, runEvents]);
   
+  // Download run as JSON file
+  const handleDownloadRun = useCallback(() => {
+    if (runEvents.length === 0) return;
+    
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      projectId: project?.id,
+      projectName: project?.name,
+      agentId: selectedAgentIdLocal || project?.app?.root_agent_id,
+      events: runEvents,
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `run-${project?.name || 'export'}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [runEvents, project, selectedAgentIdLocal]);
+  
+  // Upload run from JSON file
+  const handleUploadRun = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        
+        if (!data.events || !Array.isArray(data.events)) {
+          alert('Invalid run file: missing events array');
+          return;
+        }
+        
+        // Clear current events and load the imported ones
+        clearRunEvents();
+        clearWatchHistories();
+        setSelectedEventIndex(null);
+        setTimeRange(null);
+        
+        // Add events one by one (or bulk if store supports it)
+        data.events.forEach((event: RunEvent) => {
+          addRunEvent(event);
+        });
+        
+      } catch (err) {
+        alert(`Failed to load run file: ${err}`);
+      }
+    };
+    input.click();
+  }, [clearRunEvents, clearWatchHistories, addRunEvent]);
+  
   // Scroll selected event into view
   useEffect(() => {
     if (selectedEventIndex !== null) {
@@ -2538,6 +2599,34 @@ export default function RunPanel() {
           gap: 16px;
           padding: 4px 8px;
           background: #18181b;
+        }
+        
+        .stats-bar-spacer {
+          flex: 1;
+        }
+        
+        .stats-bar-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 8px;
+          background: #27272a;
+          border: 1px solid #3f3f46;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 11px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .stats-bar-btn:hover:not(:disabled) {
+          background: #3f3f46;
+          color: #e4e4e7;
+        }
+        
+        .stats-bar-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
           border-top: 1px solid #27272a;
           font-size: 10px;
           color: #71717a;
@@ -2792,6 +2881,24 @@ export default function RunPanel() {
             </span>
           </div>
         )}
+        <div className="stats-bar-spacer" />
+        <button 
+          className="stats-bar-btn" 
+          onClick={handleUploadRun}
+          title="Load a saved run"
+        >
+          <Upload size={12} />
+          Load
+        </button>
+        <button 
+          className="stats-bar-btn" 
+          onClick={handleDownloadRun}
+          disabled={runEvents.length === 0}
+          title="Save current run to file"
+        >
+          <Download size={12} />
+          Save
+        </button>
       </div>
     </div>
   );
