@@ -299,6 +299,21 @@ class RuntimeManager:
             from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
             from google.genai import types
             
+            # Create session service based on URI
+            def create_session_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_session_service import FileSessionService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileSessionService(base_dir=path)
+                elif uri.startswith("sqlite://"):
+                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
+                    db_path = uri[9:]  # Remove "sqlite://" prefix
+                    return SqliteSessionService(db_path=db_path)
+                else:
+                    return InMemorySessionService()
+            
+            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            
             # Build agents from config
             agents = self._build_agents(project)
             
@@ -363,7 +378,7 @@ class RuntimeManager:
             # Create runner
             runner = Runner(
                 app=app,
-                session_service=InMemorySessionService(),
+                session_service=session_service,
                 artifact_service=InMemoryArtifactService(),
                 memory_service=InMemoryMemoryService(),
             )

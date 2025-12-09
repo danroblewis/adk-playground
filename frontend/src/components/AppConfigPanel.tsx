@@ -399,15 +399,45 @@ export default function AppConfigPanel() {
         </div>
         <div className="form-grid">
           <div className="form-group">
-            <label>Session Service URI</label>
+            <label>Session Service</label>
             <select
-              value={app.session_service_uri.split('://')[0] + '://'}
-              onChange={(e) => updateApp({ session_service_uri: e.target.value })}
+              value={app.session_service_uri.split('://')[0]}
+              onChange={(e) => {
+                const type = e.target.value;
+                if (type === 'memory') {
+                  updateApp({ session_service_uri: 'memory://' });
+                } else if (type === 'file') {
+                  updateApp({ session_service_uri: 'file://./sessions' });
+                } else if (type === 'sqlite') {
+                  updateApp({ session_service_uri: 'sqlite://./sessions.db' });
+                } else {
+                  updateApp({ session_service_uri: type + '://' });
+                }
+              }}
             >
-              <option value="memory://">In-Memory</option>
-              <option value="sqlite://">SQLite</option>
-              <option value="postgresql://">PostgreSQL</option>
+              <option value="memory">In-Memory</option>
+              <option value="file">File System (JSON)</option>
+              <option value="sqlite">SQLite</option>
+              <option value="postgresql">PostgreSQL</option>
             </select>
+            {app.session_service_uri.startsWith('file://') && (
+              <input
+                type="text"
+                value={app.session_service_uri.replace('file://', '')}
+                onChange={(e) => updateApp({ session_service_uri: 'file://' + e.target.value })}
+                placeholder="./sessions"
+                style={{ marginTop: 8 }}
+              />
+            )}
+            {app.session_service_uri.startsWith('sqlite://') && (
+              <input
+                type="text"
+                value={app.session_service_uri.replace('sqlite://', '')}
+                onChange={(e) => updateApp({ session_service_uri: 'sqlite://' + e.target.value })}
+                placeholder="./sessions.db"
+                style={{ marginTop: 8 }}
+              />
+            )}
           </div>
           <div className="form-group">
             <label>Memory Service URI</label>
