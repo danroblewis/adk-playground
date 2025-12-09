@@ -256,3 +256,17 @@ mcp_servers:
   timeout: 60.0
   tool_filter: null
   tool_name_prefix: null
+- name: datetime
+  description: just a datetime
+  connection_type: stdio
+  command: /Users/danroblewis/adk/.venv/bin/python3
+  args:
+  - /Users/danroblewis/adk-python/adk_playground/mcp_servers/time_server.py
+  env: {}
+  url: null
+  headers: {}
+  timeout: 10.0
+  tool_filter:
+  - get_current_time
+  - get_timestamp
+  tool_name_prefix: null

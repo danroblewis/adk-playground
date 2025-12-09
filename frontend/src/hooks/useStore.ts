@@ -1,6 +1,19 @@
 import { create } from 'zustand';
 import type { Project, AgentConfig, CustomToolDefinition, MCPServerConfig, BuiltinTool, RunEvent } from '../utils/types';
 
+// Watch expression type for Tool Watch panel
+interface WatchExpression {
+  id: string;
+  serverName: string;
+  toolName: string;
+  args: Record<string, any>;
+  transform?: string;
+  result?: any;
+  error?: string;
+  isLoading?: boolean;
+  lastRun?: number;
+}
+
 interface Store {
   // Current project
   project: Project | null;
@@ -27,6 +40,13 @@ interface Store {
   runEvents: RunEvent[];
   addRunEvent: (event: RunEvent) => void;
   clearRunEvents: () => void;
+  
+  // Tool Watch (persisted across tab switches)
+  watches: WatchExpression[];
+  setWatches: (watches: WatchExpression[]) => void;
+  updateWatch: (id: string, updates: Partial<WatchExpression>) => void;
+  addWatch: (watch: WatchExpression) => void;
+  removeWatch: (id: string) => void;
   
   // UI state
   activeTab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml';
@@ -57,6 +77,7 @@ export const useStore = create<Store>((set, get) => ({
   builtinTools: [],
   isRunning: false,
   runEvents: [],
+  watches: [],
   activeTab: 'app',
   sidebarOpen: true,
   hasUnsavedChanges: false,
@@ -70,6 +91,12 @@ export const useStore = create<Store>((set, get) => ({
   setIsRunning: (running) => set({ isRunning: running }),
   addRunEvent: (event) => set((state) => ({ runEvents: [...state.runEvents, event] })),
   clearRunEvents: () => set({ runEvents: [] }),
+  setWatches: (watches) => set({ watches }),
+  updateWatch: (id, updates) => set((state) => ({
+    watches: state.watches.map(w => w.id === id ? { ...w, ...updates } : w)
+  })),
+  addWatch: (watch) => set((state) => ({ watches: [...state.watches, watch] })),
+  removeWatch: (id) => set((state) => ({ watches: state.watches.filter(w => w.id !== id) })),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHasUnsavedChanges: (has) => set({ hasUnsavedChanges: has }),

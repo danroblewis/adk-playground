@@ -318,15 +318,78 @@ interface WatchExpression {
   serverName: string;
   toolName: string;
   args: Record<string, any>;
+  transform?: string;  // JavaScript transform expression
   result?: any;
   error?: string;
   isLoading?: boolean;
   lastRun?: number;
 }
 
+// Extract clean result text from MCP response
+function extractResultText(result: any): { text: string; isError: boolean } {
+  if (!result) return { text: '', isError: false };
+  
+  // Handle API response wrapper
+  if (result.success === false) {
+    return { text: result.error || 'Unknown error', isError: true };
+  }
+  
+  let data = result.result || result;
+  
+  // If it's a string that looks like a Python dict, try to parse it
+  if (typeof data === 'string') {
+    // Try to convert Python-style dict to JSON
+    try {
+      const jsonStr = data
+        .replace(/'/g, '"')
+        .replace(/True/g, 'true')
+        .replace(/False/g, 'false')
+        .replace(/None/g, 'null');
+      data = JSON.parse(jsonStr);
+    } catch {
+      // Not parseable, return as-is
+      return { text: data, isError: false };
+    }
+  }
+  
+  // Handle MCP content format
+  if (data.content && Array.isArray(data.content)) {
+    const texts = data.content
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text);
+    return { 
+      text: texts.join('\n'), 
+      isError: data.isError === true 
+    };
+  }
+  
+  // Fallback
+  return { 
+    text: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+    isError: false 
+  };
+}
+
+// Apply JavaScript transform to result
+function applyTransform(text: string, transform: string | undefined): string {
+  if (!transform || !transform.trim()) return text;
+  
+  try {
+    // Create a function that takes 'value' and returns transformed result
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('value', `return ${transform}`);
+    const result = fn(text);
+    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  } catch (e) {
+    return `[Transform error: ${e}]\n${text}`;
+  }
+}
+
 // Tool Watch Panel component
 function ToolWatchPanel({ project }: { project: Project }) {
-  const [watches, setWatches] = useState<WatchExpression[]>([]);
+  // Use global store for watches so they persist across tab switches
+  const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch } = useStore();
+  
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [availableTools, setAvailableTools] = useState<Record<string, any[]>>({});
   const [loadingServers, setLoadingServers] = useState<Set<string>>(new Set());
@@ -335,6 +398,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
   const [newServerName, setNewServerName] = useState('');
   const [newToolName, setNewToolName] = useState('');
   const [newArgs, setNewArgs] = useState<Record<string, any>>({});
+  const [newTransform, setNewTransform] = useState('');
   const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
   
   // Fetch known MCP servers on mount
@@ -404,24 +468,24 @@ function ToolWatchPanel({ project }: { project: Project }) {
       serverName: newServerName,
       toolName: newToolName,
       args: { ...newArgs },
+      transform: newTransform || undefined,
     };
-    setWatches(prev => [...prev, watch]);
+    storeAddWatch(watch);
     setShowAddDialog(false);
     setNewServerName('');
     setNewToolName('');
     setNewArgs({});
+    setNewTransform('');
     // Run immediately
     runWatch(watch);
   };
   
   const removeWatch = (id: string) => {
-    setWatches(prev => prev.filter(w => w.id !== id));
+    storeRemoveWatch(id);
   };
   
   const runWatch = async (watch: WatchExpression) => {
-    setWatches(prev => prev.map(w => 
-      w.id === watch.id ? { ...w, isLoading: true, error: undefined } : w
-    ));
+    updateWatch(watch.id, { isLoading: true, error: undefined });
     
     try {
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
@@ -433,13 +497,9 @@ function ToolWatchPanel({ project }: { project: Project }) {
           arguments: watch.args,
         }),
       });
-      setWatches(prev => prev.map(w => 
-        w.id === watch.id ? { ...w, result, isLoading: false, lastRun: Date.now() } : w
-      ));
+      updateWatch(watch.id, { result, isLoading: false, lastRun: Date.now() });
     } catch (err) {
-      setWatches(prev => prev.map(w => 
-        w.id === watch.id ? { ...w, error: String(err), isLoading: false, lastRun: Date.now() } : w
-      ));
+      updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: Date.now() });
     }
   };
   
@@ -478,40 +538,59 @@ function ToolWatchPanel({ project }: { project: Project }) {
         </div>
       ) : (
         <div className="watch-list">
-          {watches.map(watch => (
-            <div key={watch.id} className={`watch-item ${watch.error ? 'error' : ''}`}>
-              <div className="watch-item-header">
-                <span className="watch-expr">
-                  <span className="watch-server">{watch.serverName}</span>
-                  <span className="watch-tool">{watch.toolName}</span>
-                  {Object.keys(watch.args).length > 0 && (
-                    <span className="watch-args">
-                      ({Object.entries(watch.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
-                    </span>
+          {watches.map(watch => {
+            const { text, isError } = watch.result 
+              ? extractResultText(watch.result)
+              : { text: '', isError: false };
+            const displayText = watch.result ? applyTransform(text, watch.transform) : '';
+            
+            return (
+              <div key={watch.id} className={`watch-item ${watch.error || isError ? 'error' : ''}`}>
+                <div className="watch-item-header">
+                  <span className="watch-expr">
+                    <span className="watch-server">{watch.serverName}</span>
+                    <span className="watch-tool">{watch.toolName}</span>
+                    {Object.keys(watch.args).length > 0 && (
+                      <span className="watch-args">
+                        ({Object.entries(watch.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
+                      </span>
+                    )}
+                  </span>
+                  <div className="watch-item-actions">
+                    <button 
+                      onClick={() => {
+                        const transform = prompt('Transform expression (use "value" for input):', watch.transform || '');
+                        if (transform !== null) {
+                          updateWatch(watch.id, { transform });
+                        }
+                      }} 
+                      title="Edit transform"
+                      style={{ opacity: watch.transform ? 1 : 0.5 }}
+                    >
+                      <Zap size={10} />
+                    </button>
+                    <button onClick={() => runWatch(watch)} title="Refresh">
+                      {watch.isLoading ? <RefreshCw size={10} className="spin" /> : <RefreshCw size={10} />}
+                    </button>
+                    <button onClick={() => removeWatch(watch.id)} title="Remove">
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                </div>
+                <div className="watch-result">
+                  {watch.isLoading ? (
+                    <span className="loading">Loading...</span>
+                  ) : watch.error ? (
+                    <span className="error">{watch.error}</span>
+                  ) : watch.result ? (
+                    <pre className={isError ? 'error-text' : ''}>{displayText}</pre>
+                  ) : (
+                    <span className="no-result">Not yet run</span>
                   )}
-                </span>
-                <div className="watch-item-actions">
-                  <button onClick={() => runWatch(watch)} title="Refresh">
-                    {watch.isLoading ? <RefreshCw size={10} className="spin" /> : <RefreshCw size={10} />}
-                  </button>
-                  <button onClick={() => removeWatch(watch.id)} title="Remove">
-                    <Trash2 size={10} />
-                  </button>
                 </div>
               </div>
-              <div className="watch-result">
-                {watch.isLoading ? (
-                  <span className="loading">Loading...</span>
-                ) : watch.error ? (
-                  <span className="error">{watch.error}</span>
-                ) : watch.result ? (
-                  <pre>{typeof watch.result === 'string' ? watch.result : JSON.stringify(watch.result, null, 2)}</pre>
-                ) : (
-                  <span className="no-result">Not yet run</span>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       
@@ -581,6 +660,17 @@ function ToolWatchPanel({ project }: { project: Project }) {
                   ))}
                 </div>
               )}
+              
+              <div className="form-row">
+                <label>Transform (optional)</label>
+                <input
+                  type="text"
+                  value={newTransform}
+                  onChange={e => setNewTransform(e.target.value)}
+                  placeholder="e.g., value.split('\\n')[0] or JSON.parse(value)"
+                />
+                <span className="form-hint">JS expression. Use "value" for the result text.</span>
+              </div>
             </div>
             
             <div className="dialog-footer">
@@ -1639,11 +1729,13 @@ export default function Run2Panel() {
         }
         
         .watch-result {
-          padding: 6px 8px;
+          padding: 8px 10px;
           font-family: 'SF Mono', 'Consolas', monospace;
-          font-size: 10px;
-          max-height: 100px;
+          font-size: 11px;
+          max-height: 200px;
           overflow-y: auto;
+          background: #0c0c0d;
+          border-radius: 0 0 4px 4px;
         }
         
         .watch-result .loading {
@@ -1665,6 +1757,17 @@ export default function Run2Panel() {
           white-space: pre-wrap;
           word-break: break-word;
           color: #86efac;
+          line-height: 1.4;
+        }
+        
+        .watch-result pre.error-text {
+          color: #fca5a5;
+        }
+        
+        .form-hint {
+          font-size: 10px;
+          color: #71717a;
+          margin-top: 4px;
         }
         
         /* Watch Dialog */
