@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
-import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory } from '../utils/api';
+import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession } from '../utils/api';
 
 // Wireshark-inspired color scheme for event types
 const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -1120,6 +1120,17 @@ export default function RunPanel() {
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   
+  // Session selector state
+  const [availableSessions, setAvailableSessions] = useState<Array<{
+    id: string;
+    started_at: number;
+    ended_at?: number;
+    duration?: number;
+    event_count: number;
+  }>>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  
   // Auto-refresh watches at the panel level (so they run even when Tool tab isn't visible)
   const lastWatchEventCountRef = useRef(0);
   
@@ -1248,6 +1259,56 @@ export default function RunPanel() {
   }, [runEvents, timeRange, eventTypeFilter, searchQuery, hideCompleteResponses]);
   
   const selectedEvent = selectedEventIndex !== null ? runEvents[selectedEventIndex] : null;
+  
+  // Load available sessions when project changes
+  useEffect(() => {
+    if (!project) {
+      setAvailableSessions([]);
+      return;
+    }
+    
+    const loadSessions = async () => {
+      setLoadingSessions(true);
+      try {
+        const sessions = await listProjectSessions(project.id);
+        setAvailableSessions(sessions);
+      } catch (error) {
+        console.error('Failed to load sessions:', error);
+        setAvailableSessions([]);
+      } finally {
+        setLoadingSessions(false);
+      }
+    };
+    
+    loadSessions();
+  }, [project]);
+  
+  // Handle session selection
+  const handleSessionSelect = useCallback(async (sessionId: string | null) => {
+    if (!project || !sessionId) {
+      setSelectedSessionId(null);
+      return;
+    }
+    
+    try {
+      const session = await loadSession(project.id, sessionId);
+      
+      // Clear current events and load session events
+      clearRunEvents();
+      clearWatchHistories();
+      setCurrentSessionId(session.id);
+      setSelectedSessionId(sessionId);
+      setSelectedEventIndex(null);
+      setTimeRange(null);
+      
+      // Add all events from the session
+      for (const event of session.events) {
+        addRunEvent(event);
+      }
+    } catch (error: any) {
+      alert(`Failed to load session: ${error.message || 'Unknown error'}`);
+    }
+  }, [project, clearRunEvents, clearWatchHistories, setCurrentSessionId, addRunEvent]);
   
   // Auto-scroll to new events
   useEffect(() => {
@@ -1408,7 +1469,7 @@ export default function RunPanel() {
   
   // Save session to memory
   const handleSaveToMemory = useCallback(async () => {
-    if (!currentSessionId) {
+    if (!currentSessionId || !project) {
       alert('No active session to save');
       return;
     }
@@ -1417,13 +1478,20 @@ export default function RunPanel() {
       const result = await saveSessionToMemory(currentSessionId);
       if (result.success) {
         alert(result.message || 'Session saved to memory successfully');
+        // Refresh sessions list
+        try {
+          const sessions = await listProjectSessions(project.id);
+          setAvailableSessions(sessions);
+        } catch (e) {
+          // Ignore refresh errors
+        }
       } else {
         alert(`Failed to save to memory: ${result.error || 'Unknown error'}`);
       }
     } catch (error: any) {
       alert(`Error saving to memory: ${error.message || 'Unknown error'}`);
     }
-  }, [currentSessionId]);
+  }, [currentSessionId, project]);
   
   // Upload run from JSON file
   const handleUploadRun = useCallback(() => {
@@ -2845,6 +2913,25 @@ export default function RunPanel() {
               {agent.name} ({agent.type.replace('Agent', '')})
             </option>
           ))}
+        </select>
+        <select
+          className="agent-selector"
+          value={selectedSessionId || ''}
+          onChange={e => handleSessionSelect(e.target.value || null)}
+          disabled={isRunning || loadingSessions}
+          style={{ minWidth: 180 }}
+          title="Load a saved session"
+        >
+          <option value="">{loadingSessions ? 'Loading...' : 'Load Session...'}</option>
+          {availableSessions.map(session => {
+            const date = new Date(session.started_at * 1000);
+            const duration = session.duration ? `${session.duration.toFixed(1)}s` : '?';
+            return (
+              <option key={session.id} value={session.id}>
+                {date.toLocaleString()} ({session.event_count} events, {duration})
+              </option>
+            );
+          })}
         </select>
         <input
           type="text"

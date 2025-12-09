@@ -39,6 +39,11 @@ app:
     type: string
     default_value: null
     scope: session
+  - name: memory_guy
+    description: ''
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
   models:
   - id: model_miw9xh0n
@@ -84,7 +89,9 @@ agents:
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
-  tools: []
+  tools:
+  - type: builtin
+    name: preload_memory
   sub_agents: []
   before_agent_callbacks: []
   after_agent_callbacks: []
@@ -164,8 +171,8 @@ agents:
   description: Reviews the story and decides to approve or request changes
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node2:32504
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -296,13 +303,11 @@ agents:
     top_k: null
     app_model_id: model_miw9xh0n
   instruction: 'You are an agent that answers questions about things in your memory. '
-  output_key: null
+  output_key: memory_guy
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
-  tools:
-  - type: builtin
-    name: load_memory
+  tools: []
   sub_agents: []
   before_agent_callbacks: []
   after_agent_callbacks: []

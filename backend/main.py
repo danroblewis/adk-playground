@@ -799,12 +799,37 @@ async def list_sessions():
     return {"sessions": [s.model_dump(mode="json") for s in sessions]}
 
 
+@app.get("/api/projects/{project_id}/sessions")
+async def list_project_sessions(project_id: str):
+    """List all sessions from the session service for a project."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    sessions = await runtime_manager.list_sessions_from_service(project)
+    return {"sessions": sessions}
+
+
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
     """Get a session by ID."""
     session = runtime_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+    return {"session": session.model_dump(mode="json")}
+
+
+@app.get("/api/projects/{project_id}/sessions/{session_id}/load")
+async def load_session(project_id: str, session_id: str):
+    """Load a session's events from the session service."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    session = await runtime_manager.load_session_from_service(project, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
     return {"session": session.model_dump(mode="json")}
 
 

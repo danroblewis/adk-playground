@@ -57,6 +57,31 @@ export async function saveSessionToMemory(sessionId: string): Promise<{ success:
   });
 }
 
+export async function listProjectSessions(projectId: string): Promise<Array<{
+  id: string;
+  started_at: number;
+  ended_at?: number;
+  duration?: number;
+  event_count: number;
+}>> {
+  const data = await fetchJSON<{ sessions: any[] }>(`/projects/${projectId}/sessions`);
+  return data.sessions;
+}
+
+export async function loadSession(projectId: string, sessionId: string): Promise<{
+  id: string;
+  project_id: string;
+  started_at: number;
+  ended_at?: number;
+  status: string;
+  events: any[];
+  final_state: Record<string, any>;
+  token_counts: Record<string, number>;
+}> {
+  const data = await fetchJSON<{ session: any }>(`/projects/${projectId}/sessions/${sessionId}/load`);
+  return data.session;
+}
+
 // YAML
 export async function getProjectYaml(id: string): Promise<string> {
   const data = await fetchJSON<{ yaml: string }>(`/projects/${id}/yaml`);

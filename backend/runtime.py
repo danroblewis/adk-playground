@@ -490,6 +490,173 @@ class RuntimeManager:
         """Get a session by ID."""
         return self.sessions.get(session_id)
     
+    async def list_sessions_from_service(self, project: Project) -> List[dict]:
+        """List all sessions from the session service for a project.
+        
+        Args:
+            project: The project configuration
+            
+        Returns:
+            List of session summaries (id, started_at, ended_at, status)
+        """
+        try:
+            def create_session_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_session_service import FileSessionService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileSessionService(base_dir=path)
+                elif uri.startswith("sqlite://"):
+                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
+                    db_path = uri[9:]  # Remove "sqlite://" prefix
+                    return SqliteSessionService(db_path=db_path)
+                else:
+                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+                    return InMemorySessionService()
+            
+            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            
+            # List sessions from the service
+            response = await session_service.list_sessions(
+                app_name=project.app.name,
+                user_id="playground_user",
+            )
+            
+            sessions = []
+            for adk_session in response.sessions:
+                duration = None
+                if adk_session.last_update_time and adk_session.events:
+                    # Estimate duration from first and last event timestamps
+                    if len(adk_session.events) > 0:
+                        first_time = adk_session.events[0].timestamp
+                        last_time = adk_session.events[-1].timestamp
+                        duration = last_time - first_time
+                
+                sessions.append({
+                    "id": adk_session.id,
+                    "started_at": adk_session.events[0].timestamp if adk_session.events else adk_session.last_update_time,
+                    "ended_at": adk_session.last_update_time if adk_session.events else None,
+                    "duration": duration,
+                    "event_count": len(adk_session.events),
+                })
+            
+            # Sort by started_at descending (newest first)
+            sessions.sort(key=lambda x: x["started_at"], reverse=True)
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"Failed to list sessions from service: {e}", exc_info=True)
+            return []
+    
+    async def load_session_from_service(self, project: Project, session_id: str) -> Optional[RunSession]:
+        """Load a session's events from the session service.
+        
+        Args:
+            project: The project configuration
+            session_id: The session ID to load
+            
+        Returns:
+            RunSession with events, or None if not found
+        """
+        try:
+            def create_session_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_session_service import FileSessionService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileSessionService(base_dir=path)
+                elif uri.startswith("sqlite://"):
+                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
+                    db_path = uri[9:]  # Remove "sqlite://" prefix
+                    return SqliteSessionService(db_path=db_path)
+                else:
+                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+                    return InMemorySessionService()
+            
+            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            
+            # Get the ADK session
+            adk_session = await session_service.get_session(
+                app_name=project.app.name,
+                user_id="playground_user",
+                session_id=session_id,
+            )
+            
+            if not adk_session:
+                return None
+            
+            # Convert ADK events to RunEvents
+            # Note: ADK events don't have all the same structure as RunEvents,
+            # so we do our best to reconstruct them
+            run_events = []
+            for event in adk_session.events:
+                event_data = {}
+                event_type = "model_response"  # default
+                
+                # Extract content from event
+                if event.content and event.content.parts:
+                    parts_data = []
+                    for part in event.content.parts:
+                        part_data = {}
+                        if hasattr(part, 'text') and part.text:
+                            part_data["type"] = "text"
+                            part_data["text"] = part.text
+                        elif hasattr(part, 'function_call') and part.function_call:
+                            fc = part.function_call
+                            part_data["type"] = "function_call"
+                            part_data["name"] = getattr(fc, "name", "unknown")
+                            part_data["args"] = dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {}
+                        elif hasattr(part, 'function_response') and part.function_response:
+                            fr = part.function_response
+                            part_data["type"] = "function_response"
+                            part_data["name"] = getattr(fr, "name", "unknown")
+                            response = getattr(fr, "response", None)
+                            if response:
+                                part_data["response"] = response
+                        
+                        if part_data:
+                            parts_data.append(part_data)
+                    
+                    if parts_data:
+                        event_data["response_content"] = {"parts": parts_data}
+                        # Check if it's a function call to determine type
+                        if any(p.get("type") == "function_call" for p in parts_data):
+                            event_type = "model_response"
+                        elif any(p.get("type") == "function_response" for p in parts_data):
+                            event_type = "tool_result"
+                
+                # Check event actions for state changes
+                if hasattr(event, 'actions') and event.actions and event.actions.state_delta:
+                    event_data["state_delta"] = dict(event.actions.state_delta)
+                    # Also emit a separate state_change event
+                    run_events.append(RunEvent(
+                        timestamp=event.timestamp,
+                        event_type="state_change",
+                        agent_name=event.author or "unknown",
+                        data={"state_delta": dict(event.actions.state_delta)},
+                    ))
+                
+                run_events.append(RunEvent(
+                    timestamp=event.timestamp,
+                    event_type=event_type,
+                    agent_name=event.author or "unknown",
+                    data=event_data,
+                ))
+            
+            # Create RunSession
+            return RunSession(
+                id=adk_session.id,
+                project_id=project.id,
+                started_at=adk_session.events[0].timestamp if adk_session.events else adk_session.last_update_time,
+                ended_at=adk_session.last_update_time if adk_session.events else None,
+                status="completed",
+                events=run_events,
+                final_state=dict(adk_session.state) if adk_session.state else {},
+                token_counts={},  # Not stored in session service
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to load session from service: {e}", exc_info=True)
+            return None
+    
     async def save_session_to_memory(self, project: Project, session_id: str) -> dict:
         """Save a session to memory service.
         
