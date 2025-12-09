@@ -269,6 +269,7 @@ class RuntimeManager:
         user_message: str,
         event_callback,
         agent_id: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> AsyncGenerator[RunEvent, None]:
         """Run an agent and stream events.
         
@@ -277,19 +278,30 @@ class RuntimeManager:
             user_message: User's input message
             event_callback: Callback for events
             agent_id: Optional agent ID to run. If None, uses project's root_agent_id
+            session_id: Optional session ID to reuse. If None, creates a new session.
+                        If provided and session exists, appends to existing session.
             
         Yields:
             RunEvent objects, with the first event containing session_id in data
         """
-        session_id = str(uuid.uuid4())[:8]
+        # Generate new session_id if not provided
+        if not session_id:
+            session_id = str(uuid.uuid4())[:8]
         
-        session = RunSession(
-            id=session_id,
-            project_id=project.id,
-            started_at=time.time(),
-            status="running",
-        )
-        self.sessions[session_id] = session
+        # Check if we already have a RunSession for this ID
+        existing_run_session = self.sessions.get(session_id)
+        if existing_run_session:
+            session = existing_run_session
+            session.status = "running"
+        else:
+            session = RunSession(
+                id=session_id,
+                project_id=project.id,
+                started_at=time.time(),
+                status="running",
+            )
+            self.sessions[session_id] = session
+        
         self._running[session_id] = True
         
         try:
@@ -348,6 +360,25 @@ class RuntimeManager:
             session_service = create_session_service(project.app.session_service_uri or "memory://")
             memory_service = create_memory_service(project.app.memory_service_uri or "memory://")
             artifact_service = create_artifact_service(project.app.artifact_service_uri or "memory://")
+            
+            # Check if ADK session exists (for reuse) - check before building agents
+            adk_session = None
+            session_reused = False
+            if session_id:
+                adk_session = await session_service.get_session(
+                    app_name=project.app.name,
+                    user_id="playground_user",
+                    session_id=session_id,
+                )
+                if adk_session:
+                    session_reused = True
+                    # Update our RunSession with existing session info
+                    session.id = adk_session.id
+                    session_id = adk_session.id
+                    # Update started_at if this is the first time we're tracking it
+                    if session_id not in self.sessions:
+                        session.started_at = adk_session.events[0].timestamp if adk_session.events else time.time()
+                    self.sessions[session_id] = session
             
             # Build agents from config
             agents = self._build_agents(project)
@@ -410,7 +441,7 @@ class RuntimeManager:
                 plugins=plugins,
             )
             
-            # Create runner
+            # Create runner with actual app
             runner = Runner(
                 app=app,
                 session_service=session_service,
@@ -418,13 +449,27 @@ class RuntimeManager:
                 memory_service=memory_service,
             )
             
-            # Create session
-            adk_session = await runner.session_service.create_session(
-                app_name=project.app.name,
-                user_id="playground_user",
+            # Create new ADK session if it doesn't exist
+            if not adk_session:
+                adk_session = await runner.session_service.create_session(
+                    app_name=project.app.name,
+                    user_id="playground_user",
+                    session_id=session_id,  # Use provided session_id if available
+                )
+                # Update our RunSession with the actual session_id from ADK
+                session.id = adk_session.id
+                session_id = adk_session.id
+                self.sessions[session_id] = session
+            
+            # Yield session_id info first so client knows which session is being used
+            yield RunEvent(
+                timestamp=time.time(),
+                event_type="agent_start",
+                agent_name="system",
+                data={"session_id": adk_session.id, "session_reused": session_reused},
             )
             
-            # Run the agent
+            # Run the agent (this will append to existing session if it exists)
             content = types.Content(
                 role="user",
                 parts=[types.Part.from_text(text=user_message)],
@@ -432,7 +477,7 @@ class RuntimeManager:
             
             async for event in runner.run_async(
                 user_id=adk_session.user_id,
-                session_id=adk_session.id,
+                session_id=adk_session.id,  # Use existing session_id to append
                 new_message=content,
             ):
                 if not self._running.get(session_id, False):

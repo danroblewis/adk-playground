@@ -1337,9 +1337,14 @@ export default function RunPanel() {
       setWs(null);
     }
     
-    clearRunEvents();
-    clearWatchHistories();  // Clear watch histories when starting a new run
-    setCurrentSessionId(null);  // Clear session ID when starting new run
+    // Only clear events if we're not reusing an existing session
+    // If currentSessionId is set, we're continuing a loaded session
+    if (!currentSessionId) {
+      clearRunEvents();
+      clearWatchHistories();  // Clear watch histories when starting a new run
+      setSelectedSessionId(null);  // Clear session selector for new runs
+    }
+    // Don't clear currentSessionId - we want to reuse it if it exists
     setIsRunning(true);
     setSelectedEventIndex(null);
     setTimeRange(null);
@@ -1351,13 +1356,30 @@ export default function RunPanel() {
       websocket.send(JSON.stringify({ 
         message: userInput,
         agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
+        session_id: currentSessionId || undefined,  // Reuse existing session if loaded
       }));
     };
     
     websocket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'session_started') {
+      // Check if this is the first agent_start event with session_id (from backend)
+      if (data.event_type === 'agent_start' && data.data?.session_id) {
+        const sid = data.data.session_id;
+        const isReused = data.data.session_reused === true;
+        setCurrentSessionId(sid);
+        // Update selectedSessionId to match
+        if (sid && availableSessions.some(s => s.id === sid)) {
+          setSelectedSessionId(sid);
+        }
+        // If session was reused, we're appending - don't clear events
+        // Events were already loaded when session was selected
+        // If it's a new session, events were already cleared in handleRun
+      } else if (data.type === 'session_started') {
         setCurrentSessionId(data.session_id);
+        // Update selectedSessionId to match
+        if (data.session_id && availableSessions.some(s => s.id === data.session_id)) {
+          setSelectedSessionId(data.session_id);
+        }
       } else if (data.type === 'completed') {
         setIsRunning(false);
         websocket.close();
@@ -1387,7 +1409,7 @@ export default function RunPanel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
-  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal]);
+  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId]);
   
   // Handle stop
   const handleStop = useCallback(() => {

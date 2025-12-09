@@ -724,19 +724,43 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         # Wait for initial message with user input
         data = await websocket.receive_json()
         user_message = data.get("message", "")
-        session_id = data.get("session_id", f"ws_{project_id}")
+        requested_session_id = data.get("session_id")  # Optional: reuse existing session
         agent_id = data.get("agent_id")  # Optional: run specific agent instead of root
         
-        await connection_manager.connect(websocket, session_id)
-        
-        # Send session_id to client
-        await websocket.send_json({"type": "session_started", "session_id": session_id})
+        session_id = None  # Will be set from first event
         
         async def event_callback(event: RunEvent):
             await connection_manager.send_event(session_id, event.model_dump(mode="json"))
         
-        # Run the agent (optionally a specific agent instead of root)
-        async for event in runtime_manager.run_agent(project, user_message, event_callback, agent_id=agent_id):
+        # Run the agent (optionally a specific agent instead of root, optionally reuse session)
+        async for event in runtime_manager.run_agent(
+            project, 
+            user_message, 
+            event_callback, 
+            agent_id=agent_id,
+            session_id=requested_session_id,  # Pass through to reuse existing session
+        ):
+            # First event contains session_id info
+            if not session_id and event.event_type == "agent_start" and event.data.get("session_id"):
+                session_id = event.data["session_id"]
+                await connection_manager.connect(websocket, session_id)
+                # Send session_id to client
+                await websocket.send_json({"type": "session_started", "session_id": session_id})
+            
+            await websocket.send_json(event.model_dump(mode="json"))
+        
+        # Get the actual session_id that was used (may be new or reused)
+        # We need to get it from the runtime manager
+        # Actually, we can get it from the RunSession that was created/used
+        # Let me check if we can get it from the event callback or we need to modify the approach
+        
+        # For now, connect after we have the session_id
+        # Actually, let's connect before running and use a temporary ID, then update
+        # Or better: get session_id from the runtime after run starts
+        
+        # Actually, a simpler approach: the session_id is known before run_agent starts
+        # because we either use the requested one or generate a new one
+        # But we need to know what was actually used. Let me modify run_agent to yield the session_id first
             await websocket.send_json(event.model_dump(mode="json"))
         
         # Send completion message
