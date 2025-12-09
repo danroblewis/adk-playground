@@ -440,22 +440,72 @@ export default function AppConfigPanel() {
             )}
           </div>
           <div className="form-group">
-            <label>Memory Service URI</label>
+            <label>Memory Service</label>
             <select
-              value={app.memory_service_uri.split('://')[0] + '://'}
-              onChange={(e) => updateApp({ memory_service_uri: e.target.value })}
+              value={app.memory_service_uri.split('://')[0]}
+              onChange={(e) => {
+                const type = e.target.value;
+                if (type === 'memory') {
+                  updateApp({ memory_service_uri: 'memory://' });
+                } else if (type === 'file') {
+                  updateApp({ memory_service_uri: 'file://./memory' });
+                } else {
+                  updateApp({ memory_service_uri: type + '://' });
+                }
+              }}
             >
-              <option value="memory://">In-Memory</option>
+              <option value="memory">In-Memory</option>
+              <option value="file">File System (JSON)</option>
             </select>
+            {app.memory_service_uri.startsWith('file://') && (
+              <input
+                type="text"
+                value={app.memory_service_uri.replace('file://', '')}
+                onChange={(e) => updateApp({ memory_service_uri: 'file://' + e.target.value })}
+                placeholder="./memory"
+                style={{ marginTop: 8 }}
+              />
+            )}
           </div>
           <div className="form-group">
-            <label>Artifact Service URI</label>
+            <label>Artifact Service</label>
             <select
-              value={app.artifact_service_uri.split('://')[0] + '://'}
-              onChange={(e) => updateApp({ artifact_service_uri: e.target.value })}
+              value={app.artifact_service_uri.split('://')[0]}
+              onChange={(e) => {
+                const type = e.target.value;
+                if (type === 'memory') {
+                  updateApp({ artifact_service_uri: 'memory://' });
+                } else if (type === 'file') {
+                  updateApp({ artifact_service_uri: 'file://./artifacts' });
+                } else if (type === 'gcs') {
+                  updateApp({ artifact_service_uri: 'gcs://your-bucket-name' });
+                } else {
+                  updateApp({ artifact_service_uri: type + '://' });
+                }
+              }}
             >
-              <option value="memory://">In-Memory</option>
+              <option value="memory">In-Memory</option>
+              <option value="file">File System</option>
+              <option value="gcs">Google Cloud Storage</option>
             </select>
+            {app.artifact_service_uri.startsWith('file://') && (
+              <input
+                type="text"
+                value={app.artifact_service_uri.replace('file://', '')}
+                onChange={(e) => updateApp({ artifact_service_uri: 'file://' + e.target.value })}
+                placeholder="./artifacts"
+                style={{ marginTop: 8 }}
+              />
+            )}
+            {app.artifact_service_uri.startsWith('gcs://') && (
+              <input
+                type="text"
+                value={app.artifact_service_uri.replace('gcs://', '')}
+                onChange={(e) => updateApp({ artifact_service_uri: 'gcs://' + e.target.value })}
+                placeholder="your-bucket-name"
+                style={{ marginTop: 8 }}
+              />
+            )}
           </div>
         </div>
       </section>

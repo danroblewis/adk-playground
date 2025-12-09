@@ -312,7 +312,31 @@ class RuntimeManager:
                 else:
                     return InMemorySessionService()
             
+            # Create memory service based on URI
+            def create_memory_service(uri: str):
+                if uri.startswith("file://"):
+                    from file_memory_service import FileMemoryService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileMemoryService(base_dir=path)
+                else:
+                    return InMemoryMemoryService()
+            
+            # Create artifact service based on URI
+            def create_artifact_service(uri: str):
+                if uri.startswith("file://"):
+                    from google.adk.artifacts.file_artifact_service import FileArtifactService
+                    path = uri[7:]  # Remove "file://" prefix
+                    return FileArtifactService(root_dir=path)
+                elif uri.startswith("gcs://"):
+                    from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
+                    bucket = uri[6:]  # Remove "gcs://" prefix
+                    return GcsArtifactService(bucket_name=bucket)
+                else:
+                    return InMemoryArtifactService()
+            
             session_service = create_session_service(project.app.session_service_uri or "memory://")
+            memory_service = create_memory_service(project.app.memory_service_uri or "memory://")
+            artifact_service = create_artifact_service(project.app.artifact_service_uri or "memory://")
             
             # Build agents from config
             agents = self._build_agents(project)
@@ -379,8 +403,8 @@ class RuntimeManager:
             runner = Runner(
                 app=app,
                 session_service=session_service,
-                artifact_service=InMemoryArtifactService(),
-                memory_service=InMemoryMemoryService(),
+                artifact_service=artifact_service,
+                memory_service=memory_service,
             )
             
             # Create session
