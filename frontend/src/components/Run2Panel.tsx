@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
-  CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers
+  CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
@@ -262,13 +262,19 @@ function EventDetail({ event }: { event: RunEvent }) {
   );
 }
 
-// State snapshot component
-function StateSnapshot({ events, endTime, selectedEventIndex }: { events: RunEvent[]; endTime: number; selectedEventIndex: number | null }) {
+// State snapshot component - shows state after selected event
+function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; selectedEventIndex: number | null }) {
   const state = useMemo(() => {
     const snapshot: Record<string, { value: any; timestamp: number }> = {};
     
-    events
-      .filter(e => e.event_type === 'state_change' && e.timestamp <= endTime)
+    // If an event is selected, show state up to and including that event
+    // Otherwise show state at end of all events
+    const relevantEvents = selectedEventIndex !== null
+      ? events.slice(0, selectedEventIndex + 1)
+      : events;
+    
+    relevantEvents
+      .filter(e => e.event_type === 'state_change')
       .forEach(e => {
         if (e.data?.state_delta) {
           Object.entries(e.data.state_delta).forEach(([key, value]) => {
@@ -278,18 +284,16 @@ function StateSnapshot({ events, endTime, selectedEventIndex }: { events: RunEve
       });
     
     return snapshot;
-  }, [events, endTime]);
+  }, [events, selectedEventIndex]);
   
   const entries = Object.entries(state);
   
   return (
     <div className="state-snapshot">
       <div className="state-header">
-        {selectedEventIndex !== null ? (
-          <span>State after event #{selectedEventIndex}</span>
-        ) : (
-          <span>State at end of run</span>
-        )}
+        {selectedEventIndex !== null 
+          ? `State after event #${selectedEventIndex}` 
+          : 'State at end of run'}
       </div>
       {entries.length === 0 ? (
         <div className="state-empty">No state changes at this point</div>
@@ -308,170 +312,296 @@ function StateSnapshot({ events, endTime, selectedEventIndex }: { events: RunEve
   );
 }
 
-// MCP Tool Runner component
-function MCPToolRunner({ project, onResult }: { project: Project; onResult: (result: any) => void }) {
-  const [selectedServer, setSelectedServer] = useState<string>('');
-  const [selectedTool, setSelectedTool] = useState<string>('');
-  const [toolParams, setToolParams] = useState<Record<string, any>>({});
-  const [availableTools, setAvailableTools] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
+// Watch expression type
+interface WatchExpression {
+  id: string;
+  serverName: string;
+  toolName: string;
+  args: Record<string, any>;
+  result?: any;
+  error?: string;
+  isLoading?: boolean;
+  lastRun?: number;
+}
+
+// Tool Watch Panel component
+function ToolWatchPanel({ project }: { project: Project }) {
+  const [watches, setWatches] = useState<WatchExpression[]>([]);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [availableTools, setAvailableTools] = useState<Record<string, any[]>>({});
+  const [loadingServers, setLoadingServers] = useState<Set<string>>(new Set());
   
-  // Get all MCP servers (project + known)
-  const mcpServers = useMemo(() => {
-    const servers: MCPServerConfig[] = [...(project.mcp_servers || [])];
-    return servers;
-  }, [project.mcp_servers]);
+  // New watch form state
+  const [newServerName, setNewServerName] = useState('');
+  const [newToolName, setNewToolName] = useState('');
+  const [newArgs, setNewArgs] = useState<Record<string, any>>({});
   
-  // Load tools when server changes
+  const mcpServers = project.mcp_servers || [];
+  
+  // Load tools for a server by name
+  const loadServerTools = useCallback(async (serverName: string) => {
+    if (availableTools[serverName] || loadingServers.has(serverName)) return;
+    
+    setLoadingServers(prev => new Set([...prev, serverName]));
+    try {
+      const result = await fetchJSON<{ success: boolean; tools: any[] }>(
+        `/projects/${project.id}/mcp-servers/${encodeURIComponent(serverName)}/test-connection`,
+        { method: 'POST' }
+      );
+      if (result.success) {
+        setAvailableTools(prev => ({ ...prev, [serverName]: result.tools }));
+      }
+    } catch (err) {
+      console.error('Failed to load tools:', err);
+    } finally {
+      setLoadingServers(prev => {
+        const next = new Set(prev);
+        next.delete(serverName);
+        return next;
+      });
+    }
+  }, [project.id, availableTools, loadingServers]);
+  
+  // Update args when tool changes
   useEffect(() => {
-    if (!selectedServer) {
-      setAvailableTools([]);
+    if (!newServerName || !newToolName) {
+      setNewArgs({});
       return;
     }
-    
-    setIsLoading(true);
-    const server = mcpServers.find(s => s.id === selectedServer);
-    if (!server) {
-      setIsLoading(false);
-      return;
-    }
-    
-    // Test connection to get tools
-    fetchJSON<{ success: boolean; tools: any[] }>(`/projects/${project.id}/mcp-servers/${server.id}/test-connection`, {
-      method: 'POST',
-    })
-      .then(result => {
-        if (result.success) {
-          setAvailableTools(result.tools);
-        }
-      })
-      .catch(err => console.error('Failed to load tools:', err))
-      .finally(() => setIsLoading(false));
-  }, [selectedServer, mcpServers, project.id]);
-  
-  // Generate placeholder params when tool changes
-  useEffect(() => {
-    if (!selectedTool) {
-      setToolParams({});
-      return;
-    }
-    
-    const tool = availableTools.find(t => t.name === selectedTool);
+    const tools = availableTools[newServerName] || [];
+    const tool = tools.find(t => t.name === newToolName);
     if (!tool?.parameters?.properties) {
-      setToolParams({});
+      setNewArgs({});
       return;
     }
-    
     const placeholders: Record<string, any> = {};
     Object.entries(tool.parameters.properties).forEach(([key, schema]: [string, any]) => {
       if (schema.type === 'string') placeholders[key] = schema.default || '';
       else if (schema.type === 'number' || schema.type === 'integer') placeholders[key] = schema.default || 0;
       else if (schema.type === 'boolean') placeholders[key] = schema.default || false;
-      else if (schema.type === 'array') placeholders[key] = schema.default || [];
       else placeholders[key] = schema.default || null;
     });
-    setToolParams(placeholders);
-  }, [selectedTool, availableTools]);
+    setNewArgs(placeholders);
+  }, [newServerName, newToolName, availableTools]);
   
-  const selectedToolSchema = availableTools.find(t => t.name === selectedTool);
+  const addWatch = () => {
+    if (!newServerName || !newToolName) return;
+    const watch: WatchExpression = {
+      id: `watch-${Date.now()}`,
+      serverName: newServerName,
+      toolName: newToolName,
+      args: { ...newArgs },
+    };
+    setWatches(prev => [...prev, watch]);
+    setShowAddDialog(false);
+    setNewServerName('');
+    setNewToolName('');
+    setNewArgs({});
+    // Run immediately
+    runWatch(watch);
+  };
   
-  const runTool = async () => {
-    if (!selectedServer || !selectedTool) return;
+  const removeWatch = (id: string) => {
+    setWatches(prev => prev.filter(w => w.id !== id));
+  };
+  
+  const runWatch = async (watch: WatchExpression) => {
+    setWatches(prev => prev.map(w => 
+      w.id === watch.id ? { ...w, isLoading: true, error: undefined } : w
+    ));
     
-    setIsRunning(true);
     try {
-      // This would need a backend endpoint to run MCP tools
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          server_id: selectedServer,
-          tool_name: selectedTool,
-          arguments: toolParams,
+          server_name: watch.serverName,
+          tool_name: watch.toolName,
+          arguments: watch.args,
         }),
       });
-      onResult(result);
+      setWatches(prev => prev.map(w => 
+        w.id === watch.id ? { ...w, result, isLoading: false, lastRun: Date.now() } : w
+      ));
     } catch (err) {
-      onResult({ error: String(err) });
-    } finally {
-      setIsRunning(false);
+      setWatches(prev => prev.map(w => 
+        w.id === watch.id ? { ...w, error: String(err), isLoading: false, lastRun: Date.now() } : w
+      ));
     }
   };
   
+  const runAllWatches = () => {
+    watches.forEach(watch => runWatch(watch));
+  };
+  
+  const selectedToolSchema = useMemo(() => {
+    if (!newServerName || !newToolName) return null;
+    const tools = availableTools[newServerName] || [];
+    return tools.find(t => t.name === newToolName);
+  }, [newServerName, newToolName, availableTools]);
+  
   return (
-    <div className="mcp-runner">
-      <div className="runner-header">
-        <Terminal size={14} />
-        <span>MCP Tool Runner</span>
+    <div className="tool-watch-panel">
+      <div className="watch-header">
+        <Eye size={14} />
+        <span>Tool Watch</span>
+        <div className="watch-actions">
+          <button className="watch-btn" onClick={runAllWatches} title="Refresh all">
+            <RefreshCw size={12} />
+          </button>
+          <button className="watch-btn" onClick={() => setShowAddDialog(true)} title="Add watch">
+            <Plus size={12} />
+          </button>
+        </div>
       </div>
       
-      <div className="runner-form">
-        <div className="form-row">
-          <label>Server</label>
-          <select 
-            value={selectedServer} 
-            onChange={e => setSelectedServer(e.target.value)}
-          >
-            <option value="">Select MCP Server...</option>
-            {mcpServers.map(server => (
-              <option key={server.id} value={server.id}>{server.name}</option>
-            ))}
-          </select>
+      {watches.length === 0 ? (
+        <div className="watch-empty">
+          <Eye size={20} style={{ opacity: 0.3 }} />
+          <span>No watch expressions</span>
+          <button className="add-watch-btn" onClick={() => setShowAddDialog(true)}>
+            <Plus size={12} /> Add Tool Watch
+          </button>
         </div>
-        
-        <div className="form-row">
-          <label>Tool</label>
-          <select 
-            value={selectedTool} 
-            onChange={e => setSelectedTool(e.target.value)}
-            disabled={!selectedServer || isLoading}
-          >
-            <option value="">{isLoading ? 'Loading...' : 'Select Tool...'}</option>
-            {availableTools.map(tool => (
-              <option key={tool.name} value={tool.name}>{tool.name}</option>
-            ))}
-          </select>
-        </div>
-        
-        {selectedToolSchema && (
-          <div className="tool-description">
-            {selectedToolSchema.description}
-          </div>
-        )}
-        
-        {selectedTool && selectedToolSchema?.parameters?.properties && (
-          <div className="tool-params">
-            <div className="params-header">Parameters</div>
-            {Object.entries(selectedToolSchema.parameters.properties).map(([key, schema]: [string, any]) => (
-              <div key={key} className="param-row">
-                <label>
-                  {key}
-                  {selectedToolSchema.parameters.required?.includes(key) && <span className="required">*</span>}
-                </label>
-                <input
-                  type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'}
-                  value={typeof toolParams[key] === 'object' ? JSON.stringify(toolParams[key]) : toolParams[key] ?? ''}
-                  onChange={e => setToolParams(p => ({ ...p, [key]: e.target.value }))}
-                  placeholder={schema.description?.slice(0, 50) || key}
-                />
+      ) : (
+        <div className="watch-list">
+          {watches.map(watch => (
+            <div key={watch.id} className={`watch-item ${watch.error ? 'error' : ''}`}>
+              <div className="watch-item-header">
+                <span className="watch-expr">
+                  <span className="watch-server">{watch.serverName}</span>
+                  <span className="watch-tool">{watch.toolName}</span>
+                  {Object.keys(watch.args).length > 0 && (
+                    <span className="watch-args">
+                      ({Object.entries(watch.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
+                    </span>
+                  )}
+                </span>
+                <div className="watch-item-actions">
+                  <button onClick={() => runWatch(watch)} title="Refresh">
+                    {watch.isLoading ? <RefreshCw size={10} className="spin" /> : <RefreshCw size={10} />}
+                  </button>
+                  <button onClick={() => removeWatch(watch.id)} title="Remove">
+                    <Trash2 size={10} />
+                  </button>
+                </div>
               </div>
-            ))}
+              <div className="watch-result">
+                {watch.isLoading ? (
+                  <span className="loading">Loading...</span>
+                ) : watch.error ? (
+                  <span className="error">{watch.error}</span>
+                ) : watch.result ? (
+                  <pre>{typeof watch.result === 'string' ? watch.result : JSON.stringify(watch.result, null, 2)}</pre>
+                ) : (
+                  <span className="no-result">Not yet run</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Add Watch Dialog */}
+      {showAddDialog && (
+        <div className="watch-dialog-overlay" onClick={() => setShowAddDialog(false)}>
+          <div className="watch-dialog" onClick={e => e.stopPropagation()}>
+            <div className="dialog-header">
+              <span>Add Tool Watch</span>
+              <button onClick={() => setShowAddDialog(false)}><X size={14} /></button>
+            </div>
+            
+            <div className="dialog-body">
+              <div className="form-row">
+                <label>MCP Server</label>
+                <select 
+                  value={newServerName} 
+                  onChange={e => {
+                    setNewServerName(e.target.value);
+                    setNewToolName('');
+                    if (e.target.value) loadServerTools(e.target.value);
+                  }}
+                >
+                  <option value="">Select server...</option>
+                  {mcpServers.map(server => (
+                    <option key={server.name} value={server.name}>{server.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="form-row">
+                <label>Tool</label>
+                <select 
+                  value={newToolName} 
+                  onChange={e => setNewToolName(e.target.value)}
+                  disabled={!newServerName || loadingServers.has(newServerName)}
+                >
+                  <option value="">
+                    {loadingServers.has(newServerName) ? 'Loading tools...' : 'Select tool...'}
+                  </option>
+                  {(availableTools[newServerName] || []).map(tool => (
+                    <option key={tool.name} value={tool.name}>{tool.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {selectedToolSchema?.description && (
+                <div className="tool-desc">{selectedToolSchema.description}</div>
+              )}
+              
+              {selectedToolSchema?.parameters?.properties && Object.keys(selectedToolSchema.parameters.properties).length > 0 && (
+                <div className="tool-args">
+                  <label>Arguments</label>
+                  {Object.entries(selectedToolSchema.parameters.properties).map(([key, schema]: [string, any]) => (
+                    <div key={key} className="arg-row">
+                      <span className="arg-name">
+                        {key}
+                        {selectedToolSchema.parameters.required?.includes(key) && <span className="required">*</span>}
+                      </span>
+                      <input
+                        type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'}
+                        value={typeof newArgs[key] === 'object' ? JSON.stringify(newArgs[key]) : newArgs[key] ?? ''}
+                        onChange={e => setNewArgs(prev => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={schema.description?.slice(0, 40) || key}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className="dialog-footer">
+              <button className="cancel-btn" onClick={() => setShowAddDialog(false)}>Cancel</button>
+              <button className="add-btn" onClick={addWatch} disabled={!newServerName || !newToolName}>
+                Add Watch
+              </button>
+            </div>
           </div>
-        )}
-        
-        <button 
-          className="run-btn"
-          onClick={runTool}
-          disabled={!selectedServer || !selectedTool || isRunning}
-        >
-          {isRunning ? <RefreshCw size={14} className="spin" /> : <Play size={14} />}
-          {isRunning ? 'Running...' : 'Run Tool'}
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Legacy MCP Tool Runner removed - replaced by ToolWatchPanel
+/*
+function MCPToolRunnerLegacy({ project, onResult }: { project: Project; onResult: (result: any) => void }) {
+  // ... legacy code removed ...
+}
+*/
+
+// Placeholder to keep structure, not actually used
+const _MCPToolRunnerRemovedPlaceholder = () => (
+  <div className="mcp-runner">
+    <div className="runner-header">
+      <Terminal size={14} />
+      <span>Deprecated - use Tool Watch instead</span>
+    </div>
+  </div>
+);
+void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
+
+// Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function Run2Panel() {
   const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents } = useStore();
@@ -485,7 +615,6 @@ export default function Run2Panel() {
   const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set());
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
-  const [toolRunnerResults, setToolRunnerResults] = useState<any[]>([]);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   
@@ -1180,6 +1309,16 @@ export default function Run2Panel() {
           text-align: center;
         }
         
+        .state-header {
+          padding: 6px 8px;
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border-bottom: 1px solid #27272a;
+          margin-bottom: 8px;
+        }
+        
         .state-empty {
           padding: 16px;
           text-align: center;
@@ -1336,6 +1475,369 @@ export default function Run2Panel() {
           to { transform: rotate(360deg); }
         }
         
+        /* Tool Watch Panel */
+        .tool-watch-panel {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .watch-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-weight: 600;
+          font-size: 12px;
+        }
+        
+        .watch-header .watch-actions {
+          margin-left: auto;
+          display: flex;
+          gap: 4px;
+        }
+        
+        .watch-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+          background: transparent;
+          border: none;
+          border-radius: 3px;
+          color: #a1a1aa;
+          cursor: pointer;
+        }
+        
+        .watch-btn:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .watch-empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 24px;
+          color: #71717a;
+          font-size: 11px;
+        }
+        
+        .add-watch-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 12px;
+          background: #27272a;
+          border: none;
+          border-radius: 4px;
+          color: #e4e4e7;
+          font-size: 11px;
+          cursor: pointer;
+        }
+        
+        .add-watch-btn:hover {
+          background: #3f3f46;
+        }
+        
+        .watch-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 8px;
+        }
+        
+        .watch-item {
+          background: #18181b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          margin-bottom: 6px;
+        }
+        
+        .watch-item.error {
+          border-color: #7f1d1d;
+        }
+        
+        .watch-item-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 8px;
+          background: #0c0c0d;
+          border-radius: 4px 4px 0 0;
+          border-bottom: 1px solid #27272a;
+        }
+        
+        .watch-expr {
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 10px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          overflow: hidden;
+        }
+        
+        .watch-server {
+          color: #71717a;
+        }
+        
+        .watch-server::after {
+          content: '/';
+          margin: 0 2px;
+          color: #3f3f46;
+        }
+        
+        .watch-tool {
+          color: #fbbf24;
+        }
+        
+        .watch-args {
+          color: #71717a;
+          font-size: 9px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .watch-item-actions {
+          display: flex;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+        
+        .watch-item-actions button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 3px;
+          background: transparent;
+          border: none;
+          border-radius: 3px;
+          color: #71717a;
+          cursor: pointer;
+        }
+        
+        .watch-item-actions button:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .watch-result {
+          padding: 6px 8px;
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 10px;
+          max-height: 100px;
+          overflow-y: auto;
+        }
+        
+        .watch-result .loading {
+          color: #71717a;
+          font-style: italic;
+        }
+        
+        .watch-result .error {
+          color: #ef4444;
+        }
+        
+        .watch-result .no-result {
+          color: #52525b;
+          font-style: italic;
+        }
+        
+        .watch-result pre {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          color: #86efac;
+        }
+        
+        /* Watch Dialog */
+        .watch-dialog-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        }
+        
+        .watch-dialog {
+          background: #18181b;
+          border: 1px solid #27272a;
+          border-radius: 8px;
+          width: 400px;
+          max-height: 80vh;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .dialog-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          border-bottom: 1px solid #27272a;
+          font-weight: 600;
+        }
+        
+        .dialog-header button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+          background: transparent;
+          border: none;
+          border-radius: 4px;
+          color: #71717a;
+          cursor: pointer;
+        }
+        
+        .dialog-header button:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .dialog-body {
+          padding: 16px;
+          overflow-y: auto;
+        }
+        
+        .dialog-body .form-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-bottom: 12px;
+        }
+        
+        .dialog-body .form-row label {
+          font-size: 11px;
+          color: #a1a1aa;
+          font-weight: 500;
+        }
+        
+        .dialog-body .form-row select,
+        .dialog-body .form-row input {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 8px 10px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 12px;
+        }
+        
+        .dialog-body .form-row select:focus,
+        .dialog-body .form-row input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .tool-desc {
+          padding: 8px 10px;
+          background: #0c0c0d;
+          border-radius: 4px;
+          font-size: 11px;
+          color: #a1a1aa;
+          margin-bottom: 12px;
+        }
+        
+        .tool-args {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+        }
+        
+        .tool-args > label {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+          display: block;
+          margin-bottom: 8px;
+        }
+        
+        .arg-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+        }
+        
+        .arg-row .arg-name {
+          font-size: 11px;
+          color: #a1a1aa;
+          min-width: 80px;
+        }
+        
+        .arg-row .required {
+          color: #ef4444;
+          margin-left: 2px;
+        }
+        
+        .arg-row input {
+          flex: 1;
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 6px 8px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 11px;
+        }
+        
+        .arg-row input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .dialog-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          padding: 12px 16px;
+          border-top: 1px solid #27272a;
+        }
+        
+        .cancel-btn {
+          padding: 8px 16px;
+          background: transparent;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        
+        .cancel-btn:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .add-btn {
+          padding: 8px 16px;
+          background: #3b82f6;
+          border: none;
+          border-radius: 4px;
+          color: white;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        
+        .add-btn:hover:not(:disabled) {
+          background: #2563eb;
+        }
+        
+        .add-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
         /* Empty State */
         .empty-state {
           display: flex;
@@ -1544,14 +2046,10 @@ export default function Run2Panel() {
           
           <div className="side-panel-content">
             {showToolRunner ? (
-              <MCPToolRunner 
-                project={project} 
-                onResult={(result) => setToolRunnerResults(prev => [...prev, result])}
-              />
+              <ToolWatchPanel project={project} />
             ) : showStatePanel ? (
               <StateSnapshot 
                 events={runEvents} 
-                endTime={selectedEvent ? selectedEvent.timestamp : (runEvents.length > 0 ? runEvents[runEvents.length - 1].timestamp : Date.now() / 1000)}
                 selectedEventIndex={selectedEventIndex}
               />
             ) : selectedEvent ? (
