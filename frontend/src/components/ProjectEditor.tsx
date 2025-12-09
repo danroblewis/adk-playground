@@ -1,13 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Settings, Bot, Wrench, Play, TestTube, FileCode, Code, Save, Layers } from 'lucide-react';
+import { ArrowLeft, Settings, Bot, Wrench, TestTube, FileCode, Code, Save, Layers } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { getProject, updateProject as apiUpdateProject } from '../utils/api';
 import AppConfigPanel from './AppConfigPanel';
 import AgentsPanel from './AgentsPanel';
 import ToolsPanel from './ToolsPanel';
 import RunPanel from './RunPanel';
-import Run2Panel from './Run2Panel';
 import EvalPanel from './EvalPanel';
 import YamlPanel from './YamlPanel';
 import CodePanel from './CodePanel';
@@ -16,15 +15,14 @@ const tabs = [
   { id: 'app' as const, label: 'App Config', icon: Settings },
   { id: 'agents' as const, label: 'Agents', icon: Bot },
   { id: 'tools' as const, label: 'Tools', icon: Wrench },
-  { id: 'run' as const, label: 'Run', icon: Play },
-  { id: 'run2' as const, label: 'Run2', icon: Layers },
+  { id: 'run' as const, label: 'Run', icon: Layers },
   { id: 'eval' as const, label: 'Evaluate', icon: TestTube },
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
   { id: 'code' as const, label: 'Code', icon: Code },
 ];
 
-type TabId = 'app' | 'agents' | 'tools' | 'run' | 'run2' | 'eval' | 'yaml' | 'code';
-const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'run2', 'eval', 'yaml', 'code'];
+type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code';
+const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml', 'code'];
 
 export default function ProjectEditor() {
   const { projectId, tab, itemId } = useParams<{ projectId: string; tab?: string; itemId?: string }>();
@@ -286,7 +284,6 @@ export default function ProjectEditor() {
         {activeTab === 'agents' && <AgentsPanel onSelectAgent={updateItemInUrl} />}
         {activeTab === 'tools' && <ToolsPanel onSelectTool={updateItemInUrl} />}
         {activeTab === 'run' && <RunPanel />}
-        {activeTab === 'run2' && <Run2Panel />}
         {activeTab === 'eval' && <EvalPanel />}
         {activeTab === 'yaml' && <YamlPanel />}
         {activeTab === 'code' && <CodePanel />}

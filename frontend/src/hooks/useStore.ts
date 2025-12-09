@@ -59,8 +59,8 @@ interface Store {
   clearWatchHistories: () => void;
   
   // UI state
-  activeTab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code' | 'run2';
-  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code' | 'run2') => void;
+  activeTab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code';
+  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code') => void;
   
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
@@ -68,9 +68,9 @@ interface Store {
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (has: boolean) => void;
   
-  // Run2 agent selection (for opening Run2 with specific agent)
-  run2AgentId: string | null;
-  setRun2AgentId: (agentId: string | null) => void;
+  // Run agent selection (for opening Run with specific agent)
+  runAgentId: string | null;
+  setRunAgentId: (agentId: string | null) => void;
   
   // Actions
   updateProject: (updates: Partial<Project>) => void;
@@ -95,7 +95,7 @@ export const useStore = create<Store>((set, get) => ({
   activeTab: 'app',
   sidebarOpen: true,
   hasUnsavedChanges: false,
-  run2AgentId: null,
+  runAgentId: null,
   
   // Setters
   setProject: (project) => {
@@ -173,7 +173,7 @@ export const useStore = create<Store>((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHasUnsavedChanges: (has) => set({ hasUnsavedChanges: has }),
-  setRun2AgentId: (agentId) => set({ run2AgentId: agentId }),
+  setRunAgentId: (agentId) => set({ runAgentId: agentId }),
   
   // Complex actions
   updateProject: (updates) => {

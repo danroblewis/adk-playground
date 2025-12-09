@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function AgentEditor({ agent }: Props) {
-  const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRun2AgentId } = useStore();
+  const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRunAgentId } = useStore();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
@@ -502,10 +502,10 @@ Your response (5-10 words only):`;
         <button
           className="btn btn-primary btn-sm run-agent-btn"
           onClick={() => {
-            setRun2AgentId(agent.id);
-            setActiveTab('run2');
+            setRunAgentId(agent.id);
+            setActiveTab('run');
           }}
-          title="Test this agent in Run2"
+          title="Test this agent"
         >
           <Play size={14} />
           Run

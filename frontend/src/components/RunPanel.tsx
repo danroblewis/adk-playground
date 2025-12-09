@@ -1,803 +1,1115 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
-  ChevronDown, ChevronRight, Zap, Save, Download, Filter, Search, 
-  CheckCircle, XCircle, AlertTriangle, Copy, Eye, Plus, Trash2,
-  BookmarkPlus, Bookmark, X, Loader, RefreshCw
+  ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
+  CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { RunEvent, WatchToolConfig, WatchToolResult } from '../utils/types';
-import { createRunWebSocket, updateProject as apiUpdateProject, fetchJSON } from '../utils/api';
+import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
+import { createRunWebSocket, fetchJSON, getMcpServers } from '../utils/api';
 
-// Tooltip component using portal for guaranteed top-layer rendering
-function Tooltip({ children, text, position = 'top', style }: { 
-  children: React.ReactNode; 
-  text: string; 
-  position?: 'top' | 'bottom' | 'left' | 'right';
-  style?: React.CSSProperties;
-}) {
-  const [show, setShow] = useState(false);
-  const [coords, setCoords] = useState({ x: 0, y: 0 });
-  const triggerRef = useRef<HTMLDivElement>(null);
+// Wireshark-inspired color scheme for event types
+const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
+  agent_start: { bg: '#2d1f4e', fg: '#c4b5fd', border: '#7c3aed' },
+  agent_end: { bg: '#2d1f4e', fg: '#c4b5fd', border: '#7c3aed' },
+  tool_call: { bg: '#0d3331', fg: '#5eead4', border: '#14b8a6' },
+  tool_result: { bg: '#0d3331', fg: '#5eead4', border: '#14b8a6' },
+  model_call: { bg: '#3d2f0d', fg: '#fde047', border: '#eab308' },
+  model_response: { bg: '#3d2f0d', fg: '#fde047', border: '#eab308' },
+  state_change: { bg: '#3d0d1f', fg: '#fda4af', border: '#f43f5e' },
+  transfer: { bg: '#0d2d3d', fg: '#7dd3fc', border: '#0ea5e9' },
+  error: { bg: '#450a0a', fg: '#fca5a5', border: '#dc2626' },
+};
+
+// Event type icons
+const EVENT_ICONS: Record<string, React.FC<{ size: number }>> = {
+  agent_start: GitBranch,
+  agent_end: GitBranch,
+  tool_call: Wrench,
+  tool_result: Wrench,
+  model_call: Cpu,
+  model_response: MessageSquare,
+  state_change: Database,
+  transfer: Zap,
+};
+
+// Single-line event summary renderer
+function getEventSummary(event: RunEvent): string {
+  switch (event.event_type) {
+    case 'agent_start':
+      return `START ${event.agent_name}`;
+    case 'agent_end':
+      return event.data?.error ? `END ${event.agent_name} [ERROR]` : `END ${event.agent_name}`;
+    case 'tool_call':
+      const args = Object.entries(event.data?.args || {})
+        .map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 20)}`)
+        .join(', ');
+      return `CALL ${event.data?.tool_name}(${args.slice(0, 60)}${args.length > 60 ? '...' : ''})`;
+    case 'tool_result':
+      const result = event.data?.result;
+      let resultPreview = '';
+      if (result?.content?.[0]?.text) {
+        resultPreview = result.content[0].text.slice(0, 60);
+      } else if (typeof result === 'string') {
+        resultPreview = result.slice(0, 60);
+      } else {
+        resultPreview = JSON.stringify(result).slice(0, 60);
+      }
+      return `RESULT ${event.data?.tool_name} → ${resultPreview}${resultPreview.length >= 60 ? '...' : ''}`;
+    case 'model_call':
+      return `LLM_REQ ${event.data?.contents?.length || 0} msgs, ${event.data?.tool_count || 0} tools`;
+    case 'model_response':
+      const parts = event.data?.response_content?.parts || event.data?.parts || [];
+      const fnCall = parts.find((p: any) => p.type === 'function_call');
+      if (fnCall) return `LLM_RSP → ${fnCall.name}()`;
+      const textPart = parts.find((p: any) => p.type === 'text');
+      if (textPart) return `LLM_RSP "${textPart.text?.slice(0, 50)}..."`;
+      return `LLM_RSP (${event.data?.finish_reason || 'complete'})`;
+    case 'state_change':
+      const keys = Object.keys(event.data?.state_delta || {});
+      return `STATE ${keys.join(', ')}`;
+    case 'transfer':
+      return `TRANSFER → ${event.data?.target || 'unknown'}`;
+    default:
+      return event.event_type.toUpperCase();
+  }
+}
+
+// Format timestamp as relative time
+function formatTimestamp(timestamp: number, baseTime: number): string {
+  const delta = timestamp - baseTime;
+  if (delta < 1) return `+${(delta * 1000).toFixed(0)}ms`;
+  if (delta < 60) return `+${delta.toFixed(2)}s`;
+  return `+${Math.floor(delta / 60)}m${(delta % 60).toFixed(0)}s`;
+}
+
+// Full event detail renderer
+function EventDetail({ event }: { event: RunEvent }) {
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['data']));
   
-  const updatePosition = useCallback(() => {
-    if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    let x = rect.left + rect.width / 2;
-    let y = rect.top;
-    
-    if (position === 'bottom') {
-      y = rect.bottom + 8;
-    } else if (position === 'top') {
-      y = rect.top - 8;
-    } else if (position === 'left') {
-      x = rect.left - 8;
-      y = rect.top + rect.height / 2;
-    } else if (position === 'right') {
-      x = rect.right + 8;
-      y = rect.top + rect.height / 2;
-    }
-    
-    setCoords({ x, y });
-  }, [position]);
-  
-  const handleMouseEnter = () => {
-    updatePosition();
-    setShow(true);
+  const toggleSection = (section: string) => {
+    const next = new Set(expandedSections);
+    if (next.has(section)) next.delete(section);
+    else next.add(section);
+    setExpandedSections(next);
   };
   
-  const tooltipStyle: React.CSSProperties = {
-    position: 'fixed',
-    zIndex: 999999,
-    padding: '6px 10px',
-    background: '#1a1a2e',
-    color: '#fff',
-    fontSize: '11px',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
-    lineHeight: 1.4,
-    whiteSpace: 'pre-line',
-    borderRadius: '6px',
-    maxWidth: '260px',
-    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5)',
-    border: '1px solid rgba(255,255,255,0.15)',
-    pointerEvents: 'none',
-    ...(position === 'top' && {
-      left: coords.x,
-      top: coords.y,
-      transform: 'translate(-50%, -100%)',
-    }),
-    ...(position === 'bottom' && {
-      left: coords.x,
-      top: coords.y,
-      transform: 'translate(-50%, 0)',
-    }),
-    ...(position === 'left' && {
-      left: coords.x,
-      top: coords.y,
-      transform: 'translate(-100%, -50%)',
-    }),
-    ...(position === 'right' && {
-      left: coords.x,
-      top: coords.y,
-      transform: 'translate(0, -50%)',
-    }),
+  const renderValue = (value: any, depth = 0, inline = false): React.ReactNode => {
+    const indent = '  '.repeat(depth);
+    const childIndent = '  '.repeat(depth + 1);
+    
+    if (value === null) return <span className="json-null">null</span>;
+    if (value === undefined) return <span className="json-undefined">undefined</span>;
+    if (typeof value === 'boolean') return <span className="json-boolean">{value.toString()}</span>;
+    if (typeof value === 'number') return <span className="json-number">{value}</span>;
+    if (typeof value === 'string') {
+      // Escape special characters for display
+      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+      if (escaped.length > 300 && depth > 0) {
+        return <span className="json-string">"{escaped.slice(0, 300)}..." <span className="json-truncated">({value.length} chars)</span></span>;
+      }
+      return <span className="json-string">"{escaped}"</span>;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) return <span className="json-bracket">[]</span>;
+      // Check if array contains only primitives and is short
+      const isSimple = value.every(v => v === null || typeof v !== 'object') && value.length <= 3;
+      if (isSimple) {
+        return (
+          <span className="json-inline">
+            <span className="json-bracket">[</span>
+            {value.map((item, i) => (
+              <span key={i}>
+                {renderValue(item, depth + 1, true)}
+                {i < value.length - 1 && <span className="json-comma">, </span>}
+              </span>
+            ))}
+            <span className="json-bracket">]</span>
+          </span>
+        );
+      }
+      return (
+        <span className="json-block">
+          <span className="json-bracket">[</span>
+          {value.map((item, i) => (
+            <span key={i}>
+              {'\n' + childIndent}
+              {renderValue(item, depth + 1)}
+              {i < value.length - 1 && <span className="json-comma">,</span>}
+            </span>
+          ))}
+          {'\n' + indent}<span className="json-bracket">]</span>
+        </span>
+      );
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value);
+      if (entries.length === 0) return <span className="json-bracket">{'{}'}</span>;
+      // Check if object is simple (few keys, primitive values)
+      const isSimple = entries.length <= 2 && entries.every(([, v]) => v === null || typeof v !== 'object');
+      if (isSimple && inline) {
+        return (
+          <span className="json-inline">
+            <span className="json-bracket">{'{'}</span>
+            {entries.map(([k, v], i) => (
+              <span key={k}>
+                <span className="json-key">"{k}"</span>
+                <span className="json-colon">: </span>
+                {renderValue(v, depth + 1, true)}
+                {i < entries.length - 1 && <span className="json-comma">, </span>}
+              </span>
+            ))}
+            <span className="json-bracket">{'}'}</span>
+          </span>
+        );
+      }
+      return (
+        <span className="json-block">
+          <span className="json-bracket">{'{'}</span>
+          {entries.map(([k, v], i) => (
+            <span key={k}>
+              {'\n' + childIndent}
+              <span className="json-key">"{k}"</span>
+              <span className="json-colon">: </span>
+              {renderValue(v, depth + 1)}
+              {i < entries.length - 1 && <span className="json-comma">,</span>}
+            </span>
+          ))}
+          {'\n' + indent}<span className="json-bracket">{'}'}</span>
+        </span>
+      );
+    }
+    return String(value);
   };
   
   return (
-    <div 
-      ref={triggerRef}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={() => setShow(false)}
-      style={style}
-    >
-      {children}
-      {show && createPortal(
-        <div style={tooltipStyle}>{text}</div>,
-        document.body
+    <div className="event-detail">
+      {/* Header */}
+      <div className="detail-header">
+        <span className="detail-type">{event.event_type}</span>
+        <span className="detail-agent">{event.agent_name}</span>
+        <span className="detail-time">{new Date(event.timestamp * 1000).toISOString()}</span>
+      </div>
+      
+      {/* Data Section */}
+      <div className="detail-section">
+        <div className="section-header" onClick={() => toggleSection('data')}>
+          {expandedSections.has('data') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span>Event Data</span>
+        </div>
+        {expandedSections.has('data') && (
+          <div className="section-content json-viewer">
+            {renderValue(event.data)}
+          </div>
+        )}
+      </div>
+      
+      {/* Type-specific rendering */}
+      {event.event_type === 'model_call' && event.data?.contents && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('messages')}>
+            {expandedSections.has('messages') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>Messages ({event.data.contents.length})</span>
+          </div>
+          {expandedSections.has('messages') && (
+            <div className="section-content">
+              {event.data.contents.map((content: any, i: number) => (
+                <div key={i} className="message-item">
+                  <span className={`message-role ${content.role}`}>{content.role}</span>
+                  <div className="message-parts">
+                    {content.parts?.map((part: any, j: number) => (
+                      <div key={j} className="message-part">
+                        {part.text && <pre>{part.text}</pre>}
+                        {part.function_call && (
+                          <div className="function-call">
+                            <strong>{part.function_call.name}</strong>
+                            <pre>{JSON.stringify(part.function_call.args, null, 2)}</pre>
+                          </div>
+                        )}
+                        {part.function_response && (
+                          <div className="function-response">
+                            <strong>{part.function_response.name}</strong>
+                            <pre>{JSON.stringify(part.function_response.response, null, 2)}</pre>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {event.event_type === 'tool_result' && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('result')}>
+            {expandedSections.has('result') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>Tool Result</span>
+          </div>
+          {expandedSections.has('result') && (
+            <div className="section-content">
+              <pre className="result-content">
+                {event.data?.result?.content?.[0]?.text || 
+                 (typeof event.data?.result === 'string' ? event.data.result : JSON.stringify(event.data?.result, null, 2))}
+              </pre>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-// Watch Tool Dialog Component
-function WatchToolDialog({ project, onClose, onAdd }: {
-  project: any;
-  onClose: () => void;
-  onAdd: (config: Omit<WatchToolConfig, 'id'>) => void;
-}) {
-  const { builtinTools } = useStore();
-  const [toolType, setToolType] = useState<'builtin' | 'custom' | 'mcp'>('builtin');
-  const [selectedTool, setSelectedTool] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [argsJson, setArgsJson] = useState('{}');
-  const [selectedMcpServer, setSelectedMcpServer] = useState('');
-  
-  // Get available tools based on type
-  const availableTools = useMemo(() => {
-    if (toolType === 'builtin') {
-      return builtinTools.map(t => ({ name: t.name, description: t.description }));
-    } else if (toolType === 'custom') {
-      return project.custom_tools.map((t: any) => ({ name: t.name, description: t.description }));
-    } else if (toolType === 'mcp') {
-      // For MCP, we'd need to query the server for available tools
-      return [];
-    }
-    return [];
-  }, [toolType, builtinTools, project.custom_tools]);
-  
-  const handleSubmit = () => {
-    if (!selectedTool) return;
+// State snapshot component - shows state after selected event
+function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; selectedEventIndex: number | null }) {
+  const state = useMemo(() => {
+    const snapshot: Record<string, { value: any; timestamp: number }> = {};
     
-    let args = {};
-    try {
-      args = JSON.parse(argsJson);
-    } catch (e) {
-      alert('Invalid JSON in arguments');
-      return;
-    }
+    // If an event is selected, show state up to and including that event
+    // Otherwise show state at end of all events
+    const relevantEvents = selectedEventIndex !== null
+      ? events.slice(0, selectedEventIndex + 1)
+      : events;
     
-    onAdd({
-      name: displayName || selectedTool,
-      type: toolType,
-      tool_name: selectedTool,
-      args,
-      mcp_server: toolType === 'mcp' ? selectedMcpServer : undefined,
-    });
-  };
+    relevantEvents
+      .filter(e => e.event_type === 'state_change')
+      .forEach(e => {
+        if (e.data?.state_delta) {
+          Object.entries(e.data.state_delta).forEach(([key, value]) => {
+            snapshot[key] = { value, timestamp: e.timestamp };
+          });
+        }
+      });
+    
+    return snapshot;
+  }, [events, selectedEventIndex]);
   
-  return createPortal(
-    <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog watch-tool-dialog" onClick={e => e.stopPropagation()}>
-        <div className="dialog-header">
-          <h3>Add Watch Tool</h3>
-          <button className="dialog-close" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </div>
-        
-        <div className="dialog-content">
-          <p className="dialog-description">
-            Watch tools are executed after each event to query external state.
-            Results appear in the Watch panel.
-          </p>
-          
-          <div className="form-field">
-            <label>Tool Type</label>
-            <div className="tool-type-tabs">
-              <button
-                className={`tool-type-tab ${toolType === 'builtin' ? 'active' : ''}`}
-                onClick={() => { setToolType('builtin'); setSelectedTool(''); }}
-              >
-                Built-in
-              </button>
-              <button
-                className={`tool-type-tab ${toolType === 'custom' ? 'active' : ''}`}
-                onClick={() => { setToolType('custom'); setSelectedTool(''); }}
-              >
-                Custom
-              </button>
-              <button
-                className={`tool-type-tab ${toolType === 'mcp' ? 'active' : ''}`}
-                onClick={() => { setToolType('mcp'); setSelectedTool(''); }}
-              >
-                MCP
-              </button>
-            </div>
-          </div>
-          
-          {toolType === 'mcp' && (
-            <div className="form-field">
-              <label>MCP Server</label>
-              <select
-                value={selectedMcpServer}
-                onChange={e => setSelectedMcpServer(e.target.value)}
-              >
-                <option value="">Select server...</option>
-                {project.mcp_servers.map((server: any) => (
-                  <option key={server.name} value={server.name}>{server.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          
-          <div className="form-field">
-            <label>Tool</label>
-            {availableTools.length > 0 ? (
-              <select
-                value={selectedTool}
-                onChange={e => {
-                  setSelectedTool(e.target.value);
-                  if (!displayName) setDisplayName(e.target.value);
-                }}
-              >
-                <option value="">Select tool...</option>
-                {availableTools.map((tool: any) => (
-                  <option key={tool.name} value={tool.name}>{tool.name}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                placeholder={toolType === 'mcp' ? "Enter MCP tool name" : "No tools available"}
-                value={selectedTool}
-                onChange={e => setSelectedTool(e.target.value)}
-                disabled={toolType !== 'mcp'}
-              />
-            )}
-            {selectedTool && availableTools.find((t: any) => t.name === selectedTool)?.description && (
-              <span className="field-hint">
-                {availableTools.find((t: any) => t.name === selectedTool)?.description}
-              </span>
-            )}
-          </div>
-          
-          <div className="form-field">
-            <label>Display Name</label>
-            <input
-              type="text"
-              placeholder="Name shown in Watch panel"
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-            />
-          </div>
-          
-          <div className="form-field">
-            <label>Arguments (JSON)</label>
-            <textarea
-              placeholder='{"key": "value"}'
-              value={argsJson}
-              onChange={e => setArgsJson(e.target.value)}
-              rows={3}
-              style={{ fontFamily: 'monospace' }}
-            />
-          </div>
-        </div>
-        
-        <div className="dialog-footer">
-          <button className="btn btn-secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button 
-            className="btn btn-primary" 
-            onClick={handleSubmit}
-            disabled={!selectedTool}
-          >
-            Add Watch
-          </button>
-        </div>
+  const entries = Object.entries(state);
+  
+  return (
+    <div className="state-snapshot">
+      <div className="state-header">
+        {selectedEventIndex !== null 
+          ? `State after event #${selectedEventIndex}` 
+          : 'State at end of run'}
       </div>
-    </div>,
-    document.body
+      {entries.length === 0 ? (
+        <div className="state-empty">No state changes at this point</div>
+      ) : (
+        entries.map(([key, { value, timestamp }]) => (
+          <div key={key} className="state-entry">
+            <div className="state-key">{key}</div>
+            <div className="state-value">
+              {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+            </div>
+            <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
-// Helper to extract readable text from various tool result formats
-function extractToolResultText(result: any): string {
-  if (!result) return '';
-  
-  // Direct string result
-  if (typeof result === 'string') return result;
-  
-  // MCP-style result with content array
-  // Format: { content: [{ type: 'text', text: '...' }], isError: false }
-  if (result.content && Array.isArray(result.content)) {
-    const texts = result.content
-      .filter((item: any) => item.type === 'text' && item.text)
-      .map((item: any) => item.text);
-    if (texts.length > 0) return texts.join('\n');
-  }
-  
-  // Result with direct text property
-  if (result.text) return result.text;
-  
-  // Error result
-  if (result.error) return `Error: ${result.error}`;
-  if (result.isError && result.content) {
-    // Try to extract error text from content
-    const errorText = extractToolResultText({ content: result.content });
-    if (errorText) return `Error: ${errorText}`;
-  }
-  
-  // Fallback to JSON
+// Import WatchExpression type from store
+import type { WatchExpression } from '../hooks/useStore';
+
+// jq-web for JSON transforms - loaded lazily to handle WASM loading
+let jq: any = null;
+let jqLoadError: string | null = null;
+
+// Try to load jq-web asynchronously
+(async () => {
   try {
-    return JSON.stringify(result, null, 2);
+    // @ts-ignore - jq-web doesn't have types
+    const jqModule = await import('jq-web');
+    jq = jqModule.default;
+  } catch (e: any) {
+    console.warn('jq-web failed to load:', e.message);
+    jqLoadError = e.message;
+  }
+})();
+
+// Extract clean result text from MCP response
+function extractResultText(result: any): { text: string; isError: boolean } {
+  if (!result) return { text: '', isError: false };
+  
+  // Handle API response wrapper
+  if (result.success === false) {
+    return { text: result.error || 'Unknown error', isError: true };
+  }
+  
+  let data = result.result || result;
+  
+  // If it's a string that looks like a Python dict, try to parse it
+  if (typeof data === 'string') {
+    // Try to convert Python-style dict to JSON
+    try {
+      const jsonStr = data
+        .replace(/'/g, '"')
+        .replace(/True/g, 'true')
+        .replace(/False/g, 'false')
+        .replace(/None/g, 'null');
+      data = JSON.parse(jsonStr);
+    } catch {
+      // Not parseable, return as-is
+      return { text: data, isError: false };
+    }
+  }
+  
+  // Handle MCP content format
+  if (data.content && Array.isArray(data.content)) {
+    const texts = data.content
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text);
+    return { 
+      text: texts.join('\n'), 
+      isError: data.isError === true 
+    };
+  }
+  
+  // Fallback
+  return { 
+    text: typeof data === 'string' ? data : JSON.stringify(data, null, 2),
+    isError: false 
+  };
+}
+
+// Apply transform to result - supports both jq queries and JavaScript expressions
+// jq: default syntax (e.g., ".items[0].name", ".content[].text")
+// JavaScript: starts with "js:" (e.g., "js:value.split('\n')[0]")
+function applyTransform(text: string, transform: string | undefined): string {
+  if (!transform || !transform.trim()) return text;
+  
+  const trimmed = transform.trim();
+  
+  // Try to parse the text as JSON first
+  let data: any = text;
+  try {
+    data = JSON.parse(text);
   } catch {
-    return String(result);
+    // Keep as string if not valid JSON
+  }
+  
+  // JavaScript transform (explicit prefix)
+  if (trimmed.startsWith('js:')) {
+    const jsExpr = trimmed.slice(3).trim();
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('value', 'data', `return ${jsExpr}`);
+      const result = fn(text, data);
+      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    } catch (e) {
+      return `[JS error: ${e}]`;
+    }
+  }
+  
+  // jq query (default) - but fallback if jq isn't loaded
+  if (jq) {
+    try {
+      const result = jq.json(data, trimmed);
+      if (result === null || result === undefined) {
+        return '[No match]';
+      }
+      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    } catch (e: any) {
+      // If jq fails and doesn't start with ".", try as JS expression
+      if (!trimmed.startsWith('.')) {
+        try {
+          // eslint-disable-next-line no-new-func
+          const fn = new Function('value', 'data', `return ${trimmed}`);
+          const result = fn(text, data);
+          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch {
+          // Return jq error
+        }
+      }
+      return `[jq error: ${e.message || e}]`;
+    }
+  } else {
+    // jq not loaded, try as JS expression or return error
+    if (jqLoadError) {
+      // Try simple property access for dot notation
+      if (trimmed.startsWith('.') && !trimmed.includes('|')) {
+        try {
+          const path = trimmed.slice(1).split('.').filter(Boolean);
+          let result: any = data;
+          for (const key of path) {
+            // Handle array index like [0]
+            const match = key.match(/^(\w+)?\[(\d+)\]$/);
+            if (match) {
+              if (match[1]) result = result[match[1]];
+              result = result[parseInt(match[2])];
+            } else {
+              result = result[key];
+            }
+          }
+          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        } catch {
+          // Fall through to JS
+        }
+      }
+      // Try as JS expression
+      try {
+        // eslint-disable-next-line no-new-func
+        const fn = new Function('value', 'data', `return ${trimmed}`);
+        const result = fn(text, data);
+        return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      } catch (e: any) {
+        return `[jq not loaded: ${jqLoadError}. JS fallback failed: ${e.message}]`;
+      }
+    }
+    return '[jq loading...]';
   }
 }
 
-// Event type configurations
-const EVENT_CONFIG: Record<string, { icon: React.FC<{ size: number }>, color: string, label: string }> = {
-  agent_start: { icon: GitBranch, color: '#7b2cbf', label: 'Agent Start' },
-  agent_end: { icon: GitBranch, color: '#7b2cbf', label: 'Agent End' },
-  tool_call: { icon: Wrench, color: '#00f5d4', label: 'Tool Call' },
-  tool_result: { icon: Wrench, color: '#00f5d4', label: 'Tool Result' },
-  tool_interaction: { icon: Wrench, color: '#00f5d4', label: 'Tool' },
-  model_call: { icon: Cpu, color: '#ffd93d', label: 'Model Call' },
-  model_response: { icon: MessageSquare, color: '#ffd93d', label: 'Model Response' },
-  model_interaction: { icon: Cpu, color: '#ffd93d', label: 'Model' },
-  state_change: { icon: Database, color: '#ff6b6b', label: 'State Change' },
-  transfer: { icon: Zap, color: '#00d4ff', label: 'Transfer' },
-};
-
-// Grouped event type - combines call/response pairs
-interface GroupedEvent {
-  type: 'single' | 'tool_interaction' | 'model_interaction';
-  events: RunEvent[];
-  indices: number[];
-  agent_name: string;
-  timestamp: number;
+// Tool Watch Panel component
+function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; selectedEventIndex: number | null }) {
+  // Use global store for watches so they persist across tab switches
+  const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch, runEvents } = useStore();
+  
+  // Track last event count to detect new events
+  const lastEventCountRef = useRef(0);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingWatchId, setEditingWatchId] = useState<string | null>(null);  // null = adding new
+  const [availableTools, setAvailableTools] = useState<Record<string, any[]>>({});
+  const [loadingServers, setLoadingServers] = useState<Set<string>>(new Set());
+  
+  // Form state (used for both add and edit)
+  const [formServerName, setFormServerName] = useState('');
+  const [formToolName, setFormToolName] = useState('');
+  const [formArgs, setFormArgs] = useState<Record<string, any>>({});
+  const [formTransform, setFormTransform] = useState('');
+  const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
+  
+  // Test run state for dialog
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  
+  // Fetch known MCP servers on mount
+  useEffect(() => {
+    getMcpServers().then(setKnownServers).catch(console.error);
+  }, []);
+  
+  // Auto-refresh watches when new events are added
+  useEffect(() => {
+    if (!autoRefresh) return;
+    if (runEvents.length > lastEventCountRef.current && watches.length > 0) {
+      const newEventIndex = runEvents.length - 1;
+      // New event(s) added, refresh all watches
+      watches.forEach(watch => {
+        // Don't re-run if already loading
+        if (!watch.isLoading) {
+          runWatchRef.current?.(watch, newEventIndex);
+        }
+      });
+    }
+    lastEventCountRef.current = runEvents.length;
+  }, [runEvents.length, autoRefresh, watches]);
+  
+  // Keep a ref to runWatch so the effect doesn't need it as dependency
+  const runWatchRef = useRef<typeof runWatch | null>(null);
+  
+  // Combine project servers with known servers
+  const mcpServers = useMemo(() => {
+    const projectServers = project.mcp_servers || [];
+    const projectServerNames = new Set(projectServers.map(s => s.name));
+    // Add known servers that aren't already in project
+    const additionalServers = knownServers.filter(s => !projectServerNames.has(s.name));
+    return [...projectServers, ...additionalServers];
+  }, [project.mcp_servers, knownServers]);
+  
+  // Load tools for a server by name
+  const loadServerTools = useCallback(async (serverName: string) => {
+    if (availableTools[serverName] || loadingServers.has(serverName)) return;
+    
+    setLoadingServers(prev => new Set([...prev, serverName]));
+    try {
+      const result = await fetchJSON<{ success: boolean; tools: any[] }>(
+        `/projects/${project.id}/mcp-servers/${encodeURIComponent(serverName)}/test-connection`,
+        { method: 'POST' }
+      );
+      if (result.success) {
+        setAvailableTools(prev => ({ ...prev, [serverName]: result.tools }));
+      }
+    } catch (err) {
+      console.error('Failed to load tools:', err);
+    } finally {
+      setLoadingServers(prev => {
+        const next = new Set(prev);
+        next.delete(serverName);
+        return next;
+      });
+    }
+  }, [project.id, availableTools, loadingServers]);
+  
+  // Update args when tool changes (only when adding new, not editing)
+  useEffect(() => {
+    if (editingWatchId) return;  // Don't auto-update args when editing
+    if (!formServerName || !formToolName) {
+      setFormArgs({});
+      return;
+    }
+    const tools = availableTools[formServerName] || [];
+    const tool = tools.find(t => t.name === formToolName);
+    if (!tool?.parameters?.properties) {
+      setFormArgs({});
+      return;
+    }
+    const placeholders: Record<string, any> = {};
+    Object.entries(tool.parameters.properties).forEach(([key, schema]: [string, any]) => {
+      if (schema.type === 'string') placeholders[key] = schema.default || '';
+      else if (schema.type === 'number' || schema.type === 'integer') placeholders[key] = schema.default || 0;
+      else if (schema.type === 'boolean') placeholders[key] = schema.default || false;
+      else placeholders[key] = schema.default || null;
+    });
+    setFormArgs(placeholders);
+  }, [formServerName, formToolName, availableTools, editingWatchId]);
+  
+  // Open dialog for adding new watch
+  const openAddDialog = () => {
+    setEditingWatchId(null);
+    setFormServerName('');
+    setFormToolName('');
+    setFormArgs({});
+    setFormTransform('');
+    setTestResult(null);
+    setTestError(null);
+    setShowDialog(true);
+  };
+  
+  // Open dialog for editing existing watch
+  const openEditDialog = (watch: WatchExpression) => {
+    setEditingWatchId(watch.id);
+    setFormServerName(watch.serverName);
+    setFormToolName(watch.toolName);
+    setFormArgs({ ...watch.args });
+    setFormTransform(watch.transform || '');
+    // Pre-populate test result with existing result if available
+    if (watch.result) {
+      const { text } = extractResultText(watch.result);
+      setTestResult(text);
+      setTestError(null);
+    } else {
+      setTestResult(null);
+      setTestError(null);
+    }
+    // Load tools for the server if not already loaded
+    if (!availableTools[watch.serverName]) {
+      loadServerTools(watch.serverName);
+    }
+    setShowDialog(true);
+  };
+  
+  // Test run tool in dialog
+  const testRunTool = async () => {
+    if (!formServerName || !formToolName) return;
+    
+    setIsTestRunning(true);
+    setTestError(null);
+    
+    try {
+      const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_name: formServerName,
+          tool_name: formToolName,
+          arguments: formArgs,
+        }),
+      });
+      
+      const { text, isError } = extractResultText(result);
+      if (isError) {
+        setTestError(text);
+        setTestResult(null);
+      } else {
+        setTestResult(text);
+        setTestError(null);
+      }
+    } catch (err) {
+      setTestError(String(err));
+      setTestResult(null);
+    } finally {
+      setIsTestRunning(false);
+    }
+  };
+  
+  // Live preview of transform applied to test result
+  const transformPreview = useMemo(() => {
+    if (!testResult) return null;
+    if (!formTransform || !formTransform.trim()) return testResult;
+    return applyTransform(testResult, formTransform);
+  }, [testResult, formTransform]);
+  
+  // Save (add or update) watch
+  const saveWatch = () => {
+    if (!formServerName || !formToolName) return;
+    
+    if (editingWatchId) {
+      // Update existing watch
+      updateWatch(editingWatchId, {
+        serverName: formServerName,
+        toolName: formToolName,
+        args: { ...formArgs },
+        transform: formTransform || undefined,
+      });
+      // Re-run the watch with new config
+      const updatedWatch = watches.find(w => w.id === editingWatchId);
+      if (updatedWatch) {
+        runWatch({ ...updatedWatch, serverName: formServerName, toolName: formToolName, args: formArgs, transform: formTransform || undefined, history: updatedWatch.history || [] });
+      }
+    } else {
+      // Add new watch
+      const watch: WatchExpression = {
+        id: `watch-${Date.now()}`,
+        serverName: formServerName,
+        toolName: formToolName,
+        args: { ...formArgs },
+        transform: formTransform || undefined,
+        history: [],
+      };
+      storeAddWatch(watch);
+      // Run immediately
+      runWatch(watch);
+    }
+    
+    setShowDialog(false);
+  };
+  
+  const removeWatch = (id: string) => {
+    storeRemoveWatch(id);
+  };
+  
+  const runWatch = useCallback(async (watch: WatchExpression, eventIndex?: number) => {
+    updateWatch(watch.id, { isLoading: true, error: undefined });
+    
+    const currentEventIndex = eventIndex ?? runEvents.length - 1;
+    const timestamp = Date.now();
+    
+    try {
+      const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_name: watch.serverName,
+          tool_name: watch.toolName,
+          arguments: watch.args,
+        }),
+      });
+      
+      // Add to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, result };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { result, isLoading: false, lastRun: timestamp, history });
+    } catch (err) {
+      // Add error to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, error: String(err) };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: timestamp, history });
+    }
+  }, [project.id, updateWatch, runEvents.length]);
+  
+  // Keep ref updated for the auto-refresh effect
+  useEffect(() => {
+    runWatchRef.current = runWatch;
+  }, [runWatch]);
+  
+  const runAllWatches = () => {
+    watches.forEach(watch => runWatch(watch));
+  };
+  
+  const selectedToolSchema = useMemo(() => {
+    if (!formServerName || !formToolName) return null;
+    const tools = availableTools[formServerName] || [];
+    return tools.find(t => t.name === formToolName);
+  }, [formServerName, formToolName, availableTools]);
+  
+  return (
+    <div className="tool-watch-panel">
+      <div className="watch-header">
+        <Eye size={14} />
+        <span>Tool Watch</span>
+        <div className="watch-actions">
+          <button 
+            className={`watch-btn ${autoRefresh ? 'active' : ''}`} 
+            onClick={() => setAutoRefresh(!autoRefresh)} 
+            title={autoRefresh ? 'Auto-refresh ON (after every event)' : 'Auto-refresh OFF'}
+          >
+            <Zap size={12} />
+          </button>
+          <button className="watch-btn" onClick={runAllWatches} title="Refresh all">
+            <RefreshCw size={12} />
+          </button>
+          <button className="watch-btn" onClick={openAddDialog} title="Add watch">
+            <Plus size={12} />
+          </button>
+        </div>
+      </div>
+      
+      {watches.length === 0 ? (
+        <div className="watch-empty">
+          <Eye size={20} style={{ opacity: 0.3 }} />
+          <span>No watch expressions</span>
+          <button className="add-watch-btn" onClick={openAddDialog}>
+            <Plus size={12} /> Add Tool Watch
+          </button>
+        </div>
+      ) : (
+        <div className="watch-list">
+          {watches.map(watch => {
+            // Find the result at or before the selected event index
+            let resultToShow = watch.result;
+            let errorToShow = watch.error;
+            
+            if (selectedEventIndex !== null && watch.history && watch.history.length > 0) {
+              // Find the most recent snapshot at or before selectedEventIndex
+              const relevantSnapshots = watch.history.filter(s => s.eventIndex <= selectedEventIndex);
+              if (relevantSnapshots.length > 0) {
+                const latestSnapshot = relevantSnapshots[relevantSnapshots.length - 1];
+                resultToShow = latestSnapshot.result;
+                errorToShow = latestSnapshot.error;
+              } else {
+                // No snapshots at or before this event
+                resultToShow = undefined;
+                errorToShow = undefined;
+              }
+            }
+            
+            const { text, isError } = resultToShow 
+              ? extractResultText(resultToShow)
+              : { text: '', isError: false };
+            const displayText = resultToShow ? applyTransform(text, watch.transform) : '';
+            const hasError = errorToShow || isError;
+            
+            return (
+              <div key={watch.id} className={`watch-item ${hasError ? 'error' : ''}`}>
+                <div className="watch-item-header">
+                  <span className="watch-expr">
+                    <span className="watch-server">{watch.serverName}</span>
+                    <span className="watch-tool">{watch.toolName}</span>
+                    {Object.keys(watch.args).length > 0 && (
+                      <span className="watch-args">
+                        ({Object.entries(watch.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
+                      </span>
+                    )}
+                    {selectedEventIndex !== null && (
+                      <span className="watch-time-indicator">@{selectedEventIndex}</span>
+                    )}
+                  </span>
+                  <div className="watch-item-actions">
+                    <button onClick={() => openEditDialog(watch)} title="Edit watch">
+                      <Wrench size={10} />
+                    </button>
+                    <button onClick={() => runWatch(watch)} title="Refresh">
+                      {watch.isLoading ? <RefreshCw size={10} className="spin" /> : <RefreshCw size={10} />}
+                    </button>
+                    <button onClick={() => removeWatch(watch.id)} title="Remove">
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                </div>
+                <div className="watch-result">
+                  {watch.isLoading ? (
+                    <span className="loading">Loading...</span>
+                  ) : errorToShow ? (
+                    <span className="error">{errorToShow}</span>
+                  ) : resultToShow ? (
+                    <pre className={isError ? 'error-text' : ''}>{displayText}</pre>
+                  ) : (
+                    <span className="no-result">{selectedEventIndex !== null ? 'No data at this event' : 'Not yet run'}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
+      {/* Add/Edit Watch Dialog */}
+      {showDialog && (
+        <div className="watch-dialog-overlay" onClick={() => setShowDialog(false)}>
+          <div className="watch-dialog" onClick={e => e.stopPropagation()}>
+            <div className="dialog-header">
+              <span>{editingWatchId ? 'Edit Watch' : 'Add Tool Watch'}</span>
+              <button onClick={() => setShowDialog(false)}><X size={14} /></button>
+            </div>
+            
+            <div className="dialog-body">
+              <div className="form-row">
+                <label>MCP Server</label>
+                <select 
+                  value={formServerName} 
+                  onChange={e => {
+                    setFormServerName(e.target.value);
+                    if (!editingWatchId) setFormToolName('');  // Only clear tool when adding new
+                    if (e.target.value) loadServerTools(e.target.value);
+                  }}
+                >
+                  <option value="">Select server...</option>
+                  {mcpServers.map(server => (
+                    <option key={server.name} value={server.name}>{server.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="form-row">
+                <label>Tool</label>
+                <select 
+                  value={formToolName} 
+                  onChange={e => setFormToolName(e.target.value)}
+                  disabled={!formServerName || loadingServers.has(formServerName)}
+                >
+                  <option value="">
+                    {loadingServers.has(formServerName) ? 'Loading tools...' : 'Select tool...'}
+                  </option>
+                  {(availableTools[formServerName] || []).map(tool => (
+                    <option key={tool.name} value={tool.name}>{tool.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {selectedToolSchema?.description && (
+                <div className="tool-desc">{selectedToolSchema.description}</div>
+              )}
+              
+              {selectedToolSchema?.parameters?.properties && Object.keys(selectedToolSchema.parameters.properties).length > 0 && (
+                <div className="tool-args">
+                  <label>Arguments</label>
+                  {Object.entries(selectedToolSchema.parameters.properties).map(([key, schema]: [string, any]) => (
+                    <div key={key} className="arg-row">
+                      <span className="arg-name">
+                        {key}
+                        {selectedToolSchema.parameters.required?.includes(key) && <span className="required">*</span>}
+                      </span>
+                      <input
+                        type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'}
+                        value={typeof formArgs[key] === 'object' ? JSON.stringify(formArgs[key]) : formArgs[key] ?? ''}
+                        onChange={e => setFormArgs(prev => ({ ...prev, [key]: e.target.value }))}
+                        placeholder={schema.description?.slice(0, 40) || key}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Test Section */}
+              {formServerName && formToolName && (
+                <div className="test-section">
+                  <div className="test-header">
+                    <label>Test & Preview</label>
+                    <button 
+                      className="test-btn"
+                      onClick={testRunTool}
+                      disabled={isTestRunning}
+                    >
+                      {isTestRunning ? <RefreshCw size={12} className="spin" /> : <Play size={12} />}
+                      {isTestRunning ? 'Running...' : 'Test Run'}
+                    </button>
+                  </div>
+                  
+                  {testError && (
+                    <div className="test-result error">
+                      <span className="test-label">Error:</span>
+                      <pre>{testError}</pre>
+                    </div>
+                  )}
+                  
+                  {testResult && (
+                    <div className="test-result">
+                      <span className="test-label">Raw Result:</span>
+                      <pre>{testResult}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <div className="form-row transform-row">
+                <label>Transform (optional)</label>
+                <input
+                  type="text"
+                  value={formTransform}
+                  onChange={e => setFormTransform(e.target.value)}
+                  placeholder="e.g., .items[0].name or .content[].text"
+                />
+                <div className="transform-hints">
+                  <span className="hint-title">jq:</span>
+                  <code onClick={() => setFormTransform('.items[0].name')}>.items[0].name</code>
+                  <code onClick={() => setFormTransform('.content[].text')}>.content[].text</code>
+                  <code onClick={() => setFormTransform('.result.content[0].text')}>.result.content[0].text</code>
+                  <code onClick={() => setFormTransform('.[] | select(.status == "active")')}>.[] | select()</code>
+                  <span className="hint-title">JS:</span>
+                  <code onClick={() => setFormTransform("js:value.split('\\n')[0]")}>js:value.split('\n')[0]</code>
+                  <code onClick={() => setFormTransform('js:data.length')}>js:data.length</code>
+                </div>
+              </div>
+              
+              {/* Live Transform Preview */}
+              {testResult && formTransform && (
+                <div className="transform-preview">
+                  <span className="test-label">Transform Preview:</span>
+                  <pre className={transformPreview?.startsWith('[Transform error') ? 'error' : ''}>
+                    {transformPreview}
+                  </pre>
+                </div>
+              )}
+            </div>
+            
+            <div className="dialog-footer">
+              <button className="cancel-btn" onClick={() => setShowDialog(false)}>Cancel</button>
+              <button className="add-btn" onClick={saveWatch} disabled={!formServerName || !formToolName}>
+                {editingWatchId ? 'Save Changes' : 'Add Watch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-// Agent colors for timeline
-const AGENT_COLORS = [
-  '#00f5d4', '#7b2cbf', '#ffd93d', '#ff6b6b', '#00d4ff', 
-  '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
-];
+// Legacy MCP Tool Runner removed - replaced by ToolWatchPanel
+/*
+function MCPToolRunnerLegacy({ project, onResult }: { project: Project; onResult: (result: any) => void }) {
+  // ... legacy code removed ...
+}
+*/
+
+// Placeholder to keep structure, not actually used
+const _MCPToolRunnerRemovedPlaceholder = () => (
+  <div className="mcp-runner">
+    <div className="runner-header">
+      <Terminal size={14} />
+      <span>Deprecated - use Tool Watch instead</span>
+    </div>
+  </div>
+);
+void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
+
+// Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, hasUnsavedChanges, setHasUnsavedChanges } = useStore();
-  
-  // Input state
-  const [userInput, setUserInput] = useState('');
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId } = useStore();
   
   // UI state
-  const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
-  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
-  const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  
-  // Filtering state - use combined types for cleaner UI
-  const [eventFilters, setEventFilters] = useState<Set<string>>(new Set(['tool_interaction', 'model_interaction', 'state_change', 'agent_start', 'agent_end']));
-  const [agentFilter, setAgentFilter] = useState<string>('all');
+  const [userInput, setUserInput] = useState('');
+  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [selectedEventIndex, setSelectedEventIndex] = useState<number | null>(null);
+  const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [bookmarkedEvents, setBookmarkedEvents] = useState<Set<number>>(new Set());
+  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set());
+  const [showStatePanel, setShowStatePanel] = useState(true);
+  const [showToolRunner, setShowToolRunner] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [isResizing, setIsResizing] = useState(false);
   
-  // Timeline state
-  const [timelineRange, setTimelineRange] = useState<[number, number]>([0, 100]);
-  
-  // Watch tools state
-  const [watchTools, setWatchTools] = useState<WatchToolConfig[]>([]);
-  const [watchResults, setWatchResults] = useState<Record<string, WatchToolResult>>({});
-  const [showWatchDialog, setShowWatchDialog] = useState(false);
-  const [watchToolsLoading, setWatchToolsLoading] = useState<Set<string>>(new Set());
-  
-  const eventsEndRef = useRef<HTMLDivElement>(null);
-  const eventsAreaRef = useRef<HTMLDivElement>(null);
-  
-  if (!project) return null;
-  
-  // Calculate session state from state_change events up to the selected time range
-  // Also include known state keys from App config and agent output_keys
-  const sessionState = useMemo(() => {
-    const state: Record<string, any> = {};
-    
-    // Start with known state keys from App config (with their default values)
-    if (project?.app?.state_keys) {
-      project.app.state_keys.forEach((keyConfig: any) => {
-        state[keyConfig.name] = keyConfig.default_value ?? undefined;
-      });
+  // Initialize selectedAgentId from store (allows opening Run with specific agent)
+  useEffect(() => {
+    if (runAgentId !== null) {
+      setSelectedAgentIdLocal(runAgentId);
+      setRunAgentId(null); // Clear after using
     }
-    
-    // Also include output_key values from agents (they create state keys at runtime)
-    if (project?.agents) {
-      project.agents.forEach((agent: any) => {
-        if (agent.output_key && !(agent.output_key in state)) {
-          state[agent.output_key] = undefined;
-        }
-      });
-    }
-    
-    if (runEvents.length === 0) return state;
-    
-    const minTime = runEvents[0].timestamp;
-    const maxTime = runEvents[runEvents.length - 1].timestamp;
-    const duration = maxTime - minTime || 1;
-    
-    // Apply state changes up to the end of the selected time range
-    runEvents.forEach(event => {
-      const percent = ((event.timestamp - minTime) / duration) * 100;
-      // Include events up to the end of the time range
-      if (percent <= timelineRange[1]) {
-        if (event.event_type === 'state_change' && event.data?.state_delta) {
-          Object.assign(state, event.data.state_delta);
-        }
-      }
-    });
-    return state;
-  }, [runEvents, timelineRange, project?.app?.state_keys, project?.agents]);
+  }, [runAgentId, setRunAgentId]);
   
-  // Get state key configs for metadata display (from App config + agent output_keys)
-  const stateKeyConfigs = useMemo(() => {
-    const configs: Record<string, any> = {};
-    if (project?.app?.state_keys) {
-      project.app.state_keys.forEach((keyConfig: any) => {
-        configs[keyConfig.name] = keyConfig;
-      });
-    }
-    // Add output_key info from agents
-    if (project?.agents) {
-      project.agents.forEach((agent: any) => {
-        if (agent.output_key && !configs[agent.output_key]) {
-          configs[agent.output_key] = {
-            name: agent.output_key,
-            description: `Output from agent "${agent.name}"`,
-            type: 'string',
-            source: 'agent_output'
-          };
-        }
-      });
-    }
-    return configs;
-  }, [project?.app?.state_keys, project?.agents]);
+  const [selectedAgentIdLocal, setSelectedAgentIdLocal] = useState<string | null>(null); // null = root agent
   
-  // Get unique agent names for filtering
-  const agentNames = useMemo(() => {
-    const names = new Set<string>();
-    runEvents.forEach(event => {
-      if (event.agent_name) names.add(event.agent_name);
-    });
-    return Array.from(names);
+  const eventListRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Handle sidebar resize
+  useEffect(() => {
+    if (!isResizing) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      // Clamp between 200 and 600 pixels
+      setSidebarWidth(Math.min(600, Math.max(200, newWidth)));
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+  
+  // Calculate time bounds
+  const timeBounds = useMemo(() => {
+    if (runEvents.length === 0) return { min: 0, max: 0 };
+    return {
+      min: runEvents[0].timestamp,
+      max: runEvents[runEvents.length - 1].timestamp,
+    };
   }, [runEvents]);
   
-  // Assign colors to agents
-  const agentColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    agentNames.forEach((name, i) => {
-      map[name] = AGENT_COLORS[i % AGENT_COLORS.length];
-    });
-    return map;
-  }, [agentNames]);
-  
-  // Timeline calculations
-  const minTime = runEvents.length > 0 ? runEvents[0].timestamp : 0;
-  const maxTime = runEvents.length > 0 ? runEvents[runEvents.length - 1].timestamp : 0;
-  const duration = maxTime - minTime || 1;
-  
-  // Group related events (call + response pairs)
-  const groupedEvents = useMemo(() => {
-    const groups: GroupedEvent[] = [];
-    let i = 0;
-    
-    while (i < runEvents.length) {
-      const event = runEvents[i];
-      
-      // Try to pair tool_call with tool_result
-      if (event.event_type === 'tool_call' && i + 1 < runEvents.length) {
-        const next = runEvents[i + 1];
-        if (next.event_type === 'tool_result' && 
-            next.agent_name === event.agent_name &&
-            next.data?.tool_name === event.data?.tool_name) {
-          groups.push({
-            type: 'tool_interaction',
-            events: [event, next],
-            indices: [i, i + 1],
-            agent_name: event.agent_name,
-            timestamp: event.timestamp,
-          });
-          i += 2;
-          continue;
-        }
+  // Filter events
+  const filteredEvents = useMemo(() => {
+    return runEvents.filter((event, i) => {
+      // Time range filter
+      if (timeRange) {
+        if (event.timestamp < timeRange[0] || event.timestamp > timeRange[1]) return false;
       }
       
-      // Try to pair model_call with model_response
-      if (event.event_type === 'model_call' && i + 1 < runEvents.length) {
-        const next = runEvents[i + 1];
-        if (next.event_type === 'model_response' && next.agent_name === event.agent_name) {
-          groups.push({
-            type: 'model_interaction',
-            events: [event, next],
-            indices: [i, i + 1],
-            agent_name: event.agent_name,
-            timestamp: event.timestamp,
-          });
-          i += 2;
-          continue;
-        }
-      }
-      
-      // Single event (not paired)
-      groups.push({
-        type: 'single',
-        events: [event],
-        indices: [i],
-        agent_name: event.agent_name,
-        timestamp: event.timestamp,
-      });
-      i++;
-    }
-    
-    return groups;
-  }, [runEvents]);
-  
-  // Filter grouped events
-  const filteredGroups = useMemo(() => {
-    return groupedEvents.filter((group) => {
-      const event = group.events[0];
-      
-      // Timeline range filter
-      const percent = ((event.timestamp - minTime) / duration) * 100;
-      if (percent < timelineRange[0] || percent > timelineRange[1]) return false;
-      
-      // Event type filter - map grouped types to filter types
-      let filterType = group.type;
-      if (group.type === 'single') {
-        filterType = event.event_type;
-        // Map individual types to combined filter types
-        if (filterType === 'tool_call' || filterType === 'tool_result') {
-          filterType = 'tool_interaction';
-        } else if (filterType === 'model_call' || filterType === 'model_response') {
-          filterType = 'model_interaction';
-        }
-      }
-      if (!eventFilters.has(filterType)) return false;
-      
-      // Agent filter
-      if (agentFilter !== 'all' && group.agent_name !== agentFilter) return false;
+      // Event type filter
+      if (eventTypeFilter.size > 0 && !eventTypeFilter.has(event.event_type)) return false;
       
       // Search filter
       if (searchQuery) {
-        const searchLower = searchQuery.toLowerCase();
-        const eventStr = JSON.stringify(group.events).toLowerCase();
-        if (!eventStr.includes(searchLower)) return false;
+        const str = JSON.stringify(event).toLowerCase();
+        if (!str.includes(searchQuery.toLowerCase())) return false;
       }
       
       return true;
     });
-  }, [groupedEvents, timelineRange, eventFilters, agentFilter, searchQuery, minTime, duration]);
+  }, [runEvents, timeRange, eventTypeFilter, searchQuery]);
   
-  // Legacy filteredEvents for token counting (keep backwards compatible)
-  const filteredEvents = useMemo(() => {
-    return filteredGroups.flatMap(g => g.events);
-  }, [filteredGroups]);
+  const selectedEvent = selectedEventIndex !== null ? runEvents[selectedEventIndex] : null;
   
-  // Token totals
-  const tokenTotals = useMemo(() => {
-    return filteredEvents.reduce(
-      (acc, event) => {
-        if (event.event_type === 'model_response' && event.data?.token_counts) {
-          acc.input += event.data.token_counts.input || 0;
-          acc.output += event.data.token_counts.output || 0;
-        }
-        return acc;
-      },
-      { input: 0, output: 0 }
-    );
-  }, [filteredEvents]);
-  
-  // Timeline segments for visual timeline
-  const timelineSegments = useMemo(() => {
-    const segments: { agent: string; start: number; end: number; eventType: string; eventIndex: number; detail?: string }[] = [];
-    let currentAgent: string | null = null;
-    let segmentStart = 0;
-    
-    runEvents.forEach((event, i) => {
-      const percent = ((event.timestamp - minTime) / duration) * 100;
-      
-      if (event.agent_name !== currentAgent) {
-        if (currentAgent !== null) {
-          segments.push({
-            agent: currentAgent,
-            start: segmentStart,
-            end: percent,
-            eventType: 'agent_activity',
-            eventIndex: i - 1
-          });
-        }
-        currentAgent = event.agent_name;
-        segmentStart = percent;
-      }
-      
-      // Add markers for important events with details
-      if (event.event_type === 'tool_call') {
-        const toolName = event.data?.tool_name || event.data?.name || 'unknown';
-        segments.push({
-          agent: event.agent_name,
-          start: percent,
-          end: percent + 0.5,
-          eventType: event.event_type,
-          eventIndex: i,
-          detail: toolName
-        });
-      } else if (event.event_type === 'state_change') {
-        const stateKeys = event.data?.state_delta 
-          ? Object.keys(event.data.state_delta).join(', ')
-          : 'unknown';
-        segments.push({
-          agent: event.agent_name,
-          start: percent,
-          end: percent + 0.5,
-          eventType: event.event_type,
-          eventIndex: i,
-          detail: stateKeys
-        });
-      }
-    });
-    
-    // Close last segment
-    if (currentAgent !== null) {
-      segments.push({
-        agent: currentAgent,
-        start: segmentStart,
-        end: 100,
-        eventType: 'agent_activity',
-        eventIndex: runEvents.length - 1
-      });
+  // Auto-scroll to new events
+  useEffect(() => {
+    if (isRunning && eventListRef.current) {
+      eventListRef.current.scrollTop = eventListRef.current.scrollHeight;
     }
+  }, [runEvents.length, isRunning]);
+  
+  // Handle run
+  const handleRun = useCallback(() => {
+    if (!project || !userInput.trim() || isRunning) return;
     
-    return segments;
-  }, [runEvents, minTime, duration]);
-  
-  // Auto-scroll effect
-  useEffect(() => {
-    eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [runEvents.length]);
-  
-  // Keyboard shortcut
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        handleRunClick();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [userInput, hasUnsavedChanges]);
-  
-  // Cleanup WebSocket on unmount
-  useEffect(() => {
-    return () => {
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [ws]);
-  
-  // Execute watch tools when events change
-  useEffect(() => {
-    if (runEvents.length === 0 || watchTools.length === 0) return;
-    
-    // Execute each watch tool
-    watchTools.forEach(async (watchTool) => {
-      if (watchToolsLoading.has(watchTool.id)) return;
-      
-      setWatchToolsLoading(prev => new Set([...prev, watchTool.id]));
-      
-      try {
-        const response = await fetchJSON(`/projects/${project.id}/execute-tool`, {
-          method: 'POST',
-          body: JSON.stringify({
-            type: watchTool.type,
-            tool_name: watchTool.tool_name,
-            args: watchTool.args,
-            mcp_server: watchTool.mcp_server,
-          }),
-        });
-        
-        setWatchResults(prev => ({
-          ...prev,
-          [watchTool.id]: {
-            watch_id: watchTool.id,
-            result: response.result,
-            error: response.error,
-            timestamp: Date.now(),
-          },
-        }));
-      } catch (error: any) {
-        setWatchResults(prev => ({
-          ...prev,
-          [watchTool.id]: {
-            watch_id: watchTool.id,
-            result: null,
-            error: error.message,
-            timestamp: Date.now(),
-          },
-        }));
-      } finally {
-        setWatchToolsLoading(prev => {
-          const next = new Set(prev);
-          next.delete(watchTool.id);
-          return next;
-        });
-      }
-    });
-  }, [runEvents.length, watchTools, project?.id]);
-  
-  // Add a new watch tool
-  function addWatchTool(config: Omit<WatchToolConfig, 'id'>) {
-    const newTool: WatchToolConfig = {
-      ...config,
-      id: `watch_${Date.now()}`,
-    };
-    setWatchTools(prev => [...prev, newTool]);
-    setShowWatchDialog(false);
-  }
-  
-  // Remove a watch tool
-  function removeWatchTool(id: string) {
-    setWatchTools(prev => prev.filter(t => t.id !== id));
-    setWatchResults(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  }
-  
-  // Refresh a single watch tool
-  async function refreshWatchTool(watchTool: WatchToolConfig) {
-    setWatchToolsLoading(prev => new Set([...prev, watchTool.id]));
-    
-    try {
-      const response = await fetchJSON(`/projects/${project.id}/execute-tool`, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: watchTool.type,
-          tool_name: watchTool.tool_name,
-          args: watchTool.args,
-          mcp_server: watchTool.mcp_server,
-        }),
-      });
-      
-      setWatchResults(prev => ({
-        ...prev,
-        [watchTool.id]: {
-          watch_id: watchTool.id,
-          result: response.result,
-          error: response.error,
-          timestamp: Date.now(),
-        },
-      }));
-    } catch (error: any) {
-      setWatchResults(prev => ({
-        ...prev,
-        [watchTool.id]: {
-          watch_id: watchTool.id,
-          result: null,
-          error: error.message,
-          timestamp: Date.now(),
-        },
-      }));
-    } finally {
-      setWatchToolsLoading(prev => {
-        const next = new Set(prev);
-        next.delete(watchTool.id);
-        return next;
-      });
-    }
-  }
-  
-  function handleRunClick() {
-    if (!userInput.trim()) return;
-    if (hasUnsavedChanges) {
-      setShowUnsavedWarning(true);
-      return;
-    }
-    handleRun();
-  }
-  
-  function handleRun() {
-    if (!userInput.trim()) return;
-    if (isRunning) return;  // Prevent duplicate runs
-    
-    // Close any existing WebSocket
+    // Close existing connection
     if (ws) {
       ws.close();
       setWs(null);
     }
     
-    setShowUnsavedWarning(false);
     clearRunEvents();
+    clearWatchHistories();  // Clear watch histories when starting a new run
     setIsRunning(true);
-    setExpandedEvents(new Set());
+    setSelectedEventIndex(null);
+    setTimeRange(null);
     
     const websocket = createRunWebSocket(project.id);
     setWs(websocket);
     
     websocket.onopen = () => {
-      websocket.send(JSON.stringify({ message: userInput }));
+      websocket.send(JSON.stringify({ 
+        message: userInput,
+        agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
+      }));
     };
     
     websocket.onmessage = (event) => {
@@ -824,1013 +1136,765 @@ export default function RunPanel() {
         timestamp: Date.now() / 1000,
         event_type: 'agent_end',
         agent_name: 'system',
-        data: { error: 'WebSocket error' }
+        data: { error: 'WebSocket connection error' }
       });
     };
     
-    websocket.onclose = () => setIsRunning(false);
-  }
+    websocket.onclose = () => {
+      setIsRunning(false);
+    };
+  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal]);
   
-  async function handleSaveAndRun() {
-    if (!userInput.trim()) return;
-    setIsSaving(true);
-    try {
-      await apiUpdateProject(project.id, project);
-      setHasUnsavedChanges(false);
-      setShowUnsavedWarning(false);
-      handleRun();
-    } catch (error) {
-      console.error('Failed to save project:', error);
-      addRunEvent({
-        timestamp: Date.now() / 1000,
-        event_type: 'agent_end',
-        agent_name: 'system',
-        data: { error: 'Failed to save project before running' }
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  }
-  
-  function handleStop() {
+  // Handle stop
+  const handleStop = useCallback(() => {
     ws?.close();
     setIsRunning(false);
-  }
+  }, [ws, setIsRunning]);
   
-  function toggleEventExpand(index: number) {
-    const next = new Set(expandedEvents);
-    if (next.has(index)) next.delete(index);
-    else next.add(index);
-    setExpandedEvents(next);
-  }
-  
-  function toggleAgentCollapse(key: string) {
-    const next = new Set(collapsedAgents);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setCollapsedAgents(next);
-  }
-  
-  function toggleEventFilter(type: string) {
-    const next = new Set(eventFilters);
-    if (next.has(type)) next.delete(type);
-    else next.add(type);
-    setEventFilters(next);
-  }
-  
-  function toggleBookmark(index: number) {
-    const next = new Set(bookmarkedEvents);
-    if (next.has(index)) next.delete(index);
-    else next.add(index);
-    setBookmarkedEvents(next);
-  }
-  
-  function scrollToEvent(index: number) {
-    const element = document.getElementById(`event-${index}`);
-    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setExpandedEvents(prev => new Set([...prev, index]));
-  }
-  
-  function exportAsJson() {
-    const data = {
-      project: project.name,
-      timestamp: new Date().toISOString(),
-      events: runEvents,
-      sessionState,
-      tokenTotals,
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + Enter to run
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleRun();
+        return;
+      }
+      
+      // Arrow keys to navigate event list
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        // Don't intercept if user is typing in an input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+          return;
+        }
+        
+        e.preventDefault();
+        
+        if (filteredEvents.length === 0) return;
+        
+        if (e.key === 'ArrowDown') {
+          if (selectedEventIndex === null) {
+            // Select first event
+            const firstIndex = runEvents.indexOf(filteredEvents[0]);
+            setSelectedEventIndex(firstIndex);
+          } else {
+            // Find current position in filtered list and move down
+            const currentFilteredIndex = filteredEvents.findIndex(
+              ev => runEvents.indexOf(ev) === selectedEventIndex
+            );
+            if (currentFilteredIndex < filteredEvents.length - 1) {
+              const nextIndex = runEvents.indexOf(filteredEvents[currentFilteredIndex + 1]);
+              setSelectedEventIndex(nextIndex);
+            }
+          }
+        } else if (e.key === 'ArrowUp') {
+          if (selectedEventIndex === null) {
+            // Select last event
+            const lastIndex = runEvents.indexOf(filteredEvents[filteredEvents.length - 1]);
+            setSelectedEventIndex(lastIndex);
+          } else {
+            // Find current position in filtered list and move up
+            const currentFilteredIndex = filteredEvents.findIndex(
+              ev => runEvents.indexOf(ev) === selectedEventIndex
+            );
+            if (currentFilteredIndex > 0) {
+              const prevIndex = runEvents.indexOf(filteredEvents[currentFilteredIndex - 1]);
+              setSelectedEventIndex(prevIndex);
+            }
+          }
+        }
+      }
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `run-${project.name}-${Date.now()}.json`;
-    a.click();
-  }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleRun, filteredEvents, selectedEventIndex, runEvents]);
   
-  function exportAsMarkdown() {
-    let md = `# Agent Run Report\n\n`;
-    md += `**Project:** ${project.name}\n`;
-    md += `**Timestamp:** ${new Date().toISOString()}\n`;
-    md += `**Duration:** ${(duration * 1000).toFixed(0)}ms\n`;
-    md += `**Tokens:** ${tokenTotals.input} input, ${tokenTotals.output} output\n\n`;
-    md += `## Events\n\n`;
-    
-    runEvents.forEach((event, i) => {
-      md += `### ${i + 1}. ${event.event_type} (${event.agent_name})\n\n`;
-      md += `\`\`\`json\n${JSON.stringify(event.data, null, 2)}\n\`\`\`\n\n`;
-    });
-    
-    const blob = new Blob([md], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `run-${project.name}-${Date.now()}.md`;
-    a.click();
-  }
-  
-  function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
-  }
-  
-  // Render events grouped by agent
-  function renderEvents() {
-    let currentAgent: string | null = null;
-    let agentGroups: GroupedEvent[] = [];
-    const elements: React.ReactNode[] = [];
-    
-    function flushAgent() {
-      if (currentAgent && agentGroups.length > 0) {
-        const agentName = currentAgent;
-        const groups = [...agentGroups];
-        const groupKey = `${agentName}-${groups[0].indices[0]}`;
-        const isCollapsed = collapsedAgents.has(groupKey);
-        const agentColor = agentColorMap[agentName] || '#888';
-        
-        // Calculate agent stats - count tool interactions
-        const toolCalls = groups.filter(g => g.type === 'tool_interaction' || 
-          (g.type === 'single' && (g.events[0].event_type === 'tool_call' || g.events[0].event_type === 'tool_result'))).length;
-        const stateChanges = groups.filter(g => g.type === 'single' && g.events[0].event_type === 'state_change').length;
-        const hasError = groups.some(g => g.events.some(e => e.data?.error));
-        const allEvents = groups.flatMap(g => g.events);
-        const agentDuration = allEvents.length > 1 
-          ? ((allEvents[allEvents.length - 1].timestamp - allEvents[0].timestamp) * 1000).toFixed(0)
-          : '0';
-        
-        // Determine current status
-        const lastGroup = groups[groups.length - 1];
-        const lastEvent = lastGroup.events[lastGroup.events.length - 1];
-        let status = 'complete';
-        if (isRunning && lastEvent.agent_name === agentName) {
-          if (lastEvent.event_type === 'model_call' || lastGroup.type === 'model_interaction') status = 'thinking';
-          else if (lastEvent.event_type === 'tool_call' || lastGroup.type === 'tool_interaction') status = 'tool';
-          else status = 'running';
-        }
-        if (hasError) status = 'error';
-        
-        elements.push(
-          <div key={`agent-${groupKey}`} className="agent-group">
-            <div 
-              className={`agent-group-header ${status}`}
-              onClick={() => toggleAgentCollapse(groupKey)}
-              style={{ borderLeftColor: agentColor }}
-            >
-              <div className="agent-header-left">
-                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                <span className="agent-color-dot" style={{ background: agentColor }} />
-                <span className="agent-name">{agentName}</span>
-                <AgentStatusBadge status={status} />
-              </div>
-              <div className="agent-header-right">
-                {toolCalls > 0 && (
-                  <span className="agent-stat tool-stat">
-                    <Wrench size={12} /> {toolCalls}
-                  </span>
-                )}
-                {stateChanges > 0 && (
-                  <span className="agent-stat state-stat">
-                    <Database size={12} /> {stateChanges}
-                  </span>
-                )}
-                <span className="agent-stat time-stat">{agentDuration}ms</span>
-                <span className="event-count">{groups.length} items</span>
-              </div>
-            </div>
-            {!isCollapsed && (
-              <div className="agent-events">
-                {groups.map((group) => (
-                  <GroupedEventItem 
-                    key={group.indices.join('-')}
-                    group={group}
-                    expanded={expandedEvents.has(group.indices[0])}
-                    onToggle={() => toggleEventExpand(group.indices[0])}
-                    isBookmarked={group.indices.some(i => bookmarkedEvents.has(i))}
-                    onBookmark={() => toggleBookmark(group.indices[0])}
-                    onCopy={copyToClipboard}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-        agentGroups = [];
-      }
+  // Scroll selected event into view
+  useEffect(() => {
+    if (selectedEventIndex !== null) {
+      const element = document.querySelector(`.event-row.selected`);
+      element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-    
-    filteredGroups.forEach((group) => {
-      if (group.agent_name !== currentAgent) {
-        flushAgent();
-        currentAgent = group.agent_name;
-      }
-      agentGroups.push(group);
-    });
-    flushAgent();
-    
-    return elements;
+  }, [selectedEventIndex]);
+  
+  if (!project) {
+    return <div className="run-panel empty">No project loaded</div>;
   }
-
+  
   return (
-    <div className="run-panel">
+    <div className={`run-panel ${isResizing ? 'resizing' : ''}`}>
       <style>{`
-        /* Instant Tooltips - CSS only, no delay */
-        [data-tooltip] {
-          position: relative;
-        }
-        
-        [data-tooltip]::before,
-        [data-tooltip]::after {
-          pointer-events: none;
-          opacity: 0;
-          visibility: hidden;
-          transition: opacity 0.1s, visibility 0.1s;
-          z-index: 99999;
-        }
-        
-        /* Tooltip text */
-        [data-tooltip]::after {
-          content: attr(data-tooltip);
-          position: absolute;
-          bottom: calc(100% + 8px);
-          left: 50%;
-          transform: translateX(-50%);
-          padding: 6px 10px;
-          background: #1a1a2e;
-          color: #fff;
-          font-size: 11px;
-          font-weight: 400;
-          font-family: system-ui, -apple-system, sans-serif;
-          line-height: 1.4;
-          white-space: pre-line;
-          border-radius: 6px;
-          max-width: 260px;
-          min-width: max-content;
-          text-align: left;
-          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-          border: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        /* Arrow */
-        [data-tooltip]::before {
-          content: '';
-          position: absolute;
-          bottom: calc(100% + 2px);
-          left: 50%;
-          transform: translateX(-50%);
-          border: 6px solid transparent;
-          border-top-color: #1a1a2e;
-        }
-        
-        [data-tooltip]:hover::before,
-        [data-tooltip]:hover::after {
-          opacity: 1;
-          visibility: visible;
-        }
-        
-        /* Bottom position */
-        [data-tooltip-pos="bottom"]::after {
-          bottom: auto;
-          top: calc(100% + 8px);
-        }
-        [data-tooltip-pos="bottom"]::before {
-          bottom: auto;
-          top: calc(100% + 2px);
-          border-top-color: transparent;
-          border-bottom-color: #1a1a2e;
-        }
-        
-        /* Left position */
-        [data-tooltip-pos="left"]::after {
-          bottom: auto;
-          top: 50%;
-          left: auto;
-          right: calc(100% + 8px);
-          transform: translateY(-50%);
-        }
-        [data-tooltip-pos="left"]::before {
-          bottom: auto;
-          top: 50%;
-          left: auto;
-          right: calc(100% + 2px);
-          transform: translateY(-50%);
-          border-top-color: transparent;
-          border-left-color: #1a1a2e;
-        }
-        
-        /* Right position */
-        [data-tooltip-pos="right"]::after {
-          bottom: auto;
-          top: 50%;
-          left: calc(100% + 8px);
-          transform: translateY(-50%);
-        }
-        [data-tooltip-pos="right"]::before {
-          bottom: auto;
-          top: 50%;
-          left: calc(100% + 2px);
-          transform: translateY(-50%);
-          border-top-color: transparent;
-          border-right-color: #1a1a2e;
-        }
-        
-        /* Tooltip wrapper for elements that can't have ::after (input, select) */
-        .tooltip-wrapper {
-          position: relative;
-          display: inline-flex;
-        }
-        
         .run-panel {
           display: flex;
           flex-direction: column;
-          height: calc(100vh - 180px);
           width: 100%;
-          gap: 12px;
+          height: 100%;
+          background: #0a0a0f;
+          color: #e4e4e7;
+          font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+          font-size: 12px;
+        }
+        
+        .run-panel.resizing {
+          cursor: col-resize;
+          user-select: none;
+        }
+        
+        .run-panel.resizing * {
+          cursor: col-resize;
+        }
+        
+        .run-panel.empty {
+          align-items: center;
+          justify-content: center;
+          color: #71717a;
         }
         
         /* Input Area */
         .input-area {
           display: flex;
-          gap: 12px;
-          background: var(--bg-secondary);
-          padding: 16px;
-          border-radius: var(--radius-lg);
-          border: 1px solid var(--border-color);
-        }
-        
-        .input-area textarea {
-          flex: 1;
-          height: 40px;
-          resize: none;
-        }
-        
-        .input-actions {
-          display: flex;
-          flex-direction: column;
           gap: 8px;
+          padding: 8px;
+          background: #18181b;
+          border-bottom: 1px solid #27272a;
         }
         
-        /* Timeline Area */
-        .timeline-area {
-          background: var(--bg-secondary);
-          padding: 12px 16px;
-          border-radius: var(--radius-lg);
-          border: 1px solid var(--border-color);
-        }
-        
-        .timeline-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 12px;
-        }
-        
-        .timeline-title {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13px;
-          font-weight: 600;
-        }
-        
-        .timeline-title svg {
-          color: var(--accent-primary);
-        }
-        
-        .timeline-stats {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          font-size: 12px;
-          color: var(--text-muted);
-        }
-        
-        .token-stats {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
-          font-family: var(--font-mono);
-        }
-        
-        .token-input { color: #4ecdc4; }
-        .token-output { color: #ff6b6b; }
-        .token-total { color: var(--text-secondary); font-weight: 600; }
-        
-        .running-indicator {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          color: var(--accent-primary);
-        }
-        
-        .running-indicator .dot {
-          width: 8px;
-          height: 8px;
-          background: var(--accent-primary);
-          border-radius: 50%;
-          animation: pulse 1s infinite;
-        }
-        
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-        
-        /* Visual Timeline */
-        .visual-timeline {
-          position: relative;
-          height: 40px;
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
-          margin-bottom: 8px;
-          /* overflow: visible to allow tooltips to show */
-        }
-        
-        .timeline-segment {
-          position: absolute;
-          top: 0;
-          height: 100%;
-          cursor: pointer;
-          transition: opacity 0.15s;
-        }
-        
-        .timeline-segment:hover {
-          opacity: 0.8;
-        }
-        
-        .timeline-segment.activity {
-          opacity: 0.6;
-        }
-        
-        .timeline-marker {
-          position: absolute;
-          top: 50%;
-          transform: translate(-50%, -50%);
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-          border: 2px solid var(--bg-secondary);
-          z-index: 1;
-        }
-        
-        .timeline-marker.tool_call { background: #00f5d4; }
-        .timeline-marker.state_change { background: #ff6b6b; }
-        
-        .timeline-playhead {
-          position: absolute;
-          top: 0;
-          width: 2px;
-          height: 100%;
-          background: white;
-          z-index: 2;
-          pointer-events: none;
-        }
-        
-        /* Timeline Range Handles */
-        .timeline-range-handle {
-          position: absolute;
-          top: -4px;
-          width: 8px;
-          height: calc(100% + 8px);
-          background: var(--accent-primary);
-          cursor: ew-resize;
-          z-index: 10;
-          border-radius: 2px;
-          transform: translateX(-50%);
-          opacity: 0.8;
-          transition: opacity 0.15s;
-        }
-        
-        .timeline-range-handle:hover {
-          opacity: 1;
-        }
-        
-        .timeline-range-handle::after {
-          content: '';
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          width: 2px;
-          height: 12px;
-          background: white;
-          border-radius: 1px;
-        }
-        
-        .timeline-range-selection {
-          position: absolute;
-          top: 0;
-          height: 100%;
-          background: rgba(167, 139, 250, 0.15);
-          pointer-events: none;
-          border-left: 1px solid var(--accent-primary);
-          border-right: 1px solid var(--accent-primary);
-        }
-        
-        /* Timeline Legend */
-        .timeline-legend {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex-wrap: wrap;
-          font-size: 11px;
-          color: var(--text-muted);
-          margin-top: 8px;
-          padding-top: 8px;
-          border-top: 1px solid var(--border-color);
-        }
-        
-        .legend-label {
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-        
-        .legend-item {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 2px 8px;
-          border: 1px solid var(--border-color);
-          border-radius: 999px;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        
-        .legend-item:hover {
-          background: var(--bg-tertiary);
-        }
-        
-        .legend-item.marker-legend {
-          cursor: default;
-        }
-        
-        .legend-item.marker-legend:hover {
-          background: transparent;
-        }
-        
-        .legend-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-        }
-        
-        .legend-divider {
-          color: var(--border-color);
-        }
-        
-        .reset-range-btn {
-          padding: 2px 8px;
-          font-size: 11px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: 999px;
-          color: var(--text-secondary);
-          cursor: pointer;
-        }
-        
-        .reset-range-btn:hover {
-          background: var(--accent-primary);
-          color: white;
-          border-color: var(--accent-primary);
-        }
-        
-        .timeline-controls {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-top: 8px;
-        }
-        
-        .timeline-controls button {
-          padding: 4px 8px;
-          background: var(--bg-tertiary);
-          border: none;
-          border-radius: var(--radius-sm);
-          color: var(--text-secondary);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-        }
-        
-        .timeline-controls button:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
-        }
-        
-        .timeline-controls button.active {
-          background: var(--accent-primary);
-          color: var(--bg-primary);
-        }
-        
-        .speed-selector {
-          font-size: 11px;
-          padding: 4px 8px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-          color: var(--text-secondary);
-        }
-        
-        /* Filters Area */
-        .filters-area {
-          display: flex;
-          align-items: center;
-          gap: 12px;
+        .input-area .agent-selector {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
           padding: 8px 12px;
-          background: var(--bg-secondary);
-          border-radius: var(--radius-md);
-          border: 1px solid var(--border-color);
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 11px;
+          min-width: 140px;
+          max-width: 200px;
+          cursor: pointer;
         }
         
-        .filter-group {
+        .input-area .agent-selector:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .input-area .agent-selector:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .input-area input {
+          flex: 1;
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 8px 12px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 12px;
+        }
+        
+        .input-area input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .input-area button {
           display: flex;
           align-items: center;
           gap: 6px;
+          padding: 8px 16px;
+          background: #3b82f6;
+          border: none;
+          border-radius: 4px;
+          color: white;
+          font-family: inherit;
+          font-size: 12px;
+          cursor: pointer;
         }
         
-        .filter-label {
+        .input-area button:hover {
+          background: #2563eb;
+        }
+        
+        .input-area button.stop {
+          background: #ef4444;
+        }
+        
+        .input-area button.stop:hover {
+          background: #dc2626;
+        }
+        
+        .input-area button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        /* Toolbar */
+        .toolbar {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          background: #18181b;
+          border-bottom: 1px solid #27272a;
+        }
+        
+        .toolbar-section {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        
+        .toolbar-divider {
+          width: 1px;
+          height: 20px;
+          background: #27272a;
+          margin: 0 8px;
+        }
+        
+        .toolbar input {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 4px 8px;
+          color: #e4e4e7;
+          font-family: inherit;
           font-size: 11px;
-          color: var(--text-muted);
-          text-transform: uppercase;
+          width: 200px;
+        }
+        
+        .toolbar input:focus {
+          outline: none;
+          border-color: #3b82f6;
         }
         
         .filter-chip {
-          padding: 4px 8px;
-          font-size: 11px;
-          border-radius: var(--radius-sm);
-          border: 1px solid var(--border-color);
-          background: transparent;
-          color: var(--text-muted);
+          padding: 3px 8px;
+          background: #27272a;
+          border: 1px solid #3f3f46;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 10px;
           cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 4px;
         }
         
         .filter-chip:hover {
-          border-color: var(--text-muted);
+          background: #3f3f46;
         }
         
         .filter-chip.active {
-          background: var(--accent-primary);
-          border-color: var(--accent-primary);
-          color: var(--bg-primary);
+          background: #3b82f6;
+          border-color: #3b82f6;
+          color: white;
         }
         
-        .search-input {
-          flex: 1;
-          max-width: 200px;
-          padding: 4px 8px;
-          font-size: 12px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-        }
-        
-        .agent-filter {
-          padding: 4px 8px;
-          font-size: 11px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-        }
-        
-        .export-buttons {
-          margin-left: auto;
-          display: flex;
-          gap: 4px;
-        }
-        
-        .export-btn {
-          padding: 4px 8px;
-          font-size: 11px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-          color: var(--text-muted);
-          cursor: pointer;
+        .toolbar-btn {
           display: flex;
           align-items: center;
           gap: 4px;
+          padding: 4px 8px;
+          background: transparent;
+          border: 1px solid #3f3f46;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 10px;
+          cursor: pointer;
         }
         
-        .export-btn:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+        .toolbar-btn:hover {
+          background: #27272a;
+          color: #e4e4e7;
         }
         
-        /* Main Content Area */
-        .run-main-content {
-          flex: 1;
+        .toolbar-btn.active {
+          background: #27272a;
+          border-color: #3b82f6;
+          color: #3b82f6;
+        }
+        
+        /* Main Content */
+        .main-content {
           display: flex;
-          gap: 12px;
+          flex: 1;
           min-height: 0;
         }
         
-        /* Events Area */
-        .events-area {
+        /* Event List (Packet List) */
+        .event-list-container {
           flex: 1;
-          overflow-y: auto;
-          background: var(--bg-secondary);
-          border-radius: var(--radius-lg);
-          border: 1px solid var(--border-color);
-          padding: 12px;
-        }
-        
-        /* State Sidebar - Watch Panel */
-        .state-sidebar {
-          width: 280px;
-          min-width: 280px;
-          background: var(--bg-secondary);
-          border-radius: var(--radius-lg);
-          border: 1px solid var(--border-color);
           display: flex;
           flex-direction: column;
+          border-right: 1px solid #27272a;
+        }
+        
+        .event-list-header {
+          display: grid;
+          grid-template-columns: 60px 80px 100px 80px 1fr;
+          gap: 1px;
+          background: #18181b;
+          border-bottom: 1px solid #27272a;
+          font-size: 10px;
+          font-weight: 600;
+          color: #71717a;
+          text-transform: uppercase;
+        }
+        
+        .event-list-header > div {
+          padding: 6px 8px;
+          background: #18181b;
+        }
+        
+        .event-list {
+          flex: 1;
+          overflow-y: auto;
+          background: #09090b;
+        }
+        
+        .event-row {
+          display: grid;
+          grid-template-columns: 60px 80px 100px 80px 1fr;
+          gap: 1px;
+          border-bottom: 1px solid #18181b;
+          cursor: pointer;
+          transition: background 0.1s;
+        }
+        
+        .event-row:hover {
+          filter: brightness(1.2);
+        }
+        
+        .event-row.selected {
+          outline: 1px solid #3b82f6;
+          outline-offset: -1px;
+        }
+        
+        .event-row > div {
+          padding: 3px 8px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .event-row .index { color: #71717a; font-size: 10px; }
+        .event-row .time { font-size: 10px; }
+        .event-row .agent { font-weight: 500; }
+        .event-row .type { 
+          font-size: 10px; 
+          text-transform: uppercase;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .event-row .summary { font-size: 11px; }
+        
+        /* Time Range Selector */
+        .time-range {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 8px;
+          background: #18181b;
+          border-bottom: 1px solid #27272a;
+        }
+        
+        .time-range label {
+          font-size: 10px;
+          color: #71717a;
+        }
+        
+        .time-range input[type="datetime-local"] {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 2px 6px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 10px;
+        }
+        
+        .time-range button {
+          padding: 2px 8px;
+          background: #27272a;
+          border: 1px solid #3f3f46;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 10px;
+          cursor: pointer;
+        }
+        
+        .time-range button:hover {
+          background: #3f3f46;
+        }
+        
+        /* Side Panel */
+        .side-panel-container {
+          display: flex;
+          flex-shrink: 0;
+        }
+        
+        .resize-handle {
+          width: 4px;
+          background: #27272a;
+          cursor: col-resize;
+          transition: background 0.15s;
+        }
+        
+        .resize-handle:hover,
+        .resize-handle.active {
+          background: #3b82f6;
+        }
+        
+        .side-panel {
+          display: flex;
+          flex-direction: column;
+          background: #0f0f14;
+          min-width: 0;
+        }
+        
+        .side-panel-tabs {
+          display: flex;
+          background: #18181b;
+          border-bottom: 1px solid #27272a;
+        }
+        
+        .side-panel-tab {
+          flex: 1;
+          padding: 8px;
+          background: transparent;
+          border: none;
+          color: #71717a;
+          font-size: 11px;
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+        }
+        
+        .side-panel-tab:hover {
+          color: #a1a1aa;
+        }
+        
+        .side-panel-tab.active {
+          color: #e4e4e7;
+          border-bottom-color: #3b82f6;
+        }
+        
+        .side-panel-content {
+          flex: 1;
+          overflow-y: auto;
+        }
+        
+        /* Event Detail */
+        .event-detail {
+          padding: 8px;
+        }
+        
+        .detail-header {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          margin-bottom: 8px;
+        }
+        
+        .detail-type {
+          padding: 2px 8px;
+          background: #3b82f6;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+        
+        .detail-agent {
+          color: #a1a1aa;
+          font-size: 11px;
+        }
+        
+        .detail-time {
+          color: #71717a;
+          font-size: 10px;
+          margin-left: auto;
+        }
+        
+        .detail-section {
+          margin-bottom: 8px;
+          background: #18181b;
+          border-radius: 4px;
           overflow: hidden;
         }
         
-        .state-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 8px 12px;
-          border-bottom: 1px solid var(--border-color);
-          background: var(--bg-tertiary);
-        }
-        
-        .state-header h4 {
+        .section-header {
           display: flex;
           align-items: center;
           gap: 6px;
-          font-size: 12px;
+          padding: 6px 8px;
+          background: #27272a;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 500;
+        }
+        
+        .section-header:hover {
+          background: #3f3f46;
+        }
+        
+        .section-content {
+          padding: 8px;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+        
+        /* JSON Viewer */
+        .json-viewer {
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 11px;
+          line-height: 1.4;
+          white-space: pre;
+          overflow-x: auto;
+        }
+
+        .json-key { color: #93c5fd; }
+        .json-string { color: #86efac; }
+        .json-number { color: #fde047; }
+        .json-boolean { color: #f472b6; }
+        .json-null { color: #71717a; }
+        .json-undefined { color: #71717a; font-style: italic; }
+        .json-truncated { color: #71717a; font-size: 10px; }
+        .json-bracket { color: #a1a1aa; }
+        .json-colon { color: #a1a1aa; }
+        .json-comma { color: #a1a1aa; }
+        .json-block { display: inline; }
+        .json-inline { display: inline; }
+        
+        /* Message Items */
+        .message-item {
+          margin-bottom: 8px;
+          padding: 8px;
+          background: #09090b;
+          border-radius: 4px;
+        }
+        
+        .message-role {
+          display: inline-block;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 10px;
           font-weight: 600;
-          margin: 0;
           text-transform: uppercase;
-          letter-spacing: 0.5px;
-          color: var(--text-secondary);
-        }
-        
-        .state-header h4 svg {
-          color: var(--accent-secondary);
-        }
-        
-        .state-count {
-          font-size: 11px;
-          color: var(--text-muted);
-          font-family: var(--font-mono);
-        }
-        
-        .state-content {
-          flex: 1;
-          overflow-y: auto;
-          font-size: 12px;
-        }
-        
-        .state-empty {
-          color: var(--text-muted);
-          font-size: 12px;
-          text-align: center;
-          padding: 24px 16px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-        }
-        
-        .state-empty svg {
-          opacity: 0.3;
-        }
-        
-        .state-hint {
-          font-size: 11px;
-          opacity: 0.6;
-        }
-        
-        .watch-list {
-          font-family: var(--font-mono);
-        }
-        
-        .watch-item {
-          border-bottom: 1px solid var(--border-color);
-          padding: 8px 12px;
-        }
-        
-        .watch-item:last-child {
-          border-bottom: none;
-        }
-        
-        .watch-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
           margin-bottom: 4px;
         }
         
-        .watch-key {
-          color: var(--accent-primary);
-          font-weight: 500;
-          font-size: 12px;
-        }
+        .message-role.user { background: #3b82f6; }
+        .message-role.model { background: #22c55e; }
+        .message-role.assistant { background: #22c55e; }
+        .message-role.system { background: #a855f7; }
         
-        .watch-type {
-          font-size: 10px;
-          color: var(--text-muted);
-          background: var(--bg-tertiary);
-          padding: 1px 6px;
-          border-radius: 3px;
-        }
-        
-        .watch-value {
+        .message-parts pre {
+          margin: 4px 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          white-space: pre-wrap;
+          word-break: break-all;
           font-size: 11px;
-          line-height: 1.5;
-          max-height: 120px;
+        }
+        
+        .function-call, .function-response {
+          margin: 4px 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          border-left: 3px solid #3b82f6;
+        }
+        
+        .function-response {
+          border-left-color: #22c55e;
+        }
+        
+        .result-content {
+          white-space: pre-wrap;
+          word-break: break-all;
+          background: #18181b;
+          padding: 8px;
+          border-radius: 4px;
+          max-height: 300px;
           overflow-y: auto;
         }
         
-        .value-string {
-          color: #ce9178;
-        }
-        
-        .value-number {
-          color: #b5cea8;
-        }
-        
-        .value-boolean {
-          color: #569cd6;
-        }
-        
-        .value-object {
-          color: var(--text-secondary);
-          margin: 4px 0 0 0;
+        /* State Snapshot */
+        .state-snapshot {
           padding: 8px;
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
+        }
+        
+        .state-header {
+          padding: 8px;
+          margin-bottom: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 11px;
+          color: #a1a1aa;
+          text-align: center;
+        }
+        
+        .state-header {
+          padding: 6px 8px;
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          border-bottom: 1px solid #27272a;
+          margin-bottom: 8px;
+        }
+        
+        .state-empty {
+          padding: 16px;
+          text-align: center;
+          color: #71717a;
+        }
+        
+        .state-entry {
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          margin-bottom: 6px;
+        }
+        
+        .state-key {
+          font-weight: 600;
+          color: #93c5fd;
+          font-size: 11px;
+          margin-bottom: 4px;
+        }
+        
+        .state-value {
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 11px;
+          color: #86efac;
           white-space: pre-wrap;
           word-break: break-all;
           max-height: 100px;
           overflow-y: auto;
         }
         
-        .value-loading {
-          color: var(--text-muted);
-          font-style: italic;
-        }
-        
-        .value-error {
-          color: #ff6b6b;
-        }
-        
-        .value-pending {
-          color: var(--text-muted);
-          font-style: italic;
-        }
-        
-        .value-undefined {
-          color: var(--text-muted);
-          font-style: italic;
-        }
-        
-        .value-null {
-          color: var(--text-muted);
-          font-style: italic;
-        }
-        
-        .watch-item-undefined {
-          opacity: 0.7;
-        }
-        
-        .watch-item-undefined .watch-value {
-          color: var(--text-muted);
-        }
-        
-        .watch-item-agent {
-          border-left: 2px solid var(--accent-secondary);
-          padding-left: 8px;
-        }
-        
-        .watch-source {
-          margin-left: 4px;
+        .state-time {
           font-size: 10px;
+          color: #71717a;
+          margin-top: 4px;
         }
         
-        .watch-empty {
-          padding: 12px;
-          text-align: center;
-          color: var(--text-muted);
-          font-size: 11px;
-          font-style: italic;
+        /* MCP Runner */
+        .mcp-runner {
+          padding: 8px;
         }
         
-        .watch-description {
-          font-size: 10px;
-          color: var(--text-muted);
-          margin-bottom: 4px;
-          font-family: system-ui, -apple-system, sans-serif;
-        }
-        
-        /* Watch Tools */
-        .add-watch-btn {
-          padding: 4px;
-          background: transparent;
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-          color: var(--text-muted);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        
-        .add-watch-btn:hover {
-          background: var(--bg-hover);
-          color: var(--accent-primary);
-          border-color: var(--accent-primary);
-        }
-        
-        .watch-section {
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .watch-section:last-child {
-          border-bottom: none;
-        }
-        
-        .watch-section-header {
+        .runner-header {
           display: flex;
           align-items: center;
           gap: 6px;
-          padding: 8px 12px;
-          font-size: 10px;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          margin-bottom: 8px;
           font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-          color: var(--text-muted);
-          background: var(--bg-tertiary);
         }
         
-        .watch-section-header svg {
-          opacity: 0.6;
-        }
-        
-        .watch-section-count {
-          margin-left: auto;
-          padding: 1px 6px;
-          background: var(--bg-secondary);
-          border-radius: 999px;
-          font-size: 10px;
-        }
-        
-        .watch-tool-item {
-          background: rgba(167, 139, 250, 0.05);
-        }
-        
-        .watch-tool-info {
+        .runner-form {
           display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-bottom: 4px;
+          flex-direction: column;
+          gap: 8px;
         }
         
-        .watch-tool-type {
-          font-size: 9px;
-          padding: 1px 6px;
-          background: var(--accent-primary);
-          color: white;
-          border-radius: 3px;
-          text-transform: uppercase;
-        }
-        
-        .watch-tool-name {
-          font-size: 10px;
-          color: var(--text-muted);
-        }
-        
-        .watch-actions {
+        .form-row {
           display: flex;
+          flex-direction: column;
           gap: 4px;
         }
         
-        .watch-action-btn {
-          padding: 2px;
-          background: transparent;
+        .form-row label {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+        }
+        
+        .form-row select, .form-row input {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 6px 8px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 11px;
+        }
+        
+        .form-row select:focus, .form-row input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .tool-description {
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 11px;
+          color: #a1a1aa;
+        }
+        
+        .tool-params {
+          background: #18181b;
+          border-radius: 4px;
+          padding: 8px;
+        }
+        
+        .params-header {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+          margin-bottom: 8px;
+        }
+        
+        .param-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-bottom: 8px;
+        }
+        
+        .param-row label {
+          font-size: 10px;
+          color: #a1a1aa;
+        }
+        
+        .param-row .required {
+          color: #ef4444;
+          margin-left: 2px;
+        }
+        
+        .run-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 8px 16px;
+          background: #22c55e;
           border: none;
-          color: var(--text-muted);
+          border-radius: 4px;
+          color: white;
+          font-family: inherit;
+          font-size: 11px;
           cursor: pointer;
-          border-radius: 3px;
         }
         
-        .watch-action-btn:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+        .run-btn:hover {
+          background: #16a34a;
         }
         
-        .watch-action-btn.delete:hover {
-          color: #ff6b6b;
+        .run-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         
-        .watch-action-btn .spinning {
+        .spin {
           animation: spin 1s linear infinite;
         }
         
@@ -1839,1860 +1903,800 @@ export default function RunPanel() {
           to { transform: rotate(360deg); }
         }
         
-        /* Watch Tool Dialog */
-        .dialog-overlay {
+        /* Tool Watch Panel */
+        .tool-watch-panel {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .watch-header {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-weight: 600;
+          font-size: 12px;
+        }
+        
+        .watch-header .watch-actions {
+          margin-left: auto;
+          display: flex;
+          gap: 4px;
+        }
+        
+        .watch-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 4px;
+          background: transparent;
+          border: none;
+          border-radius: 3px;
+          color: #a1a1aa;
+          cursor: pointer;
+        }
+        
+        .watch-btn:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .watch-btn.active {
+          background: #22c55e30;
+          color: #22c55e;
+        }
+        
+        .watch-btn.active:hover {
+          background: #22c55e50;
+        }
+        
+        .watch-empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 24px;
+          color: #71717a;
+          font-size: 11px;
+        }
+        
+        .add-watch-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 12px;
+          background: #27272a;
+          border: none;
+          border-radius: 4px;
+          color: #e4e4e7;
+          font-size: 11px;
+          cursor: pointer;
+        }
+        
+        .add-watch-btn:hover {
+          background: #3f3f46;
+        }
+        
+        .watch-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 8px;
+        }
+        
+        .watch-item {
+          background: #18181b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          margin-bottom: 6px;
+        }
+        
+        .watch-item.error {
+          border-color: #7f1d1d;
+        }
+        
+        .watch-item-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 8px;
+          background: #0c0c0d;
+          border-radius: 4px 4px 0 0;
+          border-bottom: 1px solid #27272a;
+        }
+        
+        .watch-expr {
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 10px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          overflow: hidden;
+        }
+        
+        .watch-server {
+          color: #71717a;
+        }
+        
+        .watch-server::after {
+          content: '/';
+          margin: 0 2px;
+          color: #3f3f46;
+        }
+        
+        .watch-tool {
+          color: #fbbf24;
+        }
+        
+        .watch-args {
+          color: #71717a;
+          font-size: 9px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .watch-time-indicator {
+          color: #3b82f6;
+          font-size: 9px;
+          font-weight: 500;
+          margin-left: 4px;
+          background: #3b82f620;
+          padding: 1px 4px;
+          border-radius: 3px;
+          flex-shrink: 0;
+        }
+        
+        .watch-item-actions {
+          display: flex;
+          gap: 4px;
+          flex-shrink: 0;
+        }
+        
+        .watch-item-actions button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 3px;
+          background: transparent;
+          border: none;
+          border-radius: 3px;
+          color: #71717a;
+          cursor: pointer;
+        }
+        
+        .watch-item-actions button:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .watch-result {
+          padding: 8px 10px;
+          font-family: 'SF Mono', 'Consolas', monospace;
+          font-size: 11px;
+          max-height: 200px;
+          overflow-y: auto;
+          background: #0c0c0d;
+          border-radius: 0 0 4px 4px;
+        }
+        
+        .watch-result .loading {
+          color: #71717a;
+          font-style: italic;
+        }
+        
+        .watch-result .error {
+          color: #ef4444;
+        }
+        
+        .watch-result .no-result {
+          color: #52525b;
+          font-style: italic;
+        }
+        
+        .watch-result pre {
+          margin: 0;
+          white-space: pre-wrap;
+          word-break: break-word;
+          color: #86efac;
+          line-height: 1.4;
+        }
+        
+        .watch-result pre.error-text {
+          color: #fca5a5;
+        }
+        
+        .form-hint {
+          font-size: 10px;
+          color: #71717a;
+          margin-top: 4px;
+        }
+        
+        .transform-hints {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px 8px;
+          margin-top: 6px;
+          font-size: 10px;
+          align-items: center;
+        }
+        
+        .transform-hints .hint-title {
+          color: #71717a;
+          font-weight: 500;
+        }
+        
+        .transform-hints code {
+          background: #27272a;
+          color: #a1a1aa;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+          font-size: 9px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .transform-hints code:hover {
+          background: #3f3f46;
+          color: #e4e4e7;
+        }
+        
+        /* Test Section in Dialog */
+        .test-section {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+          margin-bottom: 12px;
+        }
+        
+        .test-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+        
+        .test-header label {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+        }
+        
+        .test-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 10px;
+          background: #27272a;
+          border: none;
+          border-radius: 4px;
+          color: #e4e4e7;
+          font-size: 11px;
+          cursor: pointer;
+        }
+        
+        .test-btn:hover:not(:disabled) {
+          background: #3f3f46;
+        }
+        
+        .test-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .test-result {
+          margin-bottom: 8px;
+        }
+        
+        .test-result.error pre {
+          color: #fca5a5;
+        }
+        
+        .test-label {
+          display: block;
+          font-size: 10px;
+          color: #71717a;
+          margin-bottom: 4px;
+        }
+        
+        .test-result pre {
+          margin: 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 10px;
+          color: #86efac;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 120px;
+          overflow-y: auto;
+        }
+        
+        .transform-preview {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+          margin-top: 8px;
+        }
+        
+        .transform-preview pre {
+          margin: 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 10px;
+          color: #93c5fd;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 100px;
+          overflow-y: auto;
+        }
+        
+        .transform-preview pre.error {
+          color: #fca5a5;
+        }
+        
+        /* Watch Dialog */
+        .watch-dialog-overlay {
           position: fixed;
           top: 0;
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0, 0, 0, 0.6);
+          background: rgba(0, 0, 0, 0.7);
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 99999;
+          z-index: 10000;
         }
         
-        .dialog {
-          background: var(--bg-secondary);
-          border-radius: var(--radius-lg);
-          border: 1px solid var(--border-color);
-          max-width: 480px;
-          width: 90%;
-          max-height: 80vh;
-          overflow: hidden;
+        .watch-dialog {
+          background: #18181b;
+          border: 1px solid #27272a;
+          border-radius: 8px;
+          width: 500px;
+          max-height: 85vh;
           display: flex;
           flex-direction: column;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
         }
         
         .dialog-header {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 16px;
-          border-bottom: 1px solid var(--border-color);
+          padding: 12px 16px;
+          border-bottom: 1px solid #27272a;
+          font-weight: 600;
         }
         
-        .dialog-header h3 {
-          margin: 0;
-          font-size: 16px;
-        }
-        
-        .dialog-close {
+        .dialog-header button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
           padding: 4px;
           background: transparent;
           border: none;
-          color: var(--text-muted);
+          border-radius: 4px;
+          color: #71717a;
           cursor: pointer;
-          border-radius: var(--radius-sm);
         }
         
-        .dialog-close:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+        .dialog-header button:hover {
+          background: #27272a;
+          color: #e4e4e7;
         }
         
-        .dialog-content {
+        .dialog-body {
           padding: 16px;
           overflow-y: auto;
         }
         
-        .dialog-description {
-          font-size: 13px;
-          color: var(--text-muted);
-          margin-bottom: 16px;
+        .dialog-body .form-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-bottom: 12px;
+        }
+        
+        .dialog-body .form-row label {
+          font-size: 11px;
+          color: #a1a1aa;
+          font-weight: 500;
+        }
+        
+        .dialog-body .form-row select,
+        .dialog-body .form-row input {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 8px 10px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 12px;
+        }
+        
+        .dialog-body .form-row select:focus,
+        .dialog-body .form-row input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .tool-desc {
+          padding: 8px 10px;
+          background: #0c0c0d;
+          border-radius: 4px;
+          font-size: 11px;
+          color: #a1a1aa;
+          margin-bottom: 12px;
+        }
+        
+        .tool-args {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+        }
+        
+        .tool-args > label {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+          display: block;
+          margin-bottom: 8px;
+        }
+        
+        .arg-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 6px;
+        }
+        
+        .arg-row .arg-name {
+          font-size: 11px;
+          color: #a1a1aa;
+          min-width: 80px;
+        }
+        
+        .arg-row .required {
+          color: #ef4444;
+          margin-left: 2px;
+        }
+        
+        .arg-row input {
+          flex: 1;
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 6px 8px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 11px;
+        }
+        
+        .arg-row input:focus {
+          outline: none;
+          border-color: #3b82f6;
         }
         
         .dialog-footer {
           display: flex;
           justify-content: flex-end;
           gap: 8px;
-          padding: 16px;
-          border-top: 1px solid var(--border-color);
+          padding: 12px 16px;
+          border-top: 1px solid #27272a;
         }
         
-        .form-field {
-          margin-bottom: 16px;
-        }
-        
-        .form-field label {
-          display: block;
-          font-size: 12px;
-          font-weight: 600;
-          margin-bottom: 6px;
-          color: var(--text-secondary);
-        }
-        
-        .form-field input,
-        .form-field select,
-        .form-field textarea {
-          width: 100%;
-          padding: 8px 12px;
-          font-size: 13px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-          color: var(--text-primary);
-        }
-        
-        .form-field input:focus,
-        .form-field select:focus,
-        .form-field textarea:focus {
-          outline: none;
-          border-color: var(--accent-primary);
-        }
-        
-        .field-hint {
-          display: block;
-          font-size: 11px;
-          color: var(--text-muted);
-          margin-top: 4px;
-        }
-        
-        .tool-type-tabs {
-          display: flex;
-          gap: 4px;
-        }
-        
-        .tool-type-tab {
-          flex: 1;
-          padding: 8px 12px;
-          font-size: 12px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-sm);
-          cursor: pointer;
-          color: var(--text-secondary);
-        }
-        
-        .tool-type-tab:hover {
-          background: var(--bg-hover);
-        }
-        
-        .tool-type-tab.active {
-          background: var(--accent-primary);
-          border-color: var(--accent-primary);
-          color: white;
-        }
-        
-        /* Agent Group */
-        .agent-group {
-          margin-bottom: 12px;
-        }
-        
-        .agent-group-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 10px 12px;
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-md);
-          border-left: 3px solid;
-          cursor: pointer;
-          transition: background 0.15s;
-        }
-        
-        .agent-group-header:hover {
-          background: var(--bg-hover);
-        }
-        
-        .agent-group-header.error {
-          background: rgba(255, 107, 107, 0.1);
-        }
-        
-        .agent-header-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        
-        .agent-color-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-        }
-        
-        .agent-name {
-          font-weight: 600;
-        }
-        
-        .agent-header-right {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        
-        .agent-stat {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-          color: var(--text-muted);
-        }
-        
-        .tool-stat svg { color: #00f5d4; }
-        .state-stat svg { color: #ff6b6b; }
-        
-        .event-count {
-          font-size: 11px;
-          color: var(--text-muted);
-          padding: 2px 8px;
-          background: var(--bg-secondary);
-          border-radius: 999px;
-        }
-        
-        .agent-events {
-          padding-left: 24px;
-          margin-top: 8px;
-        }
-        
-        /* Event Item */
-        .event-item {
-          position: relative;
-          padding: 10px 12px;
-          border-radius: var(--radius-md);
-          margin-bottom: 6px;
-          background: var(--bg-primary);
-          border: 1px solid var(--border-color);
-          transition: all 0.15s;
-        }
-        
-        .event-item:hover {
-          border-color: var(--text-muted);
-        }
-        
-        .event-item.bookmarked {
-          border-color: var(--accent-secondary);
-        }
-        
-        .event-item.error {
-          border-color: #ff6b6b;
-          background: rgba(255, 107, 107, 0.05);
-        }
-        
-        .event-header {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          cursor: pointer;
-        }
-        
-        .event-icon {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          width: 28px;
-          height: 28px;
-          border-radius: var(--radius-sm);
-          flex-shrink: 0;
-        }
-        
-        .event-main {
-          flex: 1;
-          min-width: 0;
-        }
-        
-        .event-title {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13px;
-          font-weight: 500;
-        }
-        
-        .event-type-badge {
-          font-size: 10px;
-          padding: 2px 6px;
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
-          color: var(--text-muted);
-        }
-        
-        .event-preview {
-          font-size: 12px;
-          color: var(--text-muted);
-          margin-top: 4px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        
-        .event-actions {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          opacity: 0;
-          transition: opacity 0.15s;
-        }
-        
-        .event-item:hover .event-actions {
-          opacity: 1;
-        }
-        
-        .event-action-btn {
-          padding: 4px;
+        .cancel-btn {
+          padding: 8px 16px;
           background: transparent;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          color: #a1a1aa;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        
+        .cancel-btn:hover {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        
+        .add-btn {
+          padding: 8px 16px;
+          background: #3b82f6;
           border: none;
-          color: var(--text-muted);
-          cursor: pointer;
-          border-radius: var(--radius-sm);
-        }
-        
-        .event-action-btn:hover {
-          background: var(--bg-tertiary);
-          color: var(--text-primary);
-        }
-        
-        .event-action-btn.bookmarked {
-          color: var(--accent-secondary);
-        }
-        
-        /* Combined Event Styles */
-        .combined-event .tool-name-inline {
-          font-family: var(--font-mono);
-          font-weight: 600;
-          color: var(--accent-primary);
+          border-radius: 4px;
+          color: white;
           font-size: 12px;
-        }
-        
-        .tool-status-badge {
-          display: flex;
-          align-items: center;
-          margin-left: 4px;
-        }
-        
-        .tool-status-badge.success { color: #10b981; }
-        .tool-status-badge.error { color: #ff6b6b; }
-        
-        .combined-details {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        
-        .combined-section {
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-        }
-        
-        .combined-section-header {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 12px;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--text-secondary);
-          background: var(--bg-secondary);
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .combined-section-header:hover {
-          background: var(--bg-tertiary);
-        }
-        
-        .combined-section-header .status-indicator {
-          margin-left: auto;
-          font-size: 10px;
-          padding: 2px 6px;
-          border-radius: var(--radius-sm);
-        }
-        
-        .combined-section-header .status-indicator.success {
-          background: rgba(16, 185, 129, 0.15);
-          color: #10b981;
-        }
-        
-        .combined-section-header .status-indicator.error {
-          background: rgba(255, 107, 107, 0.15);
-          color: #ff6b6b;
-        }
-        
-        /* Event Details */
-        .event-details {
-          margin-top: 12px;
-          padding-top: 12px;
-          border-top: 1px solid var(--border-color);
-        }
-        
-        /* Tool Call Card */
-        .tool-call-card {
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-md);
-          overflow: hidden;
-        }
-        
-        .tool-call-header {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 10px 12px;
-          background: rgba(0, 245, 212, 0.1);
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .tool-name {
-          font-weight: 600;
-          color: var(--accent-primary);
-          font-family: var(--font-mono);
-        }
-        
-        .tool-status {
-          margin-left: auto;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          font-size: 11px;
-        }
-        
-        .tool-status.success { color: #10b981; }
-        .tool-status.error { color: #ff6b6b; }
-        .tool-status.pending { color: var(--accent-secondary); }
-        
-        .tool-params {
-          padding: 12px;
-        }
-        
-        .param-row {
-          display: flex;
-          margin-bottom: 8px;
-          font-size: 12px;
-        }
-        
-        .param-key {
-          font-weight: 500;
-          color: var(--text-muted);
-          min-width: 120px;
-          font-family: var(--font-mono);
-        }
-        
-        .param-value {
-          color: var(--text-secondary);
-          font-family: var(--font-mono);
-          word-break: break-all;
-        }
-        
-        .param-value.string { color: #10b981; }
-        .param-value.number { color: #f59e0b; }
-        .param-value.boolean { color: #8b5cf6; }
-        
-        .tool-response-toggle {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 12px;
-          background: var(--bg-secondary);
-          border-top: 1px solid var(--border-color);
-          cursor: pointer;
-          font-size: 12px;
-          color: var(--text-muted);
-        }
-        
-        .tool-response-toggle:hover {
-          color: var(--text-primary);
-        }
-        
-        .tool-response {
-          padding: 12px;
-          background: var(--bg-secondary);
-          font-family: var(--font-mono);
-          font-size: 12px;
-          max-height: 200px;
-          overflow-y: auto;
-          white-space: pre-wrap;
-          word-break: break-all;
-        }
-        
-        /* State Change Card */
-        .state-change-card {
-          background: rgba(255, 107, 107, 0.05);
-          border: 1px solid rgba(255, 107, 107, 0.2);
-          border-radius: var(--radius-md);
-          padding: 12px;
-        }
-        
-        .state-change-item {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-          margin-bottom: 8px;
-        }
-        
-        .state-change-item:last-child {
-          margin-bottom: 0;
-        }
-        
-        .state-change-key {
-          font-weight: 600;
-          color: #ff6b6b;
-          font-family: var(--font-mono);
-          font-size: 12px;
-          min-width: 100px;
-        }
-        
-        .state-change-value {
-          font-family: var(--font-mono);
-          font-size: 12px;
-          color: var(--text-secondary);
-          flex: 1;
-          word-break: break-all;
-        }
-        
-        /* Model Call Details */
-        .model-call-details {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        
-        .detail-section {
-          background: var(--bg-tertiary);
-          border-radius: var(--radius-sm);
-          overflow: hidden;
-        }
-        
-        .detail-section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 8px 12px;
-          background: var(--bg-secondary);
-          font-size: 11px;
-          font-weight: 600;
-          text-transform: uppercase;
-          color: var(--text-muted);
           cursor: pointer;
         }
         
-        .detail-section-content {
-          padding: 12px;
-          font-size: 12px;
+        .add-btn:hover:not(:disabled) {
+          background: #2563eb;
         }
         
-        .system-instruction {
-          color: var(--accent-secondary);
-          line-height: 1.6;
-          max-height: 100px;
-          overflow-y: auto;
+        .add-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
-        
-        .tool-badges {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-        
-        .tool-badge {
-          padding: 4px 10px;
-          background: rgba(0, 245, 212, 0.1);
-          color: var(--accent-primary);
-          border-radius: 999px;
-          font-size: 11px;
-          font-family: var(--font-mono);
-        }
-        
-        .messages-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          max-height: 300px;
-          overflow-y: auto;
-        }
-        
-        .message {
-          padding: 10px 12px;
-          border-radius: var(--radius-sm);
-          border-left: 3px solid;
-        }
-        
-        .message-user {
-          background: rgba(0, 245, 212, 0.05);
-          border-color: var(--accent-primary);
-        }
-        
-        .message-model {
-          background: rgba(255, 217, 61, 0.05);
-          border-color: var(--accent-secondary);
-        }
-        
-        .message-role {
-          font-size: 10px;
-          font-weight: 600;
-          text-transform: uppercase;
-          color: var(--text-muted);
-          margin-bottom: 6px;
-        }
-        
-        .message-content {
-          font-size: 12px;
-          line-height: 1.5;
-          white-space: pre-wrap;
-        }
-        
-        .function-call-part {
-          background: rgba(0, 245, 212, 0.1);
-          padding: 8px 10px;
-          border-radius: var(--radius-sm);
-          font-family: var(--font-mono);
-          font-size: 12px;
-          margin-top: 6px;
-        }
-        
-        .function-response-part {
-          background: var(--bg-secondary);
-          padding: 8px 10px;
-          border-radius: var(--radius-sm);
-          font-family: var(--font-mono);
-          font-size: 11px;
-          margin-top: 6px;
-          max-height: 100px;
-          overflow-y: auto;
-        }
-        
-        .thought-part {
-          background: rgba(123, 44, 191, 0.1);
-          padding: 8px 10px;
-          border-radius: var(--radius-sm);
-          margin-top: 6px;
-        }
-        
-        .thought-label {
-          font-size: 10px;
-          color: #7b2cbf;
-          font-weight: 600;
-          margin-bottom: 4px;
-        }
-        
-        /* Status Badge */
-        .status-badge {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          font-size: 10px;
-          font-weight: 500;
-        }
-        
-        .status-badge.thinking {
-          background: rgba(255, 217, 61, 0.2);
-          color: #ffd93d;
-        }
-        
-        .status-badge.tool {
-          background: rgba(0, 245, 212, 0.2);
-          color: #00f5d4;
-        }
-        
-        .status-badge.running {
-          background: rgba(0, 212, 255, 0.2);
-          color: #00d4ff;
-        }
-        
-        .status-badge.complete {
-          background: rgba(16, 185, 129, 0.2);
-          color: #10b981;
-        }
-        
-        .status-badge.error {
-          background: rgba(255, 107, 107, 0.2);
-          color: #ff6b6b;
-        }
-        
-        .status-badge .spinner {
-          width: 10px;
-          height: 10px;
-          border: 2px solid currentColor;
-          border-right-color: transparent;
-          border-radius: 50%;
-          animation: spin 0.6s linear infinite;
-        }
-        
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        
+
         /* Empty State */
         .empty-state {
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          height: 100%;
-          color: var(--text-muted);
-          text-align: center;
-          padding: 40px;
+          height: 200px;
+          color: #71717a;
+          gap: 8px;
         }
         
-        .empty-state svg {
-          margin-bottom: 16px;
-          opacity: 0.3;
-        }
-        
-        /* Warning Dialog */
-        .warning-dialog {
-          position: fixed;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.7);
+        /* Stats Bar */
+        .stats-bar {
           display: flex;
           align-items: center;
-          justify-content: center;
-          z-index: 1000;
+          gap: 16px;
+          padding: 4px 8px;
+          background: #18181b;
+          border-top: 1px solid #27272a;
+          font-size: 10px;
+          color: #71717a;
         }
         
-        .warning-content {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-lg);
-          padding: 24px;
-          max-width: 400px;
-          text-align: center;
-        }
-        
-        .warning-content h3 {
-          margin-bottom: 12px;
-          color: #ffd93d;
-        }
-        
-        .warning-content p {
-          color: var(--text-secondary);
-          margin-bottom: 20px;
-        }
-        
-        .warning-actions {
+        .stat-item {
           display: flex;
-          gap: 12px;
-          justify-content: center;
+          align-items: center;
+          gap: 4px;
+        }
+        
+        .stat-value {
+          color: #e4e4e7;
+          font-weight: 600;
         }
       `}</style>
       
-      {/* Warning Dialog */}
-      {showUnsavedWarning && (
-        <div className="warning-dialog">
-          <div className="warning-content">
-            <h3>⚠️ Unsaved Changes</h3>
-            <p>You have unsaved changes. The agent will run with the last saved configuration.</p>
-            <div className="warning-actions">
-              <button className="btn btn-secondary" onClick={handleSaveAndRun} disabled={isSaving}>
-                <Save size={14} />
-                {isSaving ? 'Saving...' : 'Save & Run'}
-              </button>
-              <button className="btn btn-primary" onClick={handleRun}>
-                Run Anyway
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
       {/* Input Area */}
       <div className="input-area">
-        <textarea
+        <select
+          className="agent-selector"
+          value={selectedAgentIdLocal || ''}
+          onChange={e => setSelectedAgentIdLocal(e.target.value || null)}
+          disabled={isRunning}
+          title="Select which agent to run"
+        >
+          <option value="">
+            {project.app.root_agent_id 
+              ? `Root: ${project.agents.find(a => a.id === project.app.root_agent_id)?.name || project.app.root_agent_id}`
+              : 'No root agent'}
+          </option>
+          {project.agents.filter(a => a.id !== project.app.root_agent_id).map(agent => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name} ({agent.type.replace('Agent', '')})
+            </option>
+          ))}
+        </select>
+        <input
+          type="text"
+          placeholder="Enter your query..."
           value={userInput}
-          onChange={(e) => setUserInput(e.target.value)}
-          // Cmd+Enter handled by global listener in useEffect
-          placeholder="Enter a message to test your agent... (⌘+Enter to run)"
+          onChange={e => setUserInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleRun()}
           disabled={isRunning}
         />
-        <div className="input-actions">
-          {isRunning ? (
-            <button className="btn btn-danger" onClick={handleStop}>
-              <Square size={16} />
-              Stop
+        {isRunning ? (
+          <button className="stop" onClick={handleStop}>
+            <Square size={14} />
+            Stop
+          </button>
+        ) : (
+          <button onClick={handleRun} disabled={!userInput.trim()}>
+            <Play size={14} />
+            Run
+          </button>
+        )}
+      </div>
+      
+      {/* Toolbar */}
+      <div className="toolbar">
+        <div className="toolbar-section">
+          <Search size={12} style={{ color: '#71717a' }} />
+          <input
+            type="text"
+            placeholder="Filter events..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+        </div>
+        
+        <div className="toolbar-divider" />
+        
+        <div className="toolbar-section">
+          {['tool_call', 'tool_result', 'model_call', 'model_response', 'state_change'].map(type => (
+            <button
+              key={type}
+              className={`filter-chip ${eventTypeFilter.has(type) ? 'active' : ''}`}
+              onClick={() => {
+                const next = new Set(eventTypeFilter);
+                if (next.has(type)) next.delete(type);
+                else next.add(type);
+                setEventTypeFilter(next);
+              }}
+            >
+              {type.replace('_', ' ')}
             </button>
-          ) : (
-            <button className="btn btn-primary" onClick={handleRunClick} disabled={!userInput.trim()}>
-              <Play size={16} />
-              Run
+          ))}
+        </div>
+        
+        <div className="toolbar-divider" />
+        
+        <div className="toolbar-section">
+          <button
+            className={`toolbar-btn ${showStatePanel ? 'active' : ''}`}
+            onClick={() => setShowStatePanel(!showStatePanel)}
+          >
+            <Database size={12} />
+            State
+          </button>
+          <button
+            className={`toolbar-btn ${showToolRunner ? 'active' : ''}`}
+            onClick={() => setShowToolRunner(!showToolRunner)}
+          >
+            <Terminal size={12} />
+            Tools
+          </button>
+        </div>
+        
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, color: '#71717a' }}>{filteredEvents.length} / {runEvents.length} events</span>
+          {timeRange && (
+            <button 
+              className="toolbar-btn"
+              onClick={() => setTimeRange(null)}
+            >
+              Clear Range
             </button>
           )}
         </div>
       </div>
-      
-      {/* Timeline Area */}
-      {runEvents.length > 0 && (
-        <div className="timeline-area">
-          <div className="timeline-header">
-            <div className="timeline-title">
-              <Clock size={14} />
-              Timeline
-            </div>
-            <div className="timeline-stats">
-              <Tooltip text={`Showing ${filteredEvents.length} of ${runEvents.length} total events\n(filtered by time range, event type, or agent)`} style={{ display: 'inline-flex' }}>
-                <span>{filteredEvents.length} / {runEvents.length} events</span>
-              </Tooltip>
-              <Tooltip text="Total duration of the agent run" style={{ display: 'inline-flex' }}>
-                <span>{(duration * 1000).toFixed(0)}ms</span>
-              </Tooltip>
-              {tokenTotals.input + tokenTotals.output > 0 && (
-                <Tooltip text={`Token usage:\n↓ Input: ${tokenTotals.input}\n↑ Output: ${tokenTotals.output}\nTotal: ${tokenTotals.input + tokenTotals.output}`} style={{ display: 'inline-flex' }}>
-                  <span className="token-stats">
-                    <span className="token-input">{tokenTotals.input}↓</span>
-                    <span className="token-output">{tokenTotals.output}↑</span>
-                    <span className="token-total">= {tokenTotals.input + tokenTotals.output}</span>
-                  </span>
-                </Tooltip>
-              )}
-              {isRunning && (
-                <span className="running-indicator" data-tooltip="Agent is currently executing">
-                  <span className="dot" />
-                  Running...
-                </span>
-              )}
-            </div>
-          </div>
-          
-          {/* Visual Timeline */}
-          <div className="visual-timeline">
-            {timelineSegments.map((segment, i) => {
-              const segmentDurationMs = ((segment.end - segment.start) / 100) * duration * 1000;
-              const segmentStartMs = (segment.start / 100) * duration * 1000;
-              
-              // Ensure minimum visible width for short segments
-              const minWidthPx = 4;
-              const segmentWidthPercent = segment.end - segment.start;
-              
-              return segment.eventType === 'agent_activity' ? (
-                <Tooltip 
-                  key={i}
-                  text={`${segment.agent}\n⏱ ${segmentDurationMs.toFixed(0)}ms\n📍 +${segmentStartMs.toFixed(0)}ms\nClick to scroll`}
-                  position="bottom"
-                  style={{
-                    position: 'absolute',
-                    left: `${segment.start}%`,
-                    width: `${segmentWidthPercent}%`,
-                    minWidth: `${minWidthPx}px`,
-                    top: 0,
-                    height: '100%',
-                    background: agentColorMap[segment.agent] || '#888',
-                    cursor: 'pointer',
-                    opacity: 0.6,
-                    transition: 'opacity 0.15s',
-                  }}
-                >
-                  <div
-                    style={{ width: '100%', height: '100%' }}
-                    onClick={() => scrollToEvent(segment.eventIndex)}
-                  />
-                </Tooltip>
-              ) : (
-                <Tooltip
-                  key={i}
-                  text={`${EVENT_CONFIG[segment.eventType]?.label || segment.eventType}${segment.detail ? `\n🔧 ${segment.detail}` : ''}\n👤 ${segment.agent}\n📍 +${segmentStartMs.toFixed(0)}ms`}
-                  position="bottom"
-                  style={{
-                    position: 'absolute',
-                    left: `${segment.start}%`,
-                    top: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: segment.eventType === 'tool_call' ? '#00f5d4' : '#ff6b6b',
-                    border: '2px solid var(--bg-secondary)',
-                    cursor: 'pointer',
-                    zIndex: 1,
-                  }}
-                >
-                  <div
-                    style={{ width: '100%', height: '100%' }}
-                    onClick={() => scrollToEvent(segment.eventIndex)}
-                  />
-                </Tooltip>
-              );
-            })}
-            {/* Time range handles */}
-            <div 
-              className="timeline-range-handle start"
-              style={{ left: `${timelineRange[0]}%` }}
-              onMouseDown={(e) => {
-                const timeline = e.currentTarget.parentElement!;
-                const rect = timeline.getBoundingClientRect();
-                const handleDrag = (ev: MouseEvent) => {
-                  const percent = Math.max(0, Math.min(timelineRange[1] - 1, ((ev.clientX - rect.left) / rect.width) * 100));
-                  setTimelineRange([percent, timelineRange[1]]);
-                };
-                const stopDrag = () => {
-                  window.removeEventListener('mousemove', handleDrag);
-                  window.removeEventListener('mouseup', stopDrag);
-                };
-                window.addEventListener('mousemove', handleDrag);
-                window.addEventListener('mouseup', stopDrag);
-              }}
-              data-tooltip="Drag to set start"
-              data-tooltip-pos="bottom"
-            />
-            <div 
-              className="timeline-range-handle end"
-              style={{ left: `${timelineRange[1]}%` }}
-              onMouseDown={(e) => {
-                const timeline = e.currentTarget.parentElement!;
-                const rect = timeline.getBoundingClientRect();
-                const handleDrag = (ev: MouseEvent) => {
-                  const percent = Math.max(timelineRange[0] + 1, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
-                  setTimelineRange([timelineRange[0], percent]);
-                };
-                const stopDrag = () => {
-                  window.removeEventListener('mousemove', handleDrag);
-                  window.removeEventListener('mouseup', stopDrag);
-                };
-                window.addEventListener('mousemove', handleDrag);
-                window.addEventListener('mouseup', stopDrag);
-              }}
-              data-tooltip="Drag to set end"
-              data-tooltip-pos="bottom"
-            />
-            {/* Selected range overlay */}
-            <div 
-              className="timeline-range-selection"
-              style={{ 
-                left: `${timelineRange[0]}%`, 
-                width: `${timelineRange[1] - timelineRange[0]}%` 
-              }}
-            />
-          </div>
-          
-          {/* Agent Legend */}
-          <div className="timeline-legend">
-            <span className="legend-label">Agents:</span>
-            {agentNames.map(name => (
-              <Tooltip key={name} text={`Click to filter by ${name}`} style={{ display: 'inline-flex' }}>
-                <span 
-                  className="legend-item"
-                  onClick={() => setAgentFilter(agentFilter === name ? 'all' : name)}
-                  style={{ 
-                    borderColor: agentColorMap[name],
-                    background: agentFilter === name ? agentColorMap[name] + '30' : 'transparent'
-                  }}
-                >
-                  <span className="legend-dot" style={{ background: agentColorMap[name] }} />
-                  {name}
-                </span>
-              </Tooltip>
-            ))}
-            <span className="legend-divider">|</span>
-            <span className="legend-label">Markers:</span>
-            <Tooltip text="Tool calls by agents" style={{ display: 'inline-flex' }}>
-              <span className="legend-item marker-legend">
-                <span className="legend-dot" style={{ background: '#00f5d4' }} />
-                Tool Call
-              </span>
-            </Tooltip>
-            <Tooltip text="State changes (output_key, etc.)" style={{ display: 'inline-flex' }}>
-              <span className="legend-item marker-legend">
-                <span className="legend-dot" style={{ background: '#ff6b6b' }} />
-                State Change
-              </span>
-            </Tooltip>
-            {(timelineRange[0] > 0 || timelineRange[1] < 100) && (
-              <>
-                <span className="legend-divider">|</span>
-                <button 
-                  className="reset-range-btn"
-                  onClick={() => setTimelineRange([0, 100])}
-                  data-tooltip="Show all events"
-                >
-                  Reset Range
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      
-      {/* Filters Area */}
-      {runEvents.length > 0 && (
-        <div className="filters-area">
-          <div className="filter-group">
-            <span className="filter-label" data-tooltip="Filter by event type"><Filter size={12} /></span>
-            {['tool_interaction', 'model_interaction', 'state_change'].map(type => {
-              const tooltips: Record<string, string> = {
-                'tool_interaction': 'Tool calls & results',
-                'model_interaction': 'LLM calls & responses',
-                'state_change': 'State changes',
-              };
-              return (
-                <button
-                  key={type}
-                  className={`filter-chip ${eventFilters.has(type) ? 'active' : ''}`}
-                  onClick={() => toggleEventFilter(type)}
-                  data-tooltip={tooltips[type] || `Toggle ${type}`}
-                >
-                  {EVENT_CONFIG[type]?.label || type}
-                </button>
-              );
-            })}
-          </div>
-          
-          <span className="tooltip-wrapper" data-tooltip="Filter by agent">
-            <select 
-              className="agent-filter"
-              value={agentFilter}
-              onChange={(e) => setAgentFilter(e.target.value)}
-            >
-              <option value="all">All Agents</option>
-              {agentNames.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </span>
-          
-          <span className="tooltip-wrapper" data-tooltip="Search event data">
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search events..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </span>
-          
-          {searchQuery && (
-            <button className="filter-chip" onClick={() => setSearchQuery('')} data-tooltip="Clear search">
-              <X size={12} /> Clear
-            </button>
-          )}
-          
-          <div className="export-buttons">
-            <button className="export-btn" onClick={exportAsJson} data-tooltip="Export as JSON">
-              <Download size={12} /> JSON
-            </button>
-            <button className="export-btn" onClick={exportAsMarkdown} data-tooltip="Export as Markdown">
-              <Download size={12} /> MD
-            </button>
-          </div>
-        </div>
-      )}
       
       {/* Main Content */}
-      <div className="run-main-content">
-        {/* Events Area */}
-        <div className="events-area" ref={eventsAreaRef}>
-          {runEvents.length === 0 ? (
-            <div className="empty-state">
-              <Play size={48} />
-              <p>No events yet. Enter a message and click Run to test your agent.</p>
-            </div>
-          ) : (
-            <>
-              {renderEvents()}
-              <div ref={eventsEndRef} />
-            </>
-          )}
-        </div>
-        
-        {/* State Sidebar - Watch Panel */}
-        {runEvents.length > 0 && (
-          <div className="state-sidebar">
-            <div className="state-header">
-              <h4>
-                <Eye size={14} />
-                Watch
-              </h4>
-              <Tooltip text="Add a watch tool call" style={{ display: 'inline-flex' }}>
-                <button 
-                  className="add-watch-btn"
-                  onClick={() => setShowWatchDialog(true)}
-                >
-                  <Plus size={14} />
-                </button>
-              </Tooltip>
-            </div>
-            <div className="state-content">
-              {/* Session State Section - Always show */}
-              <div className="watch-section">
-                <div className="watch-section-header">
-                  <Database size={12} />
-                  Session State
-                  <span className="watch-section-count">{Object.keys(sessionState).length}</span>
-                </div>
-                <div className="watch-list">
-                  {Object.keys(sessionState).length === 0 ? (
-                    <div className="watch-empty">
-                      No state keys configured. Add state keys in App Config or set output_key on agents.
-                    </div>
-                  ) : (
-                    Object.entries(sessionState).map(([key, value]) => {
-                      const config = stateKeyConfigs[key];
-                      const isUndefined = value === undefined;
-                      const isFromAgent = config?.source === 'agent_output';
-                      
-                      return (
-                        <div key={key} className={`watch-item ${isUndefined ? 'watch-item-undefined' : ''} ${isFromAgent ? 'watch-item-agent' : ''}`}>
-                          <div className="watch-row">
-                            <span className="watch-key">{key}</span>
-                            <span className="watch-type">
-                              {config?.type || (isUndefined ? 'undefined' : typeof value)}
-                              {isFromAgent && <span className="watch-source" title="From agent output_key"> ⚡</span>}
-                            </span>
-                          </div>
-                          {config?.description && (
-                            <div className="watch-description">{config.description}</div>
-                          )}
-                          <div className="watch-value">
-                            {isUndefined ? (
-                              <span className="value-undefined">— not set —</span>
-                            ) : typeof value === 'string' ? (
-                              <span className="value-string">"{value}"</span>
-                            ) : typeof value === 'number' ? (
-                              <span className="value-number">{value}</span>
-                            ) : typeof value === 'boolean' ? (
-                              <span className="value-boolean">{String(value)}</span>
-                            ) : value === null ? (
-                              <span className="value-null">null</span>
-                            ) : (
-                              <pre className="value-object">{JSON.stringify(value, null, 2)}</pre>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+      <div className="main-content" ref={containerRef}>
+        {/* Event List */}
+        <div className="event-list-container">
+          <div className="event-list-header">
+            <div>#</div>
+            <div>Time</div>
+            <div>Agent</div>
+            <div>Type</div>
+            <div>Info</div>
+          </div>
+          
+          <div className="event-list" ref={eventListRef}>
+            {filteredEvents.length === 0 ? (
+              <div className="empty-state">
+                <Layers size={24} />
+                <span>{runEvents.length === 0 ? 'No events yet' : 'No matching events'}</span>
               </div>
-              
-              {/* Watch Tools Section */}
-              {watchTools.length > 0 && (
-                <div className="watch-section">
-                  <div className="watch-section-header">
-                    <Wrench size={12} />
-                    Tool Watches
-                    <span className="watch-section-count">{watchTools.length}</span>
-                  </div>
-                  <div className="watch-list">
-                    {watchTools.map(watchTool => {
-                      const result = watchResults[watchTool.id];
-                      const isLoading = watchToolsLoading.has(watchTool.id);
-                      
-                      return (
-                        <div key={watchTool.id} className="watch-item watch-tool-item">
-                          <div className="watch-row">
-                            <span className="watch-key">{watchTool.name}</span>
-                            <div className="watch-actions">
-                              <button 
-                                className="watch-action-btn"
-                                onClick={() => refreshWatchTool(watchTool)}
-                                disabled={isLoading}
-                                title="Refresh"
-                              >
-                                <RefreshCw size={12} className={isLoading ? 'spinning' : ''} />
-                              </button>
-                              <button 
-                                className="watch-action-btn delete"
-                                onClick={() => removeWatchTool(watchTool.id)}
-                                title="Remove"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="watch-tool-info">
-                            <span className="watch-tool-type">{watchTool.type}</span>
-                            <span className="watch-tool-name">{watchTool.tool_name}</span>
-                          </div>
-                          <div className="watch-value">
-                            {isLoading ? (
-                              <span className="value-loading">Loading...</span>
-                            ) : result?.error ? (
-                              <span className="value-error">{result.error}</span>
-                            ) : result?.result !== undefined ? (
-                              typeof result.result === 'string' ? (
-                                <span className="value-string">"{result.result}"</span>
-                              ) : (
-                                <pre className="value-object">{JSON.stringify(result.result, null, 2)}</pre>
-                              )
-                            ) : (
-                              <span className="value-pending">Pending...</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              
-              {/* Empty state */}
-              {Object.keys(sessionState).length === 0 && watchTools.length === 0 && (
-                <div className="state-empty">
-                  <Database size={20} />
-                  <span>No watches yet</span>
-                  <span className="state-hint">State changes will appear here</span>
-                  <button 
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setShowWatchDialog(true)}
-                    style={{ marginTop: 12 }}
+            ) : (
+              filteredEvents.map((event, i) => {
+                const globalIndex = runEvents.indexOf(event);
+                const colors = EVENT_COLORS[event.event_type] || EVENT_COLORS.error;
+                const Icon = EVENT_ICONS[event.event_type] || MessageSquare;
+                
+                return (
+                  <div
+                    key={globalIndex}
+                    className={`event-row ${selectedEventIndex === globalIndex ? 'selected' : ''}`}
+                    style={{ background: colors.bg }}
+                    onClick={() => setSelectedEventIndex(globalIndex)}
+                    onDoubleClick={() => {
+                      // Set time range to this event and next few seconds
+                      setTimeRange([event.timestamp, event.timestamp + 5]);
+                    }}
                   >
-                    <Plus size={14} /> Add Watch Tool
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {/* Watch Tool Dialog */}
-        {showWatchDialog && (
-          <WatchToolDialog
-            project={project}
-            onClose={() => setShowWatchDialog(false)}
-            onAdd={addWatchTool}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Agent Status Badge Component
-function AgentStatusBadge({ status }: { status: string }) {
-  const configs: Record<string, { label: string, icon?: React.ReactNode }> = {
-    thinking: { label: 'Thinking', icon: <span className="spinner" /> },
-    tool: { label: 'Tool', icon: <Wrench size={10} /> },
-    running: { label: 'Running', icon: <span className="spinner" /> },
-    complete: { label: 'Complete', icon: <CheckCircle size={10} /> },
-    error: { label: 'Error', icon: <XCircle size={10} /> },
-  };
-  
-  const config = configs[status];
-  if (!config) return null;
-  
-  return (
-    <span className={`status-badge ${status}`}>
-      {config.icon}
-      {config.label}
-    </span>
-  );
-}
-
-// Grouped Event Item Component - handles combined call/response pairs
-function GroupedEventItem({ 
-  group, 
-  expanded, 
-  onToggle,
-  isBookmarked,
-  onBookmark,
-  onCopy
-}: { 
-  group: GroupedEvent;
-  expanded: boolean; 
-  onToggle: () => void;
-  isBookmarked: boolean;
-  onBookmark: () => void;
-  onCopy: (text: string) => void;
-}) {
-  const [showRequest, setShowRequest] = useState(false);
-  const [showResponse, setShowResponse] = useState(false);
-  
-  // For single events, delegate to original rendering
-  if (group.type === 'single') {
-    const event = group.events[0];
-    const config = EVENT_CONFIG[event.event_type] || { icon: MessageSquare, color: '#888', label: event.event_type };
-    const Icon = config.icon;
-    const hasError = event.data?.error;
-    
-    function getPreview() {
-      switch (event.event_type) {
-        case 'state_change':
-          const keys = Object.keys(event.data.state_delta || {});
-          return keys.length > 0 ? `Updated: ${keys.join(', ')}` : '';
-        case 'agent_start':
-          return event.data?.instruction?.slice(0, 60) + '...' || '';
-        case 'agent_end':
-          return event.data?.error || 'Complete';
-        default:
-          return '';
-      }
-    }
-    
-    return (
-      <div 
-        id={`event-${group.indices[0]}`}
-        className={`event-item ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
-      >
-        <div className="event-header" onClick={onToggle}>
-          <div className="event-icon" style={{ background: `${config.color}20` }}>
-            <Icon size={14} style={{ color: config.color }} />
-          </div>
-          <div className="event-main">
-            <div className="event-title">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <span className="event-type-badge">{config.label}</span>
-            </div>
-            {!expanded && (
-              <div className="event-preview">{getPreview()}</div>
-            )}
-          </div>
-          <div className="event-actions">
-            <button 
-              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
-              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-            >
-              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
-            </button>
-            <button 
-              className="event-action-btn"
-              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify(event.data, null, 2)); }}
-              data-tooltip="Copy data"
-            >
-              <Copy size={14} />
-            </button>
-          </div>
-        </div>
-        
-        {expanded && (
-          <div className="event-details">
-            <EventDetails event={event} onCopy={onCopy} />
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // Combined tool interaction
-  if (group.type === 'tool_interaction') {
-    const callEvent = group.events[0];
-    const resultEvent = group.events[1];
-    const config = EVENT_CONFIG['tool_interaction'];
-    const Icon = config.icon;
-    const toolName = callEvent.data?.tool_name;
-    const hasError = resultEvent?.data?.result?.isError === true || resultEvent?.data?.error;
-    const resultText = extractToolResultText(resultEvent?.data?.result);
-    
-    return (
-      <div 
-        id={`event-${group.indices[0]}`}
-        className={`event-item combined-event ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
-      >
-        <div className="event-header" onClick={onToggle}>
-          <div className="event-icon" style={{ background: `${config.color}20` }}>
-            <Icon size={14} style={{ color: config.color }} />
-          </div>
-          <div className="event-main">
-            <div className="event-title">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <span className="event-type-badge">{config.label}</span>
-              <span className="tool-name-inline">{toolName}</span>
-              <span className={`tool-status-badge ${hasError ? 'error' : 'success'}`}>
-                {hasError ? <XCircle size={10} /> : <CheckCircle size={10} />}
-              </span>
-            </div>
-            {!expanded && (
-              <div className="event-preview">
-                {`(${Object.keys(callEvent.data?.args || {}).join(', ')})` + 
-                  (resultText ? ` → ${resultText.slice(0, 50)}...` : '')}
-              </div>
-            )}
-          </div>
-          <div className="event-actions">
-            <button 
-              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
-              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-            >
-              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
-            </button>
-            <button 
-              className="event-action-btn"
-              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify({ call: callEvent.data, result: resultEvent?.data }, null, 2)); }}
-              data-tooltip="Copy data"
-            >
-              <Copy size={14} />
-            </button>
-          </div>
-        </div>
-        
-        {expanded && (
-          <div className="event-details combined-details">
-            <div className="combined-section">
-              <div className="combined-section-header" onClick={() => setShowRequest(!showRequest)}>
-                {showRequest ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <span>Request Parameters</span>
-              </div>
-              {showRequest && (
-                <div className="tool-params">
-                  {Object.entries(callEvent.data.args || {}).map(([key, value]) => (
-                    <div key={key} className="param-row">
-                      <span className="param-key">{key}:</span>
-                      <span className={`param-value ${typeof value}`}>
-                        {typeof value === 'string' ? `"${value}"` : JSON.stringify(value)}
-                      </span>
+                    <div className="index">{globalIndex}</div>
+                    <div className="time" style={{ color: colors.fg }}>
+                      {formatTimestamp(event.timestamp, timeBounds.min)}
                     </div>
-                  ))}
-                  {Object.keys(callEvent.data.args || {}).length === 0 && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No parameters</div>
-                  )}
-                </div>
-              )}
-            </div>
-            
-            <div className="combined-section">
-              <div className="combined-section-header" onClick={() => setShowResponse(!showResponse)}>
-                {showResponse ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <span>Response</span>
-                <span className={`status-indicator ${hasError ? 'error' : 'success'}`}>
-                  {hasError ? 'Error' : 'Success'}
-                </span>
-              </div>
-              {showResponse && resultText && (
-                <div className="tool-response" style={{ whiteSpace: 'pre-wrap' }}>{resultText}</div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // Combined model interaction
-  if (group.type === 'model_interaction') {
-    const callEvent = group.events[0];
-    const responseEvent = group.events[1];
-    const config = EVENT_CONFIG['model_interaction'];
-    const Icon = config.icon;
-    const hasError = responseEvent?.data?.error;
-    const tokenCounts = responseEvent?.data?.token_counts;
-    
-    // Extract response preview
-    const responseParts = responseEvent?.data?.response_content?.parts || responseEvent?.data?.parts || [];
-    const fnCall = responseParts.find((p: any) => p.type === 'function_call');
-    const textPart = responseParts.find((p: any) => p.type === 'text');
-    let responsePreview = '';
-    if (fnCall) responsePreview = `→ ${fnCall.name}()`;
-    else if (textPart) responsePreview = textPart.text?.slice(0, 60) + '...';
-    
-    return (
-      <div 
-        id={`event-${group.indices[0]}`}
-        className={`event-item combined-event ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
-      >
-        <div className="event-header" onClick={onToggle}>
-          <div className="event-icon" style={{ background: `${config.color}20` }}>
-            <Icon size={14} style={{ color: config.color }} />
-          </div>
-          <div className="event-main">
-            <div className="event-title">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <span className="event-type-badge">{config.label}</span>
-              {tokenCounts && (
-                <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {tokenCounts.input}↓ {tokenCounts.output}↑
-                </span>
-              )}
-            </div>
-            {!expanded && (
-              <div className="event-preview">
-                {`${callEvent.data?.contents?.length || 0} msgs` + 
-                  (responsePreview ? ` ${responsePreview}` : '')}
-              </div>
+                    <div className="agent" style={{ color: colors.fg }}>
+                      {event.agent_name}
+                    </div>
+                    <div className="type" style={{ color: colors.fg }}>
+                      <Icon size={10} />
+                      {event.event_type.split('_')[0]}
+                    </div>
+                    <div className="summary">{getEventSummary(event)}</div>
+                  </div>
+                );
+              })
             )}
-          </div>
-          <div className="event-actions">
-            <button 
-              className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onBookmark(); }}
-              data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-            >
-              {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
-            </button>
-            <button 
-              className="event-action-btn"
-              onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify({ request: callEvent.data, response: responseEvent?.data }, null, 2)); }}
-              data-tooltip="Copy data"
-            >
-              <Copy size={14} />
-            </button>
           </div>
         </div>
         
-        {expanded && (
-          <div className="event-details combined-details">
-            <div className="combined-section">
-              <div className="combined-section-header" onClick={() => setShowRequest(!showRequest)}>
-                {showRequest ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <span>Request ({callEvent.data?.contents?.length || 0} messages)</span>
-              </div>
-              {showRequest && (
-                <ModelCallDetails data={callEvent.data} />
-              )}
-            </div>
-            
-            <div className="combined-section">
-              <div className="combined-section-header response-header" onClick={() => setShowResponse(!showResponse)}>
-                {showResponse ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <span>Response</span>
-                {tokenCounts && (
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>
-                    {tokenCounts.input + tokenCounts.output} tokens
-                  </span>
-                )}
-              </div>
-              {showResponse && (
-                <ModelResponseDetails data={responseEvent?.data} />
-              )}
-            </div>
+        {/* Side Panel with Resize Handle */}
+        <div className="side-panel-container" style={{ width: sidebarWidth }}>
+          <div 
+            className={`resize-handle ${isResizing ? 'active' : ''}`}
+            onMouseDown={() => setIsResizing(true)}
+          />
+          <div className="side-panel" style={{ width: sidebarWidth - 4 }}>
+          <div className="side-panel-tabs">
+            <button 
+              className={`side-panel-tab ${!showStatePanel && !showToolRunner ? 'active' : ''}`}
+              onClick={() => { setShowStatePanel(false); setShowToolRunner(false); }}
+            >
+              <Eye size={12} style={{ marginRight: 4 }} />
+              Details
+            </button>
+            <button 
+              className={`side-panel-tab ${showStatePanel ? 'active' : ''}`}
+              onClick={() => { setShowStatePanel(true); setShowToolRunner(false); }}
+            >
+              <Database size={12} style={{ marginRight: 4 }} />
+              State
+            </button>
+            <button 
+              className={`side-panel-tab ${showToolRunner ? 'active' : ''}`}
+              onClick={() => { setShowToolRunner(true); setShowStatePanel(false); }}
+            >
+              <Terminal size={12} style={{ marginRight: 4 }} />
+              Tools
+            </button>
           </div>
-        )}
-      </div>
-    );
-  }
-  
-  // Fallback - shouldn't happen
-  return null;
-}
-
-// Event Item Component (legacy, for backwards compatibility)
-function EventItem({ 
-  event, 
-  index, 
-  expanded, 
-  onToggle,
-  isBookmarked,
-  onBookmark,
-  onCopy
-}: { 
-  event: RunEvent; 
-  index: number;
-  expanded: boolean; 
-  onToggle: () => void;
-  isBookmarked: boolean;
-  onBookmark: () => void;
-  onCopy: (text: string) => void;
-}) {
-  const config = EVENT_CONFIG[event.event_type] || { icon: MessageSquare, color: '#888', label: event.event_type };
-  const Icon = config.icon;
-  const hasError = event.data?.error;
-  
-  function getPreview() {
-    switch (event.event_type) {
-      case 'tool_call':
-        return `${event.data.tool_name}(${Object.keys(event.data.args || {}).join(', ')})`;
-      case 'tool_result':
-        const resultText = extractToolResultText(event.data.result);
-        return resultText ? (resultText.length > 80 ? resultText.slice(0, 80) + '...' : resultText) : 'No response';
-      case 'model_call':
-        return `${event.data.contents?.length || 0} messages, ${event.data.tool_count || 0} tools`;
-      case 'model_response':
-        const parts = event.data.parts || [];
-        const fnCall = parts.find((p: any) => p.type === 'function_call');
-        if (fnCall) return `→ ${fnCall.name}()`;
-        const textPart = parts.find((p: any) => p.type === 'text');
-        if (textPart) return textPart.text?.slice(0, 80) + '...';
-        return '';
-      case 'state_change':
-        const keys = Object.keys(event.data.state_delta || {});
-        return keys.length > 0 ? `Updated: ${keys.join(', ')}` : '';
-      default:
-        return '';
-    }
-  }
-  
-  return (
-    <div 
-      id={`event-${index}`}
-      className={`event-item ${isBookmarked ? 'bookmarked' : ''} ${hasError ? 'error' : ''}`}
-    >
-      <div className="event-header" onClick={onToggle}>
-        <div className="event-icon" style={{ background: `${config.color}20` }}>
-          <Icon size={14} style={{ color: config.color }} />
-        </div>
-        <div className="event-main">
-          <div className="event-title">
-            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span className="event-type-badge">{config.label}</span>
-            {event.event_type === 'model_response' && event.data?.token_counts && (
-              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                {event.data.token_counts.input}↓ {event.data.token_counts.output}↑
-              </span>
+          
+          <div className="side-panel-content">
+            {showToolRunner ? (
+              <ToolWatchPanel project={project} selectedEventIndex={selectedEventIndex} />
+            ) : showStatePanel ? (
+              <StateSnapshot 
+                events={runEvents} 
+                selectedEventIndex={selectedEventIndex}
+              />
+            ) : selectedEvent ? (
+              <EventDetail event={selectedEvent} />
+            ) : (
+              <div className="empty-state">
+                <Eye size={24} />
+                <span>Select an event to view details</span>
+              </div>
             )}
           </div>
-          {!expanded && (
-            <div className="event-preview">{getPreview()}</div>
-          )}
         </div>
-        <div className="event-actions">
-          <button 
-            className={`event-action-btn ${isBookmarked ? 'bookmarked' : ''}`}
-            onClick={(e) => { e.stopPropagation(); onBookmark(); }}
-            data-tooltip={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
-          >
-            {isBookmarked ? <Bookmark size={14} /> : <BookmarkPlus size={14} />}
-          </button>
-          <button 
-            className="event-action-btn"
-            onClick={(e) => { e.stopPropagation(); onCopy(JSON.stringify(event.data, null, 2)); }}
-            data-tooltip="Copy data"
-          >
-            <Copy size={14} />
-          </button>
         </div>
       </div>
       
-      {expanded && (
-        <div className="event-details">
-          <EventDetails event={event} onCopy={onCopy} />
+      {/* Stats Bar */}
+      <div className="stats-bar">
+        <div className="stat-item">
+          <span>Events:</span>
+          <span className="stat-value">{runEvents.length}</span>
         </div>
-      )}
-    </div>
-  );
-}
-
-// Event Details Component
-function EventDetails({ event, onCopy }: { event: RunEvent; onCopy: (text: string) => void }) {
-  const [showResponse, setShowResponse] = useState(false);
-  
-  if (event.event_type === 'tool_call') {
-    return (
-      <div className="tool-call-card">
-        <div className="tool-call-header">
-          <Wrench size={16} style={{ color: '#00f5d4' }} />
-          <span className="tool-name">{event.data.tool_name}</span>
-          <span className="tool-status pending">
-            <Loader size={10} /> Calling...
-          </span>
+        <div className="stat-item">
+          <span>Tool Calls:</span>
+          <span className="stat-value">{runEvents.filter(e => e.event_type === 'tool_call').length}</span>
         </div>
-        <div className="tool-params">
-          {Object.entries(event.data.args || {}).map(([key, value]) => (
-            <div key={key} className="param-row">
-              <span className="param-key">{key}:</span>
-              <span className={`param-value ${typeof value}`}>
-                {typeof value === 'string' ? `"${value}"` : JSON.stringify(value)}
-              </span>
-            </div>
-          ))}
-          {Object.keys(event.data.args || {}).length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>No parameters</div>
-          )}
+        <div className="stat-item">
+          <span>Model Calls:</span>
+          <span className="stat-value">{runEvents.filter(e => e.event_type === 'model_call').length}</span>
         </div>
-      </div>
-    );
-  }
-  
-  if (event.event_type === 'tool_result') {
-    const resultText = extractToolResultText(event.data.result);
-    const hasResult = !!resultText;
-    const isError = event.data.result?.isError === true;
-    return (
-      <div className="tool-call-card">
-        <div className="tool-call-header">
-          <Wrench size={16} style={{ color: '#00f5d4' }} />
-          <span className="tool-name">{event.data.tool_name}</span>
-          <span className={`tool-status ${isError ? 'error' : 'success'}`}>
-            {isError ? <XCircle size={10} /> : <CheckCircle size={10} />} 
-            {isError ? 'Error' : 'Complete'}
-          </span>
+        <div className="stat-item">
+          <span>State Changes:</span>
+          <span className="stat-value">{runEvents.filter(e => e.event_type === 'state_change').length}</span>
         </div>
-        {hasResult && (
-          <>
-            <div 
-              className="tool-response-toggle"
-              onClick={() => setShowResponse(!showResponse)}
-            >
-              {showResponse ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {showResponse ? 'Hide Response' : 'Show Response'}
-            </div>
-            {showResponse && (
-              <div className="tool-response" style={{ whiteSpace: 'pre-wrap' }}>{resultText}</div>
-            )}
-          </>
-        )}
-      </div>
-    );
-  }
-  
-  if (event.event_type === 'state_change') {
-    return (
-      <div className="state-change-card">
-        {Object.entries(event.data.state_delta || {}).map(([key, value]) => (
-          <div key={key} className="state-change-item">
-            <span className="state-change-key">{key}</span>
-            <span className="state-change-value">
-              {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+        {runEvents.length > 0 && (
+          <div className="stat-item">
+            <span>Duration:</span>
+            <span className="stat-value">
+              {((runEvents[runEvents.length - 1].timestamp - runEvents[0].timestamp) * 1000).toFixed(0)}ms
             </span>
           </div>
-        ))}
-      </div>
-    );
-  }
-  
-  if (event.event_type === 'model_call') {
-    return <ModelCallDetails data={event.data} />;
-  }
-  
-  if (event.event_type === 'model_response') {
-    return <ModelResponseDetails data={event.data} />;
-  }
-  
-  // Fallback
-  return <pre style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{JSON.stringify(event.data, null, 2)}</pre>;
-}
-
-function ModelCallDetails({ data }: { data: any }) {
-  const [showSystem, setShowSystem] = useState(false);
-  const [showConversation, setShowConversation] = useState(true);
-  
-  return (
-    <div className="model-call-details">
-      {data.system_instruction && (
-        <div className="detail-section">
-          <div className="detail-section-header" onClick={() => setShowSystem(!showSystem)}>
-            <span>System Instruction</span>
-            {showSystem ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </div>
-          {showSystem && (
-            <div className="detail-section-content">
-              <div className="system-instruction">{data.system_instruction}</div>
-            </div>
-          )}
-        </div>
-      )}
-      
-      {data.tool_names?.length > 0 && (
-        <div className="detail-section">
-          <div className="detail-section-header">
-            <span>Tools ({data.tool_names.length})</span>
-          </div>
-          <div className="detail-section-content">
-            <div className="tool-badges">
-              {data.tool_names.map((name: string) => (
-                <span key={name} className="tool-badge">{name}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      
-      <div className="detail-section">
-        <div className="detail-section-header" onClick={() => setShowConversation(!showConversation)}>
-          <span>Conversation ({data.contents?.length || 0} messages)</span>
-          {showConversation ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </div>
-        {showConversation && (
-          <div className="detail-section-content">
-            <div className="messages-list">
-              {(data.contents || []).map((content: any, i: number) => (
-                <div key={i} className={`message message-${content.role}`}>
-                  <div className="message-role">{content.role}</div>
-                  <div className="message-content">
-                    {content.parts?.map((part: any, j: number) => (
-                      <MessagePart key={j} part={part} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         )}
       </div>
     </div>
   );
 }
 
-function ModelResponseDetails({ data }: { data: any }) {
-  // Handle multiple response formats:
-  // 1. data.parts (from tracking plugin serialization)
-  // 2. data.content (from tool responses or raw MCP responses)
-  // 3. data.text (direct text)
-  // 4. data.response_content.parts (from after_model_callback)
-  const parts = data.parts || data.response_content?.parts || [];
-  const contentArray = data.content || [];
-  
-  // Handle direct text format
-  const hasDirectText = data.text && !parts.length && !contentArray.length;
-  const hasContent = hasDirectText || parts.length > 0 || contentArray.length > 0;
-  
-  return (
-    <div className="model-response-details">
-      {hasDirectText ? (
-        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{data.text}</div>
-      ) : parts.length > 0 ? (
-        parts.map((part: any, i: number) => (
-          <MessagePart key={i} part={part} />
-        ))
-      ) : contentArray.length > 0 ? (
-        contentArray.map((item: any, i: number) => (
-          <MessagePart key={i} part={item} />
-        ))
-      ) : null}
-      
-      {/* Fallback: show raw JSON if no recognized content format */}
-      {!hasContent && data && Object.keys(data).length > 0 && (
-        <div className="json-fallback">
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>Raw data:</div>
-          <pre style={{ 
-            fontSize: 11, 
-            background: 'var(--bg-tertiary)', 
-            padding: 8, 
-            borderRadius: 4,
-            overflow: 'auto',
-            maxHeight: 300 
-          }}>
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        </div>
-      )}
-      
-      {!hasContent && (!data || Object.keys(data).length === 0) && (
-        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>No content</div>
-      )}
-      
-      {data.finish_reason && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12, paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
-          Finish reason: {data.finish_reason}
-        </div>
-      )}
-      
-      {data.token_counts && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-          Tokens: {data.token_counts.input} input, {data.token_counts.output} output
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MessagePart({ part }: { part: any }) {
-  // Handle text parts (type: 'text' or just has .text property)
-  if (part.type === 'text' || (part.text && !part.type)) {
-    if (part.thought) {
-      return (
-        <div className="thought-part">
-          <div className="thought-label">💭 Thought</div>
-          <div style={{ fontSize: 12, lineHeight: 1.5 }}>{part.text}</div>
-        </div>
-      );
-    }
-    return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{part.text}</div>;
-  }
-  
-  if (part.type === 'function_call' || part.function_call) {
-    const fc = part.function_call || part;
-    return (
-      <div className="function-call-part">
-        <span style={{ color: '#00f5d4', fontWeight: 600 }}>{fc.name || part.name}</span>
-        <span style={{ color: 'var(--text-muted)' }}>({JSON.stringify(fc.args || part.args)})</span>
-      </div>
-    );
-  }
-  
-  if (part.type === 'function_response' || part.function_response) {
-    const fr = part.function_response || part;
-    return (
-      <div className="function-response-part">
-        <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{fr.name || part.name} response:</div>
-        <div style={{ whiteSpace: 'pre-wrap' }}>{typeof (fr.response || part.response) === 'string' ? (fr.response || part.response) : JSON.stringify(fr.response || part.response, null, 2)}</div>
-      </div>
-    );
-  }
-  
-  // Fallback for unknown formats - try to display something useful
-  if (typeof part === 'string') {
-    return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{part}</div>;
-  }
-  
-  return null;
-}
