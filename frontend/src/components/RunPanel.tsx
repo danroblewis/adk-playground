@@ -86,7 +86,7 @@ function formatTimestamp(timestamp: number, baseTime: number): string {
 
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'response', 'data']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'response', 'state_delta', 'data']));
   
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections);
@@ -289,6 +289,27 @@ function EventDetail({ event }: { event: RunEvent }) {
                   {part.thought && (
                     <div className="thought-indicator">💭 Thinking</div>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {event.event_type === 'state_change' && event.data?.state_delta && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('state_delta')}>
+            {expandedSections.has('state_delta') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>State Changes ({Object.keys(event.data.state_delta).length})</span>
+          </div>
+          {expandedSections.has('state_delta') && (
+            <div className="section-content">
+              {Object.entries(event.data.state_delta).map(([key, value]: [string, any]) => (
+                <div key={key} className="state-delta-item">
+                  <div className="state-delta-key">{key}</div>
+                  <pre className="state-delta-value">
+                    {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                  </pre>
                 </div>
               ))}
             </div>
@@ -1939,6 +1960,36 @@ export default function RunPanel() {
           font-size: 10px;
           color: #a855f7;
           margin-top: 4px;
+        }
+        
+        .state-delta-item {
+          margin-bottom: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+        
+        .state-delta-item:last-child {
+          margin-bottom: 0;
+        }
+        
+        .state-delta-key {
+          padding: 6px 8px;
+          background: #27272a;
+          font-size: 11px;
+          font-weight: 600;
+          color: #22c55e;
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+        
+        .state-delta-value {
+          padding: 8px;
+          margin: 0;
+          font-size: 11px;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 300px;
+          overflow-y: auto;
         }
         
         /* State Snapshot */
