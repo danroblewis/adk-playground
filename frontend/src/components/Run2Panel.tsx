@@ -314,6 +314,7 @@ function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; sel
 
 // Import WatchExpression type from store
 import type { WatchExpression } from '../hooks/useStore';
+import jmespath from 'jmespath';
 
 // Extract clean result text from MCP response
 function extractResultText(result: any): { text: string; isError: boolean } {
@@ -360,18 +361,56 @@ function extractResultText(result: any): { text: string; isError: boolean } {
   };
 }
 
-// Apply JavaScript transform to result
+// Apply transform to result - supports both JMESPath queries and JavaScript expressions
+// JMESPath: starts with "jq:" or just use JMESPath syntax directly (e.g., "data.items[0].name")
+// JavaScript: starts with "js:" (e.g., "js:value.split('\n')[0]")
 function applyTransform(text: string, transform: string | undefined): string {
   if (!transform || !transform.trim()) return text;
   
+  const trimmed = transform.trim();
+  
+  // Try to parse the text as JSON first
+  let data: any = text;
   try {
-    // Create a function that takes 'value' and returns transformed result
-    // eslint-disable-next-line no-new-func
-    const fn = new Function('value', `return ${transform}`);
-    const result = fn(text);
+    data = JSON.parse(text);
+  } catch {
+    // Keep as string if not valid JSON
+  }
+  
+  // JavaScript transform (explicit prefix)
+  if (trimmed.startsWith('js:')) {
+    const jsExpr = trimmed.slice(3).trim();
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('value', 'data', `return ${jsExpr}`);
+      const result = fn(text, data);
+      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+    } catch (e) {
+      return `[JS error: ${e}]`;
+    }
+  }
+  
+  // JMESPath query (default, or explicit "jq:" prefix)
+  const jmesExpr = trimmed.startsWith('jq:') ? trimmed.slice(3).trim() : trimmed;
+  try {
+    const result = jmespath.search(data, jmesExpr);
+    if (result === null || result === undefined) {
+      return '[No match]';
+    }
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-  } catch (e) {
-    return `[Transform error: ${e}]\n${text}`;
+  } catch (e: any) {
+    // If JMESPath fails and no explicit prefix, try as JS expression
+    if (!trimmed.startsWith('jq:')) {
+      try {
+        // eslint-disable-next-line no-new-func
+        const fn = new Function('value', 'data', `return ${trimmed}`);
+        const result = fn(text, data);
+        return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      } catch {
+        // Return JMESPath error
+      }
+    }
+    return `[JMESPath error: ${e.message || e}]`;
   }
 }
 
@@ -841,15 +880,23 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
                 </div>
               )}
               
-              <div className="form-row">
+              <div className="form-row transform-row">
                 <label>Transform (optional)</label>
                 <input
                   type="text"
                   value={formTransform}
                   onChange={e => setFormTransform(e.target.value)}
-                  placeholder="e.g., value.split('\\n')[0] or JSON.parse(value)"
+                  placeholder="e.g., items[0].name or content[*].text"
                 />
-                <span className="form-hint">JS expression. Use "value" for the result text.</span>
+                <div className="transform-hints">
+                  <span className="hint-title">JMESPath:</span>
+                  <code onClick={() => setFormTransform('items[0].name')}>items[0].name</code>
+                  <code onClick={() => setFormTransform('content[*].text')}>content[*].text</code>
+                  <code onClick={() => setFormTransform('result.content[0].text')}>result.content[0].text</code>
+                  <span className="hint-title">JS:</span>
+                  <code onClick={() => setFormTransform("js:value.split('\\n')[0]")}>js:value.split('\n')[0]</code>
+                  <code onClick={() => setFormTransform('js:data.length')}>js:data.length</code>
+                </div>
               </div>
               
               {/* Live Transform Preview */}
@@ -1979,6 +2026,36 @@ export default function Run2Panel() {
           font-size: 10px;
           color: #71717a;
           margin-top: 4px;
+        }
+        
+        .transform-hints {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 4px 8px;
+          margin-top: 6px;
+          font-size: 10px;
+          align-items: center;
+        }
+        
+        .transform-hints .hint-title {
+          color: #71717a;
+          font-weight: 500;
+        }
+        
+        .transform-hints code {
+          background: #27272a;
+          color: #a1a1aa;
+          padding: 2px 6px;
+          border-radius: 3px;
+          font-family: 'JetBrains Mono', 'Fira Code', monospace;
+          font-size: 9px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .transform-hints code:hover {
+          background: #3f3f46;
+          color: #e4e4e7;
         }
         
         /* Test Section in Dialog */
