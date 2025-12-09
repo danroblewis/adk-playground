@@ -1113,7 +1113,7 @@ export default function RunPanel() {
   const [selectedEventIndex, setSelectedEventIndex] = useState<number | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set());
+  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change']));
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
