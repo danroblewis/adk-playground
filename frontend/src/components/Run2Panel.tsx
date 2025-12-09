@@ -483,25 +483,54 @@ export default function Run2Panel() {
     if (!project || !userInput.trim() || isRunning) return;
     
     // Close existing connection
-    ws?.close();
+    if (ws) {
+      ws.close();
+      setWs(null);
+    }
     
     clearRunEvents();
     setIsRunning(true);
     setSelectedEventIndex(null);
     setTimeRange(null);
     
-    const websocket = createRunWebSocket(
-      project.id,
-      userInput,
-      (event) => addRunEvent(event),
-      () => setIsRunning(false),
-      (error) => {
-        console.error('WebSocket error:', error);
-        setIsRunning(false);
-      }
-    );
-    
+    const websocket = createRunWebSocket(project.id);
     setWs(websocket);
+    
+    websocket.onopen = () => {
+      websocket.send(JSON.stringify({ message: userInput }));
+    };
+    
+    websocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'completed') {
+        setIsRunning(false);
+        websocket.close();
+      } else if (data.type === 'error') {
+        setIsRunning(false);
+        addRunEvent({
+          timestamp: Date.now() / 1000,
+          event_type: 'agent_end',
+          agent_name: 'system',
+          data: { error: data.error }
+        });
+      } else {
+        addRunEvent(data);
+      }
+    };
+    
+    websocket.onerror = () => {
+      setIsRunning(false);
+      addRunEvent({
+        timestamp: Date.now() / 1000,
+        event_type: 'agent_end',
+        agent_name: 'system',
+        data: { error: 'WebSocket connection error' }
+      });
+    };
+    
+    websocket.onclose = () => {
+      setIsRunning(false);
+    };
   }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent]);
   
   // Handle stop
@@ -532,6 +561,7 @@ export default function Run2Panel() {
         .run2-panel {
           display: flex;
           flex-direction: column;
+          width: 100%;
           height: 100%;
           background: #0a0a0f;
           color: #e4e4e7;
