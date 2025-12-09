@@ -2,7 +2,21 @@
 
 from models import MCPServerConfig, MCPConnectionType
 
+import os
+
+# Path to our custom MCP servers
+MCP_SERVERS_DIR = os.path.join(os.path.dirname(__file__), "..", "mcp_servers")
+
 KNOWN_MCP_SERVERS = [
+    MCPServerConfig(
+        name="time",
+        description="Get the current time in various formats",
+        connection_type=MCPConnectionType.STDIO,
+        command="python3",
+        args=[os.path.join(MCP_SERVERS_DIR, "time_server.py")],
+        timeout=5,
+        tool_filter=None,  # All tools
+    ),
     MCPServerConfig(
         name="filesystem",
         description="Read and write files on the local filesystem",
