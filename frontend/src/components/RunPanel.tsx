@@ -43,28 +43,38 @@ function getEventSummary(event: RunEvent): string {
       return event.data?.error ? `END ${event.agent_name} [ERROR]` : `END ${event.agent_name}`;
     case 'tool_call':
       const args = Object.entries(event.data?.args || {})
-        .map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 20)}`)
+        .map(([k, v]) => {
+          const valStr = v !== undefined && v !== null ? JSON.stringify(v) : 'null';
+          return `${k}=${valStr.slice(0, 20)}`;
+        })
         .join(', ');
-      return `CALL ${event.data?.tool_name}(${args.slice(0, 60)}${args.length > 60 ? '...' : ''})`;
+      const argsStr = args || '';
+      return `CALL ${event.data?.tool_name || 'unknown'}(${argsStr.slice(0, 60)}${argsStr.length > 60 ? '...' : ''})`;
     case 'tool_result':
       const result = event.data?.result;
       let resultPreview = '';
       if (result?.content?.[0]?.text) {
-        resultPreview = result.content[0].text.slice(0, 60);
+        resultPreview = String(result.content[0].text).slice(0, 60);
       } else if (typeof result === 'string') {
         resultPreview = result.slice(0, 60);
+      } else if (result !== undefined && result !== null) {
+        const jsonStr = JSON.stringify(result);
+        resultPreview = jsonStr ? jsonStr.slice(0, 60) : '';
       } else {
-        resultPreview = JSON.stringify(result).slice(0, 60);
+        resultPreview = '';
       }
-      return `RESULT ${event.data?.tool_name} → ${resultPreview}${resultPreview.length >= 60 ? '...' : ''}`;
+      return `RESULT ${event.data?.tool_name || 'unknown'} → ${resultPreview}${resultPreview.length >= 60 ? '...' : ''}`;
     case 'model_call':
       return `LLM_REQ ${event.data?.contents?.length || 0} msgs, ${event.data?.tool_count || 0} tools`;
     case 'model_response':
       const parts = event.data?.response_content?.parts || event.data?.parts || [];
-      const fnCall = parts.find((p: any) => p.type === 'function_call');
-      if (fnCall) return `LLM_RSP → ${fnCall.name}()`;
-      const textPart = parts.find((p: any) => p.type === 'text');
-      if (textPart) return `LLM_RSP "${textPart.text?.slice(0, 50)}..."`;
+      const fnCall = parts.find((p: any) => p?.type === 'function_call');
+      if (fnCall) return `LLM_RSP → ${fnCall.name || 'unknown'}()`;
+      const textPart = parts.find((p: any) => p?.type === 'text');
+      if (textPart?.text) {
+        const text = String(textPart.text);
+        return `LLM_RSP "${text.slice(0, 50)}${text.length > 50 ? '...' : ''}"`;
+      }
       return `LLM_RSP (${event.data?.finish_reason || 'complete'})`;
     case 'state_change':
       const keys = Object.keys(event.data?.state_delta || {});
