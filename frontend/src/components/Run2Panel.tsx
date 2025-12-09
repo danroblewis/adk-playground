@@ -94,46 +94,89 @@ function EventDetail({ event }: { event: RunEvent }) {
     setExpandedSections(next);
   };
   
-  const renderValue = (value: any, depth = 0): React.ReactNode => {
+  const renderValue = (value: any, depth = 0, inline = false): React.ReactNode => {
+    const indent = '  '.repeat(depth);
+    const childIndent = '  '.repeat(depth + 1);
+    
     if (value === null) return <span className="json-null">null</span>;
     if (value === undefined) return <span className="json-undefined">undefined</span>;
     if (typeof value === 'boolean') return <span className="json-boolean">{value.toString()}</span>;
     if (typeof value === 'number') return <span className="json-number">{value}</span>;
     if (typeof value === 'string') {
-      if (value.length > 200 && depth > 0) {
-        return <span className="json-string">"{value.slice(0, 200)}..." <span className="json-truncated">({value.length} chars)</span></span>;
+      // Escape special characters for display
+      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+      if (escaped.length > 300 && depth > 0) {
+        return <span className="json-string">"{escaped.slice(0, 300)}..." <span className="json-truncated">({value.length} chars)</span></span>;
       }
-      return <span className="json-string">"{value}"</span>;
+      return <span className="json-string">"{escaped}"</span>;
     }
     if (Array.isArray(value)) {
-      if (value.length === 0) return <span className="json-array">[]</span>;
+      if (value.length === 0) return <span className="json-bracket">[]</span>;
+      // Check if array contains only primitives and is short
+      const isSimple = value.every(v => v === null || typeof v !== 'object') && value.length <= 3;
+      if (isSimple) {
+        return (
+          <span className="json-inline">
+            <span className="json-bracket">[</span>
+            {value.map((item, i) => (
+              <span key={i}>
+                {renderValue(item, depth + 1, true)}
+                {i < value.length - 1 && <span className="json-comma">, </span>}
+              </span>
+            ))}
+            <span className="json-bracket">]</span>
+          </span>
+        );
+      }
       return (
-        <div className="json-array" style={{ marginLeft: depth * 12 }}>
-          {'['}
+        <span className="json-block">
+          <span className="json-bracket">[</span>
           {value.map((item, i) => (
-            <div key={i} style={{ marginLeft: 12 }}>
+            <span key={i}>
+              {'\n' + childIndent}
               {renderValue(item, depth + 1)}
-              {i < value.length - 1 && ','}
-            </div>
+              {i < value.length - 1 && <span className="json-comma">,</span>}
+            </span>
           ))}
-          {']'}
-        </div>
+          {'\n' + indent}<span className="json-bracket">]</span>
+        </span>
       );
     }
     if (typeof value === 'object') {
       const entries = Object.entries(value);
-      if (entries.length === 0) return <span className="json-object">{'{}'}</span>;
+      if (entries.length === 0) return <span className="json-bracket">{'{}'}</span>;
+      // Check if object is simple (few keys, primitive values)
+      const isSimple = entries.length <= 2 && entries.every(([, v]) => v === null || typeof v !== 'object');
+      if (isSimple && inline) {
+        return (
+          <span className="json-inline">
+            <span className="json-bracket">{'{'}</span>
+            {entries.map(([k, v], i) => (
+              <span key={k}>
+                <span className="json-key">"{k}"</span>
+                <span className="json-colon">: </span>
+                {renderValue(v, depth + 1, true)}
+                {i < entries.length - 1 && <span className="json-comma">, </span>}
+              </span>
+            ))}
+            <span className="json-bracket">{'}'}</span>
+          </span>
+        );
+      }
       return (
-        <div className="json-object" style={{ marginLeft: depth * 12 }}>
-          {'{'}
+        <span className="json-block">
+          <span className="json-bracket">{'{'}</span>
           {entries.map(([k, v], i) => (
-            <div key={k} style={{ marginLeft: 12 }}>
-              <span className="json-key">"{k}"</span>: {renderValue(v, depth + 1)}
-              {i < entries.length - 1 && ','}
-            </div>
+            <span key={k}>
+              {'\n' + childIndent}
+              <span className="json-key">"{k}"</span>
+              <span className="json-colon">: </span>
+              {renderValue(v, depth + 1)}
+              {i < entries.length - 1 && <span className="json-comma">,</span>}
+            </span>
           ))}
-          {'}'}
-        </div>
+          {'\n' + indent}<span className="json-bracket">{'}'}</span>
+        </span>
       );
     }
     return String(value);
@@ -1049,9 +1092,11 @@ export default function Run2Panel() {
         .json-viewer {
           font-family: 'SF Mono', 'Consolas', monospace;
           font-size: 11px;
-          line-height: 1.6;
+          line-height: 1.4;
+          white-space: pre;
+          overflow-x: auto;
         }
-        
+
         .json-key { color: #93c5fd; }
         .json-string { color: #86efac; }
         .json-number { color: #fde047; }
@@ -1059,6 +1104,11 @@ export default function Run2Panel() {
         .json-null { color: #71717a; }
         .json-undefined { color: #71717a; font-style: italic; }
         .json-truncated { color: #71717a; font-size: 10px; }
+        .json-bracket { color: #a1a1aa; }
+        .json-colon { color: #a1a1aa; }
+        .json-comma { color: #a1a1aa; }
+        .json-block { display: inline; }
+        .json-inline { display: inline; }
         
         /* Message Items */
         .message-item {
