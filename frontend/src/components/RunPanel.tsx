@@ -2850,7 +2850,7 @@ export default function RunPanel() {
         <div className="toolbar-divider" />
         
         <div className="toolbar-section">
-          {['tool_call', 'tool_result', 'model_call', 'model_response', 'state_change'].map(type => (
+          {['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change'].map(type => (
             <button
               key={type}
               className={`filter-chip ${eventTypeFilter.has(type) ? 'active' : ''}`}
