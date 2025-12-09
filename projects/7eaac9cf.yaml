@@ -5,7 +5,7 @@ app:
   id: app_7eaac9cf
   name: kubernetes_guy
   description: ''
-  root_agent_id: agent_miwm4gam
+  root_agent_id: agent_miy89hbg
   session_service_uri: memory://
   memory_service_uri: memory://
   artifact_service_uri: memory://
@@ -39,6 +39,11 @@ app:
     type: string
     default_value: null
     scope: session
+  - name: summary
+    description: ''
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
   models:
   - id: model_miwm5iec
@@ -51,17 +56,7 @@ app:
     top_p: null
     top_k: null
     is_default: true
-  - id: model_mixcvom5
-    name: New Model
-    provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://localhost:11434
-    temperature: null
-    max_output_tokens: null
-    top_p: null
-    top_k: null
-    is_default: false
-  default_model_id: model_mixcvom5
+  default_model_id: model_miwm5iec
   env_vars:
     GOOGLE_API_KEY: AIzaSyCl3XW20OPsj3sXau4IX-5sW6Cc5Qa21Wo
 agents:
@@ -71,13 +66,14 @@ agents:
   description: kubernetes triage research orchestrator
   model:
     provider: litellm
-    model_name: gemini/gemini-2.5-flash
-    api_base: null
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_mixcvom5
   instruction: "## Kubernetes Triage & Resolution Orchestrator Agent\n\n1. **Role\
     \ & Responsibilities**: Act as the central coordinator for Kubernetes issue resolution,\
     \ integrating pod, ConfigMap, and cluster-level troubleshooting. Prioritize triaging\
@@ -132,13 +128,14 @@ agents:
   description: Researches Kubernetes pod issues using cluster data and web search
   model:
     provider: litellm
-    model_name: gemini/gemini-2.5-flash
-    api_base: null
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_mixcvom5
   instruction: '## Kubernetes Pod Issue Research Agent
 
 
@@ -186,11 +183,7 @@ agents:
       tool_filter:
       - configuration_view
       - events_list
-      - helm_list
       - namespaces_list
-      - nodes_log
-      - nodes_stats_summary
-      - nodes_top
       - pods_get
       - pods_list
       - pods_list_in_namespace
@@ -212,13 +205,14 @@ agents:
   description: Researches Kubernetes ConfigMap issues using search and cluster tools
   model:
     provider: litellm
-    model_name: gemini/gemini-2.5-flash
-    api_base: null
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
     fallbacks: []
     temperature: null
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_mixcvom5
   instruction: '### Kubernetes ConfigMap Research Agent
 
 
@@ -277,6 +271,40 @@ agents:
   after_model_callbacks: []
   before_tool_callbacks: []
   after_tool_callbacks: []
+- type: SequentialAgent
+  id: agent_miy89hbg
+  name: root
+  description: ''
+  sub_agents:
+  - agent_miwm4gam
+  - agent_miy89pr5
+- type: LlmAgent
+  id: agent_miy89pr5
+  name: summarizer
+  description: ''
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://localhost:11434
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+    app_model_id: model_mixcvom5
+  instruction: You are a summarize that summarizes the kubernetes failure investigation.
+  output_key: null
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools: []
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
 custom_tools: []
 mcp_servers:
 - name: kubernetes_mcp_server
@@ -295,3 +323,4 @@ mcp_servers:
   timeout: 60.0
   tool_filter: null
   tool_name_prefix: null
+watches: []
