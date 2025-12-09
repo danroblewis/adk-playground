@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig, MCPServerConfig } from '../utils/types';
@@ -81,7 +81,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   
   // Expand all agents by default when project loads or agents change
-  React.useEffect(() => {
+  useEffect(() => {
     if (project) {
       const agentsWithSubAgents = project.agents
         .filter(a => 'sub_agents' in a && a.sub_agents.length > 0)
