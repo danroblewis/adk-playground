@@ -38,8 +38,8 @@ function generateToolCode(tool: ToolConfig, project: Project): string {
   if (tool.type === 'builtin') {
     return tool.name || '';
   } else if (tool.type === 'function') {
-    const customTool = project.custom_tools.find(t => t.id === (tool as any).tool_id);
-    return customTool?.name || 'custom_tool';
+    // Custom tools store the function name directly
+    return tool.name || 'custom_tool';
   } else if (tool.type === 'agent') {
     const agent = project.agents.find(a => a.id === (tool as any).agent_id);
     return agent ? `AgentTool(agent=${agent.name}_agent)` : 'AgentTool(agent=sub_agent)';
