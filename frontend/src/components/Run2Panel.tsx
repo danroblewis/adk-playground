@@ -436,8 +436,36 @@ export default function Run2Panel() {
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [toolRunnerResults, setToolRunnerResults] = useState<any[]>([]);
+  const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [isResizing, setIsResizing] = useState(false);
   
   const eventListRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Handle sidebar resize
+  useEffect(() => {
+    if (!isResizing) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      // Clamp between 200 and 600 pixels
+      setSidebarWidth(Math.min(600, Math.max(200, newWidth)));
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
   
   // Calculate time bounds
   const timeBounds = useMemo(() => {
@@ -556,7 +584,7 @@ export default function Run2Panel() {
   }
   
   return (
-    <div className="run2-panel">
+    <div className={`run2-panel ${isResizing ? 'resizing' : ''}`}>
       <style>{`
         .run2-panel {
           display: flex;
@@ -567,6 +595,15 @@ export default function Run2Panel() {
           color: #e4e4e7;
           font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
           font-size: 12px;
+        }
+        
+        .run2-panel.resizing {
+          cursor: col-resize;
+          user-select: none;
+        }
+        
+        .run2-panel.resizing * {
+          cursor: col-resize;
         }
         
         .run2-panel.empty {
@@ -829,11 +866,28 @@ export default function Run2Panel() {
         }
         
         /* Side Panel */
+        .side-panel-container {
+          display: flex;
+          flex-shrink: 0;
+        }
+        
+        .resize-handle {
+          width: 4px;
+          background: #27272a;
+          cursor: col-resize;
+          transition: background 0.15s;
+        }
+        
+        .resize-handle:hover,
+        .resize-handle.active {
+          background: #3b82f6;
+        }
+        
         .side-panel {
-          width: 320px;
           display: flex;
           flex-direction: column;
           background: #0f0f14;
+          min-width: 0;
         }
         
         .side-panel-tabs {
@@ -1283,7 +1337,7 @@ export default function Run2Panel() {
       </div>
       
       {/* Main Content */}
-      <div className="main-content">
+      <div className="main-content" ref={containerRef}>
         {/* Event List */}
         <div className="event-list-container">
           <div className="event-list-header">
@@ -1336,8 +1390,13 @@ export default function Run2Panel() {
           </div>
         </div>
         
-        {/* Side Panel */}
-        <div className="side-panel">
+        {/* Side Panel with Resize Handle */}
+        <div className="side-panel-container" style={{ width: sidebarWidth }}>
+          <div 
+            className={`resize-handle ${isResizing ? 'active' : ''}`}
+            onMouseDown={() => setIsResizing(true)}
+          />
+          <div className="side-panel" style={{ width: sidebarWidth - 4 }}>
           <div className="side-panel-tabs">
             <button 
               className={`side-panel-tab ${!showStatePanel && !showToolRunner ? 'active' : ''}`}
@@ -1382,6 +1441,7 @@ export default function Run2Panel() {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
       
