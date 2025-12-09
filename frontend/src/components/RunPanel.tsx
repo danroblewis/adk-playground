@@ -86,7 +86,7 @@ function formatTimestamp(timestamp: number, baseTime: number): string {
 
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'data']));
   
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections);
