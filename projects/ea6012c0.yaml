@@ -34,6 +34,11 @@ app:
     type: string
     default_value: null
     scope: session
+  - name: dump
+    description: ''
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
   models:
   - id: model_miw9xh0n
@@ -63,7 +68,7 @@ agents:
     top_p: null
     top_k: null
   instruction: You are a creative writer.
-  output_key: null
+  output_key: dump
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
@@ -187,7 +192,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    api_base: http://node2:32504
     fallbacks: []
     temperature: null
     max_output_tokens: null

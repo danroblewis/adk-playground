@@ -1465,7 +1465,7 @@ function ModelSelector({
   onUpdate: (model: ModelConfig | null) => void;
 }) {
   // Determine if using an app model by checking for _appModelId marker
-  const appModelId = (agent.model as any)?._appModelId as string | undefined;
+  const appModelId = agent.model?._appModelId;
   const useCustom = agent.model !== null && agent.model !== undefined && !appModelId;
   
   // Find the current app model (either by marker or by matching config for legacy)
@@ -1540,8 +1540,8 @@ function ModelSelector({
       // Switch to custom - remove the marker but keep the config
       const currentModel = agent.model;
       if (currentModel) {
-        const { _appModelId, ...rest } = currentModel as any;
-        onUpdate(rest as ModelConfig);
+        const { _appModelId, ...rest } = currentModel;
+        onUpdate(rest);
       } else {
         // No model yet, create a default custom config
         onUpdate({
@@ -1555,8 +1555,8 @@ function ModelSelector({
   
   function updateCustomModel(updates: Partial<ModelConfig>) {
     // When updating custom model, ensure no _appModelId marker
-    const { _appModelId, ...currentModel } = (agent.model || {}) as any;
-    onUpdate({ ...currentModel, ...updates });
+    const { _appModelId, ...currentModel } = agent.model || {} as Partial<ModelConfig>;
+    onUpdate({ ...currentModel, ...updates } as ModelConfig);
   }
   
   const selectedModel = appModels.find(m => m.id === selectedModelId);

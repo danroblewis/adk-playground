@@ -35,6 +35,8 @@ export interface ModelConfig {
   max_output_tokens?: number;
   top_p?: number;
   top_k?: number;
+  // Marker for linking to an App model - if set, this config mirrors an App model
+  _appModelId?: string;
 }
 
 export interface CallbackConfig {

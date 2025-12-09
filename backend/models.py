@@ -111,6 +111,10 @@ class ModelConfig(BaseModel):
     max_output_tokens: Optional[int] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    # Marker for linking to an App model - if set, this config mirrors an App model
+    app_model_id: Optional[str] = Field(default=None, alias="_appModelId")
+    
+    model_config = {"populate_by_name": True, "by_alias": True}
 
 
 class CallbackConfig(BaseModel):
