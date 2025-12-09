@@ -192,7 +192,20 @@ function EventDetail({ event }: { event: RunEvent }) {
         <span className="detail-time">{new Date(event.timestamp * 1000).toISOString()}</span>
       </div>
       
-      {/* Type-specific rendering first */}
+      {/* Event Data - full JSON first */}
+      <div className="detail-section">
+        <div className="section-header" onClick={() => toggleSection('data')}>
+          {expandedSections.has('data') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span>Event Data</span>
+        </div>
+        {expandedSections.has('data') && (
+          <div className="section-content json-viewer">
+            {renderValue(event.data)}
+          </div>
+        )}
+      </div>
+      
+      {/* Type-specific rendering */}
       {event.event_type === 'model_call' && event.data?.contents && (
         <div className="detail-section">
           <div className="section-header" onClick={() => toggleSection('messages')}>
@@ -282,19 +295,6 @@ function EventDetail({ event }: { event: RunEvent }) {
           )}
         </div>
       )}
-      
-      {/* Event Data - full JSON at the end */}
-      <div className="detail-section">
-        <div className="section-header" onClick={() => toggleSection('data')}>
-          {expandedSections.has('data') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <span>Event Data</span>
-        </div>
-        {expandedSections.has('data') && (
-          <div className="section-content json-viewer">
-            {renderValue(event.data)}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
