@@ -80,6 +80,16 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const [quickSetupDescription, setQuickSetupDescription] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   
+  // Expand all agents by default when project loads or agents change
+  React.useEffect(() => {
+    if (project) {
+      const agentsWithSubAgents = project.agents
+        .filter(a => 'sub_agents' in a && a.sub_agents.length > 0)
+        .map(a => a.id);
+      setExpandedAgents(new Set(agentsWithSubAgents));
+    }
+  }, [project?.id, project?.agents.length]);
+  
   if (!project) return null;
   
   async function handleQuickSetup() {
