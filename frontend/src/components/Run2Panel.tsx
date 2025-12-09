@@ -402,6 +402,11 @@ function ToolWatchPanel({ project }: { project: Project }) {
   const [formTransform, setFormTransform] = useState('');
   const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
   
+  // Test run state for dialog
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  
   // Fetch known MCP servers on mount
   useEffect(() => {
     getMcpServers().then(setKnownServers).catch(console.error);
@@ -470,6 +475,8 @@ function ToolWatchPanel({ project }: { project: Project }) {
     setFormToolName('');
     setFormArgs({});
     setFormTransform('');
+    setTestResult(null);
+    setTestError(null);
     setShowDialog(true);
   };
   
@@ -480,12 +487,62 @@ function ToolWatchPanel({ project }: { project: Project }) {
     setFormToolName(watch.toolName);
     setFormArgs({ ...watch.args });
     setFormTransform(watch.transform || '');
+    // Pre-populate test result with existing result if available
+    if (watch.result) {
+      const { text } = extractResultText(watch.result);
+      setTestResult(text);
+      setTestError(null);
+    } else {
+      setTestResult(null);
+      setTestError(null);
+    }
     // Load tools for the server if not already loaded
     if (!availableTools[watch.serverName]) {
       loadServerTools(watch.serverName);
     }
     setShowDialog(true);
   };
+  
+  // Test run tool in dialog
+  const testRunTool = async () => {
+    if (!formServerName || !formToolName) return;
+    
+    setIsTestRunning(true);
+    setTestError(null);
+    
+    try {
+      const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_name: formServerName,
+          tool_name: formToolName,
+          arguments: formArgs,
+        }),
+      });
+      
+      const { text, isError } = extractResultText(result);
+      if (isError) {
+        setTestError(text);
+        setTestResult(null);
+      } else {
+        setTestResult(text);
+        setTestError(null);
+      }
+    } catch (err) {
+      setTestError(String(err));
+      setTestResult(null);
+    } finally {
+      setIsTestRunning(false);
+    }
+  };
+  
+  // Live preview of transform applied to test result
+  const transformPreview = useMemo(() => {
+    if (!testResult) return null;
+    if (!formTransform || !formTransform.trim()) return testResult;
+    return applyTransform(testResult, formTransform);
+  }, [testResult, formTransform]);
   
   // Save (add or update) watch
   const saveWatch = () => {
@@ -693,6 +750,37 @@ function ToolWatchPanel({ project }: { project: Project }) {
                 </div>
               )}
               
+              {/* Test Section */}
+              {formServerName && formToolName && (
+                <div className="test-section">
+                  <div className="test-header">
+                    <label>Test & Preview</label>
+                    <button 
+                      className="test-btn"
+                      onClick={testRunTool}
+                      disabled={isTestRunning}
+                    >
+                      {isTestRunning ? <RefreshCw size={12} className="spin" /> : <Play size={12} />}
+                      {isTestRunning ? 'Running...' : 'Test Run'}
+                    </button>
+                  </div>
+                  
+                  {testError && (
+                    <div className="test-result error">
+                      <span className="test-label">Error:</span>
+                      <pre>{testError}</pre>
+                    </div>
+                  )}
+                  
+                  {testResult && (
+                    <div className="test-result">
+                      <span className="test-label">Raw Result:</span>
+                      <pre>{testResult}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+              
               <div className="form-row">
                 <label>Transform (optional)</label>
                 <input
@@ -703,6 +791,16 @@ function ToolWatchPanel({ project }: { project: Project }) {
                 />
                 <span className="form-hint">JS expression. Use "value" for the result text.</span>
               </div>
+              
+              {/* Live Transform Preview */}
+              {testResult && formTransform && (
+                <div className="transform-preview">
+                  <span className="test-label">Transform Preview:</span>
+                  <pre className={transformPreview?.startsWith('[Transform error') ? 'error' : ''}>
+                    {transformPreview}
+                  </pre>
+                </div>
+              )}
             </div>
             
             <div className="dialog-footer">
@@ -1802,6 +1900,101 @@ export default function Run2Panel() {
           margin-top: 4px;
         }
         
+        /* Test Section in Dialog */
+        .test-section {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+          margin-bottom: 12px;
+        }
+        
+        .test-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+        
+        .test-header label {
+          font-size: 10px;
+          color: #71717a;
+          text-transform: uppercase;
+        }
+        
+        .test-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 10px;
+          background: #27272a;
+          border: none;
+          border-radius: 4px;
+          color: #e4e4e7;
+          font-size: 11px;
+          cursor: pointer;
+        }
+        
+        .test-btn:hover:not(:disabled) {
+          background: #3f3f46;
+        }
+        
+        .test-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .test-result {
+          margin-bottom: 8px;
+        }
+        
+        .test-result.error pre {
+          color: #fca5a5;
+        }
+        
+        .test-label {
+          display: block;
+          font-size: 10px;
+          color: #71717a;
+          margin-bottom: 4px;
+        }
+        
+        .test-result pre {
+          margin: 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 10px;
+          color: #86efac;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 120px;
+          overflow-y: auto;
+        }
+        
+        .transform-preview {
+          background: #0c0c0d;
+          border-radius: 4px;
+          padding: 10px;
+          margin-top: 8px;
+        }
+        
+        .transform-preview pre {
+          margin: 0;
+          padding: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 10px;
+          color: #93c5fd;
+          white-space: pre-wrap;
+          word-break: break-word;
+          max-height: 100px;
+          overflow-y: auto;
+        }
+        
+        .transform-preview pre.error {
+          color: #fca5a5;
+        }
+        
         /* Watch Dialog */
         .watch-dialog-overlay {
           position: fixed;
@@ -1820,8 +2013,8 @@ export default function Run2Panel() {
           background: #18181b;
           border: 1px solid #27272a;
           border-radius: 8px;
-          width: 400px;
-          max-height: 80vh;
+          width: 500px;
+          max-height: 85vh;
           display: flex;
           flex-direction: column;
         }
