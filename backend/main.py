@@ -27,6 +27,165 @@ PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 project_manager = ProjectManager(str(PROJECTS_DIR))
 runtime_manager = RuntimeManager(str(PROJECTS_DIR))
 
+
+# ============================================================================
+# MCP Connection Pool
+# ============================================================================
+
+class MCPConnectionPool:
+    """Manages persistent MCP server connections to avoid startup delays."""
+    
+    def __init__(self):
+        self._toolsets: dict[str, any] = {}  # server_key -> MCPToolset
+        self._tools_cache: dict[str, list] = {}  # server_key -> list of tools
+        self._lock = asyncio.Lock()
+        self._last_access: dict[str, float] = {}  # server_key -> timestamp
+        self._cleanup_task: asyncio.Task | None = None
+    
+    def _get_server_key(self, config: dict) -> str:
+        """Generate a unique key for a server configuration."""
+        conn_type = config.get("connection_type", "stdio")
+        if conn_type == "stdio":
+            return f"stdio:{config.get('command')}:{':'.join(config.get('args', []))}"
+        elif conn_type in ("sse", "http"):
+            return f"{conn_type}:{config.get('url')}"
+        return f"unknown:{hash(str(config))}"
+    
+    async def get_toolset(self, config: dict):
+        """Get or create a toolset for the given server config."""
+        import sys
+        import time
+        
+        if sys.version_info < (3, 10):
+            raise RuntimeError(f"MCP requires Python 3.10+, but you have Python {sys.version_info.major}.{sys.version_info.minor}")
+        
+        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+        from google.adk.tools.mcp_tool.mcp_session_manager import (
+            StdioConnectionParams,
+            SseConnectionParams,
+        )
+        
+        server_key = self._get_server_key(config)
+        
+        async with self._lock:
+            # Check if we already have this toolset
+            if server_key in self._toolsets:
+                self._last_access[server_key] = time.time()
+                return self._toolsets[server_key]
+            
+            # Create new connection
+            connection_type = config.get("connection_type", "stdio")
+            
+            if connection_type == "stdio":
+                command = config.get("command")
+                if not command:
+                    raise ValueError("Command is required for stdio connection")
+                
+                connection_params = StdioConnectionParams(
+                    server_params={
+                        "command": command,
+                        "args": config.get("args", []),
+                        "env": config.get("env"),
+                    }
+                )
+            elif connection_type == "sse":
+                url = config.get("url")
+                if not url:
+                    raise ValueError("URL is required for SSE connection")
+                connection_params = SseConnectionParams(
+                    url=url,
+                    headers=config.get("headers"),
+                )
+            else:
+                raise ValueError(f"Unknown connection type: {connection_type}")
+            
+            toolset = MCPToolset(connection_params=connection_params)
+            self._toolsets[server_key] = toolset
+            self._last_access[server_key] = time.time()
+            
+            # Start cleanup task if not running
+            if self._cleanup_task is None or self._cleanup_task.done():
+                self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            
+            return toolset
+    
+    async def get_tools(self, config: dict, timeout: int = 30) -> list:
+        """Get tools from a server, using cache if available."""
+        import time
+        
+        server_key = self._get_server_key(config)
+        
+        # Check cache first
+        if server_key in self._tools_cache:
+            self._last_access[server_key] = time.time()
+            return self._tools_cache[server_key]
+        
+        # Get toolset and fetch tools
+        toolset = await self.get_toolset(config)
+        tools = await asyncio.wait_for(toolset.get_tools(), timeout=timeout)
+        
+        # Cache the tools
+        self._tools_cache[server_key] = tools
+        return tools
+    
+    async def call_tool(self, config: dict, tool_name: str, arguments: dict, timeout: int = 30):
+        """Call a tool on an MCP server."""
+        toolset = await self.get_toolset(config)
+        tools = await self.get_tools(config, timeout)
+        
+        # Find the tool
+        tool = next((t for t in tools if t.name == tool_name), None)
+        if not tool:
+            raise ValueError(f"Tool '{tool_name}' not found on server")
+        
+        # Call the tool
+        result = await asyncio.wait_for(
+            tool.run_async(arguments, None),  # tool_context is None for direct calls
+            timeout=timeout
+        )
+        return result
+    
+    async def invalidate(self, config: dict = None):
+        """Invalidate cached connections. If config is None, invalidate all."""
+        async with self._lock:
+            if config is None:
+                self._toolsets.clear()
+                self._tools_cache.clear()
+                self._last_access.clear()
+            else:
+                server_key = self._get_server_key(config)
+                self._toolsets.pop(server_key, None)
+                self._tools_cache.pop(server_key, None)
+                self._last_access.pop(server_key, None)
+    
+    async def _cleanup_loop(self):
+        """Periodically clean up idle connections."""
+        import time
+        
+        IDLE_TIMEOUT = 300  # 5 minutes
+        CHECK_INTERVAL = 60  # 1 minute
+        
+        while True:
+            await asyncio.sleep(CHECK_INTERVAL)
+            
+            now = time.time()
+            to_remove = []
+            
+            async with self._lock:
+                for server_key, last_access in self._last_access.items():
+                    if now - last_access > IDLE_TIMEOUT:
+                        to_remove.append(server_key)
+                
+                for server_key in to_remove:
+                    self._toolsets.pop(server_key, None)
+                    self._tools_cache.pop(server_key, None)
+                    self._last_access.pop(server_key, None)
+                    print(f"[MCP Pool] Closed idle connection: {server_key}")
+
+
+# Global MCP connection pool
+mcp_pool = MCPConnectionPool()
+
 # Create FastAPI app
 app = FastAPI(
     title="ADK Playground",
@@ -303,66 +462,22 @@ class TestMcpRequest(BaseModel):
 @app.post("/api/test-mcp-server")
 async def test_mcp_server(request: TestMcpRequest):
     """Test an MCP server connection and list its available tools."""
-    import sys
     import traceback
     
-    # Check Python version - MCP requires 3.10+
-    if sys.version_info < (3, 10):
-        return {
-            "success": False,
-            "error": f"MCP requires Python 3.10+, but you have Python {sys.version_info.major}.{sys.version_info.minor}",
-            "tools": []
-        }
-    
     try:
-        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
-        from google.adk.tools.mcp_tool.mcp_session_manager import (
-            StdioConnectionParams,
-            SseConnectionParams,
-        )
+        # Build config dict for the pool
+        config = {
+            "connection_type": request.connection_type,
+            "command": request.command,
+            "args": request.args or [],
+            "env": request.env,
+            "url": request.url,
+            "headers": request.headers,
+            "timeout": request.timeout,
+        }
         
-        # Build connection params based on type
-        if request.connection_type == "stdio":
-            if not request.command:
-                return {
-                    "success": False,
-                    "error": "Command is required for stdio connection",
-                    "tools": []
-                }
-            
-            connection_params = StdioConnectionParams(
-                server_params={
-                    "command": request.command,
-                    "args": request.args or [],
-                    "env": request.env,
-                }
-            )
-        elif request.connection_type == "sse":
-            if not request.url:
-                return {
-                    "success": False,
-                    "error": "URL is required for SSE connection",
-                    "tools": []
-                }
-            connection_params = SseConnectionParams(
-                url=request.url,
-                headers=request.headers,
-            )
-        else:
-            return {
-                "success": False,
-                "error": f"Unknown connection type: {request.connection_type}",
-                "tools": []
-            }
-        
-        # Create toolset and get tools
-        toolset = MCPToolset(connection_params=connection_params)
-        
-        # Get tools with timeout
-        tools = await asyncio.wait_for(
-            toolset.get_tools(),
-            timeout=request.timeout
-        )
+        # Get tools using the connection pool (keeps connection open)
+        tools = await mcp_pool.get_tools(config, timeout=request.timeout)
         
         # Extract tool information
         tool_list = []
@@ -445,59 +560,9 @@ async def test_project_mcp_server(project_id: str, server_name: str):
         }
     
     try:
-        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
-        from google.adk.tools.mcp_tool.mcp_session_manager import (
-            StdioConnectionParams,
-            SseConnectionParams,
-        )
-        
-        connection_type = server_config.get("connection_type", "stdio")
-        
-        # Build connection params based on type
-        if connection_type == "stdio":
-            command = server_config.get("command")
-            if not command:
-                return {
-                    "success": False,
-                    "error": "Command is required for stdio connection",
-                    "tools": []
-                }
-            
-            connection_params = StdioConnectionParams(
-                server_params={
-                    "command": command,
-                    "args": server_config.get("args", []),
-                    "env": server_config.get("env"),
-                }
-            )
-        elif connection_type == "sse":
-            url = server_config.get("url")
-            if not url:
-                return {
-                    "success": False,
-                    "error": "URL is required for SSE connection",
-                    "tools": []
-                }
-            connection_params = SseConnectionParams(
-                url=url,
-                headers=server_config.get("headers"),
-            )
-        else:
-            return {
-                "success": False,
-                "error": f"Unknown connection type: {connection_type}",
-                "tools": []
-            }
-        
-        # Create toolset and get tools
-        toolset = MCPToolset(connection_params=connection_params)
-        
-        # Get tools with timeout
+        # Get tools using the connection pool (keeps connection open for reuse)
         timeout = server_config.get("timeout", 30)
-        tools = await asyncio.wait_for(
-            toolset.get_tools(),
-            timeout=timeout
-        )
+        tools = await mcp_pool.get_tools(server_config, timeout=timeout)
         
         # Extract tool information
         tool_list = []
@@ -534,6 +599,81 @@ async def test_project_mcp_server(project_id: str, server_name: str):
             "error": str(e),
             "traceback": traceback.format_exc(),
             "tools": []
+        }
+
+
+class RunMcpToolRequest(BaseModel):
+    """Request to run an MCP tool."""
+    server_name: str
+    tool_name: str
+    arguments: dict = {}
+
+
+@app.post("/api/projects/{project_id}/run-mcp-tool")
+async def run_mcp_tool(project_id: str, request: RunMcpToolRequest):
+    """Run an MCP tool and return its result."""
+    import traceback
+    
+    # Find the server config
+    project_path = PROJECTS_DIR / f"{project_id}.yaml"
+    server_config = None
+    
+    if project_path.exists():
+        with open(project_path, "r") as f:
+            project_data = yaml.safe_load(f) or {}
+        
+        for server in project_data.get("mcp_servers", []):
+            if server.get("name") == request.server_name:
+                server_config = server
+                break
+    
+    if not server_config:
+        for known_server in KNOWN_MCP_SERVERS:
+            if known_server.name == request.server_name:
+                server_config = known_server.model_dump()
+                break
+    
+    if not server_config:
+        return {
+            "success": False,
+            "error": f"MCP server '{request.server_name}' not found"
+        }
+    
+    try:
+        timeout = server_config.get("timeout", 30)
+        result = await mcp_pool.call_tool(
+            server_config, 
+            request.tool_name, 
+            request.arguments, 
+            timeout=timeout
+        )
+        
+        # Try to extract text from MCP result
+        if hasattr(result, 'content') and result.content:
+            # MCP results often have content as a list of parts
+            if isinstance(result.content, list):
+                texts = []
+                for part in result.content:
+                    if hasattr(part, 'text'):
+                        texts.append(part.text)
+                    elif isinstance(part, dict) and 'text' in part:
+                        texts.append(part['text'])
+                if texts:
+                    return {"success": True, "result": "\n".join(texts)}
+            return {"success": True, "result": str(result.content)}
+        
+        return {"success": True, "result": str(result)}
+        
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "error": f"Tool call timed out after {server_config.get('timeout', 30)} seconds"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
         }
 
 
