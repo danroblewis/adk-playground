@@ -32,10 +32,10 @@ app:
   artifacts: []
   models:
   - id: model_miw9xh0n
-    name: New Model
+    name: main_model
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://localhost:11434
+    api_base: http://node2:32504
     temperature: null
     max_output_tokens: null
     top_p: null
@@ -51,7 +51,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://localhost:11434
+    api_base: http://node2:32504
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -84,7 +84,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://localhost:11434
+    api_base: http://node2:32504
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -270,3 +270,11 @@ mcp_servers:
   - get_current_time
   - get_timestamp
   tool_name_prefix: null
+watches:
+- id: watch-1765259124040
+  serverName: datetime
+  toolName: get_current_time
+  args:
+    timezone: UTC
+    format: human
+  transform: js:value.replace(/^.* at /,'')

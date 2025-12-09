@@ -1479,38 +1479,78 @@ JSON:"""
             user_id="config_gen_user",
         )
         
-        generated_text = ""
-        async for event in runner.run_async(
-            session_id=session.id,
-            user_id="config_gen_user",
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=meta_prompt)]
-            ),
-        ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        generated_text += part.text
+        # Retry logic for models that don't always return JSON
+        max_retries = 3
+        last_error = None
+        last_raw_response = None
         
-        # Parse the JSON from the response
-        generated_text = generated_text.strip()
-        # Try to extract JSON if it's wrapped in markdown code blocks
-        if "```json" in generated_text:
-            generated_text = generated_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in generated_text:
-            generated_text = generated_text.split("```")[1].split("```")[0].strip()
+        for attempt in range(max_retries):
+            generated_text = ""
+            
+            if attempt == 0:
+                # First attempt: use the original prompt
+                message = meta_prompt
+            else:
+                # Retry: ask for just the JSON, referencing the failed attempt
+                message = f"""Your previous response was not valid JSON. Here's what you returned:
+
+{last_raw_response[:2000]}
+
+The error was: {last_error}
+
+Please return ONLY the JSON object with the agent configuration. No explanation, no markdown, just the raw JSON starting with {{ and ending with }}. Make sure to close all brackets and quotes properly."""
+            
+            async for event in runner.run_async(
+                session_id=session.id,
+                user_id="config_gen_user",
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=message)]
+                ),
+            ):
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            generated_text += part.text
+            
+            # Parse the JSON from the response
+            generated_text = generated_text.strip()
+            last_raw_response = generated_text
+            
+            # Try to extract JSON if it's wrapped in markdown code blocks
+            if "```json" in generated_text:
+                generated_text = generated_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in generated_text:
+                parts = generated_text.split("```")
+                if len(parts) >= 2:
+                    generated_text = parts[1].strip()
+            
+            # Try to find JSON object in the text
+            json_start = generated_text.find('{')
+            json_end = generated_text.rfind('}')
+            if json_start != -1 and json_end != -1 and json_end > json_start:
+                generated_text = generated_text[json_start:json_end + 1]
+            
+            try:
+                config = json.loads(generated_text)
+                return {"config": config, "success": True, "attempts": attempt + 1}
+            except json.JSONDecodeError as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    continue  # Try again
+                else:
+                    # All retries exhausted
+                    return {
+                        "config": None,
+                        "success": False,
+                        "error": f"Failed to parse JSON after {max_retries} attempts: {last_error}",
+                        "raw_response": last_raw_response[:2000] if last_raw_response else None,
+                        "attempts": max_retries,
+                    }
         
-        config = json.loads(generated_text)
-        return {"config": config, "success": True}
+        # Should not reach here, but just in case
+        return {"config": None, "success": False, "error": "Unknown error"}
         
-    except json.JSONDecodeError as e:
-        return {
-            "config": None,
-            "success": False,
-            "error": f"Failed to parse JSON: {str(e)}",
-            "raw_response": generated_text[:1000] if 'generated_text' in dir() else None,
-        }
     except Exception as e:
         import traceback
         return {
