@@ -394,6 +394,138 @@ async def test_mcp_server(request: TestMcpRequest):
         }
 
 
+@app.post("/api/projects/{project_id}/mcp-servers/{server_name}/test-connection")
+async def test_project_mcp_server(project_id: str, server_name: str):
+    """Test an MCP server connection by server name, looking up from project or known servers."""
+    import sys
+    import traceback
+    
+    # Check Python version - MCP requires 3.10+
+    if sys.version_info < (3, 10):
+        return {
+            "success": False,
+            "error": f"MCP requires Python 3.10+, but you have Python {sys.version_info.major}.{sys.version_info.minor}",
+            "tools": []
+        }
+    
+    # Load project to get its MCP servers
+    project_path = PROJECTS_DIR / f"{project_id}.yaml"
+    server_config = None
+    
+    if project_path.exists():
+        with open(project_path, "r") as f:
+            project_data = yaml.safe_load(f) or {}
+        
+        # Look in project's MCP servers
+        for server in project_data.get("mcp_servers", []):
+            if server.get("name") == server_name:
+                server_config = server
+                break
+    
+    # If not found in project, check known servers
+    if not server_config:
+        for known_server in KNOWN_MCP_SERVERS:
+            if known_server.name == server_name:
+                server_config = known_server.model_dump()
+                break
+    
+    if not server_config:
+        return {
+            "success": False,
+            "error": f"MCP server '{server_name}' not found in project or known servers",
+            "tools": []
+        }
+    
+    try:
+        from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
+        from google.adk.tools.mcp_tool.mcp_session_manager import (
+            StdioConnectionParams,
+            SseConnectionParams,
+        )
+        
+        connection_type = server_config.get("connection_type", "stdio")
+        
+        # Build connection params based on type
+        if connection_type == "stdio":
+            command = server_config.get("command")
+            if not command:
+                return {
+                    "success": False,
+                    "error": "Command is required for stdio connection",
+                    "tools": []
+                }
+            
+            connection_params = StdioConnectionParams(
+                server_params={
+                    "command": command,
+                    "args": server_config.get("args", []),
+                    "env": server_config.get("env"),
+                }
+            )
+        elif connection_type == "sse":
+            url = server_config.get("url")
+            if not url:
+                return {
+                    "success": False,
+                    "error": "URL is required for SSE connection",
+                    "tools": []
+                }
+            connection_params = SseConnectionParams(
+                url=url,
+                headers=server_config.get("headers"),
+            )
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown connection type: {connection_type}",
+                "tools": []
+            }
+        
+        # Create toolset and get tools
+        toolset = MCPToolset(connection_params=connection_params)
+        
+        # Get tools with timeout
+        timeout = server_config.get("timeout", 30)
+        tools = await asyncio.wait_for(
+            toolset.get_tools(),
+            timeout=timeout
+        )
+        
+        # Extract tool information
+        tool_list = []
+        for tool in tools:
+            tool_info = {
+                "name": getattr(tool, "name", str(tool)),
+                "description": getattr(tool, "description", ""),
+            }
+            # Try to get parameters schema
+            if hasattr(tool, "parameters"):
+                tool_info["parameters"] = tool.parameters
+            elif hasattr(tool, "_schema"):
+                tool_info["parameters"] = tool._schema
+            tool_list.append(tool_info)
+        
+        return {
+            "success": True,
+            "tools": tool_list
+        }
+        
+    except asyncio.TimeoutError:
+        timeout = server_config.get("timeout", 30)
+        return {
+            "success": False,
+            "error": f"Connection timed out after {timeout} seconds. The MCP server may not be responding.",
+            "tools": []
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "tools": []
+        }
+
+
 # ============================================================================
 # Runtime WebSocket
 # ============================================================================

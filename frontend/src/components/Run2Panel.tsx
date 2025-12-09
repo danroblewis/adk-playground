@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
-import { createRunWebSocket, fetchJSON } from '../utils/api';
+import { createRunWebSocket, fetchJSON, getMcpServers } from '../utils/api';
 
 // Wireshark-inspired color scheme for event types
 const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -335,8 +335,21 @@ function ToolWatchPanel({ project }: { project: Project }) {
   const [newServerName, setNewServerName] = useState('');
   const [newToolName, setNewToolName] = useState('');
   const [newArgs, setNewArgs] = useState<Record<string, any>>({});
+  const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
   
-  const mcpServers = project.mcp_servers || [];
+  // Fetch known MCP servers on mount
+  useEffect(() => {
+    getMcpServers().then(setKnownServers).catch(console.error);
+  }, []);
+  
+  // Combine project servers with known servers
+  const mcpServers = useMemo(() => {
+    const projectServers = project.mcp_servers || [];
+    const projectServerNames = new Set(projectServers.map(s => s.name));
+    // Add known servers that aren't already in project
+    const additionalServers = knownServers.filter(s => !projectServerNames.has(s.name));
+    return [...projectServers, ...additionalServers];
+  }, [project.mcp_servers, knownServers]);
   
   // Load tools for a server by name
   const loadServerTools = useCallback(async (serverName: string) => {
