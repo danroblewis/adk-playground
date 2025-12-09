@@ -278,6 +278,15 @@ class CustomToolDefinition(BaseModel):
     state_keys_used: List[str] = Field(default_factory=list)
 
 
+class WatchExpression(BaseModel):
+    """A tool watch expression for monitoring MCP tool results."""
+    id: str
+    serverName: str
+    toolName: str
+    args: Dict[str, Any] = Field(default_factory=dict)
+    transform: Optional[str] = None
+
+
 class Project(BaseModel):
     """A complete ADK Playground project."""
     id: str
@@ -295,6 +304,9 @@ class Project(BaseModel):
     
     # Known MCP servers for quick selection
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)
+    
+    # Tool watches (persisted for the Run2 panel)
+    watches: List[WatchExpression] = Field(default_factory=list)
 
 
 # ============================================================================

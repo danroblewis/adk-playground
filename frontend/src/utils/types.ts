@@ -168,6 +168,14 @@ export interface CustomToolDefinition {
   state_keys_used: string[];
 }
 
+export interface WatchExpressionConfig {
+  id: string;
+  serverName: string;
+  toolName: string;
+  args: Record<string, any>;
+  transform?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -176,6 +184,7 @@ export interface Project {
   agents: AgentConfig[];
   custom_tools: CustomToolDefinition[];
   mcp_servers: MCPServerConfig[];
+  watches: WatchExpressionConfig[];
 }
 
 export interface RunEvent {

@@ -93,7 +93,18 @@ export const useStore = create<Store>((set, get) => ({
   hasUnsavedChanges: false,
   
   // Setters
-  setProject: (project) => set({ project }),
+  setProject: (project) => {
+    // When loading a project, also load its watches (with empty runtime state)
+    const watches = project?.watches?.map(w => ({
+      ...w,
+      result: undefined,
+      error: undefined,
+      isLoading: false,
+      lastRun: undefined,
+      history: [],
+    })) || [];
+    set({ project, watches });
+  },
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
   setSelectedToolId: (id) => set({ selectedToolId: id }),
   setMcpServers: (servers) => set({ mcpServers: servers }),
@@ -102,11 +113,55 @@ export const useStore = create<Store>((set, get) => ({
   addRunEvent: (event) => set((state) => ({ runEvents: [...state.runEvents, event] })),
   clearRunEvents: () => set({ runEvents: [] }),
   setWatches: (watches) => set({ watches }),
-  updateWatch: (id, updates) => set((state) => ({
-    watches: state.watches.map(w => w.id === id ? { ...w, ...updates } : w)
-  })),
-  addWatch: (watch) => set((state) => ({ watches: [...state.watches, watch] })),
-  removeWatch: (id) => set((state) => ({ watches: state.watches.filter(w => w.id !== id) })),
+  updateWatch: (id, updates) => set((state) => {
+    const newWatches = state.watches.map(w => w.id === id ? { ...w, ...updates } : w);
+    // Check if this is a config update (not just runtime state like result/error)
+    const isConfigUpdate = 'serverName' in updates || 'toolName' in updates || 
+                           'args' in updates || 'transform' in updates;
+    if (isConfigUpdate && state.project) {
+      const projectWatches = newWatches.map(({ id, serverName, toolName, args, transform }) => 
+        ({ id, serverName, toolName, args, transform })
+      );
+      return { 
+        watches: newWatches, 
+        project: { ...state.project, watches: projectWatches },
+        hasUnsavedChanges: true 
+      };
+    }
+    return { watches: newWatches };
+  }),
+  addWatch: (watch) => set((state) => {
+    const newWatches = [...state.watches, watch];
+    // Also update project.watches for persistence
+    const { project } = state;
+    if (project) {
+      const projectWatches = newWatches.map(({ id, serverName, toolName, args, transform }) => 
+        ({ id, serverName, toolName, args, transform })
+      );
+      return { 
+        watches: newWatches, 
+        project: { ...project, watches: projectWatches },
+        hasUnsavedChanges: true 
+      };
+    }
+    return { watches: newWatches };
+  }),
+  removeWatch: (id) => set((state) => {
+    const newWatches = state.watches.filter(w => w.id !== id);
+    // Also update project.watches for persistence
+    const { project } = state;
+    if (project) {
+      const projectWatches = newWatches.map(({ id, serverName, toolName, args, transform }) => 
+        ({ id, serverName, toolName, args, transform })
+      );
+      return { 
+        watches: newWatches, 
+        project: { ...project, watches: projectWatches },
+        hasUnsavedChanges: true 
+      };
+    }
+    return { watches: newWatches };
+  }),
   clearWatchHistories: () => set((state) => ({
     watches: state.watches.map(w => ({ ...w, history: [], result: undefined, error: undefined }))
   })),
