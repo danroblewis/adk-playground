@@ -220,7 +220,7 @@ function EventDetail({ event }: { event: RunEvent }) {
 }
 
 // State snapshot component
-function StateSnapshot({ events, endTime }: { events: RunEvent[]; endTime: number }) {
+function StateSnapshot({ events, endTime, selectedEventIndex }: { events: RunEvent[]; endTime: number; selectedEventIndex: number | null }) {
   const state = useMemo(() => {
     const snapshot: Record<string, { value: any; timestamp: number }> = {};
     
@@ -239,21 +239,28 @@ function StateSnapshot({ events, endTime }: { events: RunEvent[]; endTime: numbe
   
   const entries = Object.entries(state);
   
-  if (entries.length === 0) {
-    return <div className="state-empty">No state changes recorded</div>;
-  }
-  
   return (
     <div className="state-snapshot">
-      {entries.map(([key, { value, timestamp }]) => (
-        <div key={key} className="state-entry">
-          <div className="state-key">{key}</div>
-          <div className="state-value">
-            {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+      <div className="state-header">
+        {selectedEventIndex !== null ? (
+          <span>State after event #{selectedEventIndex}</span>
+        ) : (
+          <span>State at end of run</span>
+        )}
+      </div>
+      {entries.length === 0 ? (
+        <div className="state-empty">No state changes at this point</div>
+      ) : (
+        entries.map(([key, { value, timestamp }]) => (
+          <div key={key} className="state-entry">
+            <div className="state-key">{key}</div>
+            <div className="state-value">
+              {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+            </div>
+            <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
           </div>
-          <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }
@@ -1113,6 +1120,16 @@ export default function Run2Panel() {
           padding: 8px;
         }
         
+        .state-header {
+          padding: 8px;
+          margin-bottom: 8px;
+          background: #18181b;
+          border-radius: 4px;
+          font-size: 11px;
+          color: #a1a1aa;
+          text-align: center;
+        }
+        
         .state-empty {
           padding: 16px;
           text-align: center;
@@ -1484,7 +1501,8 @@ export default function Run2Panel() {
             ) : showStatePanel ? (
               <StateSnapshot 
                 events={runEvents} 
-                endTime={timeRange ? timeRange[1] : (runEvents.length > 0 ? runEvents[runEvents.length - 1].timestamp : Date.now() / 1000)}
+                endTime={selectedEvent ? selectedEvent.timestamp : (runEvents.length > 0 ? runEvents[runEvents.length - 1].timestamp : Date.now() / 1000)}
+                selectedEventIndex={selectedEventIndex}
               />
             ) : selectedEvent ? (
               <EventDetail event={selectedEvent} />
