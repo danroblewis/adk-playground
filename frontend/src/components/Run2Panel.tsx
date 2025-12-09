@@ -263,44 +263,9 @@ function EventDetail({ event }: { event: RunEvent }) {
 }
 
 // State snapshot component - shows state after selected event
-function StateSnapshot({ events, selectedEventIndex, project }: { 
-  events: RunEvent[]; 
-  selectedEventIndex: number | null;
-  project: Project | null;
-}) {
+function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; selectedEventIndex: number | null }) {
   const state = useMemo(() => {
-    const snapshot: Record<string, { value: any; timestamp: number | null; defined: boolean; description?: string; type?: string }> = {};
-    
-    // First, add all state keys defined in the App config
-    if (project?.app?.state_keys) {
-      project.app.state_keys.forEach(key => {
-        snapshot[key.name] = { 
-          value: undefined, 
-          timestamp: null, 
-          defined: true,
-          description: key.description,
-          type: key.type
-        };
-      });
-    }
-    
-    // Also add output_keys from agents
-    if (project?.agents) {
-      project.agents.forEach(agent => {
-        if (agent.type === 'LlmAgent' && (agent as any).output_key) {
-          const outputKey = (agent as any).output_key;
-          if (!snapshot[outputKey]) {
-            snapshot[outputKey] = {
-              value: undefined,
-              timestamp: null,
-              defined: true,
-              description: `Output from ${agent.name}`,
-              type: 'string'
-            };
-          }
-        }
-      });
-    }
+    const snapshot: Record<string, { value: any; timestamp: number }> = {};
     
     // If an event is selected, show state up to and including that event
     // Otherwise show state at end of all events
@@ -313,67 +278,33 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
       .forEach(e => {
         if (e.data?.state_delta) {
           Object.entries(e.data.state_delta).forEach(([key, value]) => {
-            snapshot[key] = { 
-              ...snapshot[key],
-              value, 
-              timestamp: e.timestamp,
-              defined: snapshot[key]?.defined ?? false
-            };
+            snapshot[key] = { value, timestamp: e.timestamp };
           });
         }
       });
     
     return snapshot;
-  }, [events, selectedEventIndex, project]);
+  }, [events, selectedEventIndex]);
   
   const entries = Object.entries(state);
   
   return (
     <div className="state-snapshot">
-      <style>{`
-        .state-entry.unset {
-          opacity: 0.6;
-        }
-        .state-entry.unset .state-value {
-          font-style: italic;
-          color: #888;
-        }
-        .state-type {
-          font-size: 10px;
-          color: #888;
-          margin-left: 8px;
-        }
-        .state-desc {
-          font-size: 11px;
-          color: #666;
-          margin-top: 2px;
-        }
-      `}</style>
       <div className="state-header">
         {selectedEventIndex !== null 
           ? `State after event #${selectedEventIndex}` 
-          : events.length > 0 ? 'State at end of run' : 'Defined State Keys'}
+          : 'State at end of run'}
       </div>
       {entries.length === 0 ? (
-        <div className="state-empty">No state keys defined</div>
+        <div className="state-empty">No state changes at this point</div>
       ) : (
-        entries.map(([key, { value, timestamp, defined, description, type }]) => (
-          <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
-            <div className="state-key">
-              {key}
-              {type && <span className="state-type">({type})</span>}
-            </div>
+        entries.map(([key, { value, timestamp }]) => (
+          <div key={key} className="state-entry">
+            <div className="state-key">{key}</div>
             <div className="state-value">
-              {value === undefined 
-                ? '(not set)' 
-                : typeof value === 'string' 
-                  ? value 
-                  : JSON.stringify(value, null, 2)}
+              {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
             </div>
-            {description && <div className="state-desc">{description}</div>}
-            {timestamp && (
-              <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
-            )}
+            <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
           </div>
         ))
       )}
@@ -2724,7 +2655,6 @@ export default function RunPanel() {
               <StateSnapshot 
                 events={runEvents} 
                 selectedEventIndex={selectedEventIndex}
-                project={project}
               />
             ) : selectedEvent ? (
               <EventDetail event={selectedEvent} />
