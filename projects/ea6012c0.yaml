@@ -148,7 +148,9 @@ agents:
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
-  tools: []
+  tools:
+  - type: builtin
+    name: preload_memory
   sub_agents: []
   before_agent_callbacks: []
   after_agent_callbacks: []

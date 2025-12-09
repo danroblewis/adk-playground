@@ -86,7 +86,7 @@ function formatTimestamp(timestamp: number, baseTime: number): string {
 
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['messages', 'result', 'response', 'state_delta', 'data']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['instruction', 'messages', 'result', 'response', 'state_delta', 'data']));
   
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections);
@@ -206,6 +206,21 @@ function EventDetail({ event }: { event: RunEvent }) {
       </div>
       
       {/* Type-specific rendering */}
+      {event.event_type === 'agent_start' && event.data?.instruction && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('instruction')}>
+            {expandedSections.has('instruction') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>Instruction</span>
+            <span className="char-count">{event.data.instruction.length} chars</span>
+          </div>
+          {expandedSections.has('instruction') && (
+            <div className="section-content">
+              <pre className="instruction-text">{event.data.instruction}</pre>
+            </div>
+          )}
+        </div>
+      )}
+      
       {event.event_type === 'model_call' && event.data?.contents && (
         <div className="detail-section">
           <div className="section-header" onClick={() => toggleSection('messages')}>
@@ -1927,13 +1942,26 @@ export default function RunPanel() {
           overflow-y: auto;
         }
         
-        .token-badge {
+        .token-badge, .char-count {
           margin-left: auto;
           font-size: 10px;
           color: #71717a;
           background: #27272a;
           padding: 2px 6px;
           border-radius: 4px;
+        }
+        
+        .instruction-text {
+          white-space: pre-wrap;
+          word-break: break-word;
+          background: #18181b;
+          padding: 8px;
+          border-radius: 4px;
+          margin: 0;
+          font-size: 11px;
+          max-height: 400px;
+          overflow-y: auto;
+          border-left: 3px solid #a855f7;
         }
         
         .response-part {
