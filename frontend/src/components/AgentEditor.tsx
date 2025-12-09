@@ -125,19 +125,39 @@ export default function AgentEditor({ agent }: Props) {
     
     setIsGeneratingDescription(true);
     try {
-      const context = `Based on this agent's instruction, write a brief third-person description (1 sentence, under 100 characters) that describes what this agent does. This description is used by OTHER agents to decide whether to call this agent as a tool.
+      const context = `Write a 5-10 word description of what this agent does.
 
-DO NOT write a system prompt. DO NOT start with "You are".
-DO write something like: "Searches the web for information" or "Reviews code for bugs and suggests fixes" or "Generates creative writing based on prompts"
+STRICT RULES:
+- Maximum 10 words
+- Third person (NOT "You are...")
+- Start with a verb (Writes, Reviews, Searches, Generates, etc.)
+- Single phrase, no periods
 
-Agent instruction:
-${currentPrompt}
+GOOD EXAMPLES:
+- "Writes creative stories"
+- "Reviews code for bugs"
+- "Searches the web for information"
+- "Generates unit tests"
 
-Output only the description, nothing else:`;
+BAD (too long):
+- "This agent is designed to help users write creative stories based on their prompts"
+
+Agent instruction to summarize:
+${currentPrompt.slice(0, 500)}
+
+Your response (5-10 words only):`;
       
       const result = await generatePrompt(project.id, agent.id, context);
       if (result.success && result.prompt) {
-        update({ description: result.prompt.trim() });
+        // Truncate if still too long, take first sentence/phrase
+        let desc = result.prompt.trim();
+        // Remove any leading quotes or punctuation
+        desc = desc.replace(/^["']|["']$/g, '').trim();
+        // Take only the first sentence if there are multiple
+        const firstSentence = desc.split(/[.!?\n]/)[0].trim();
+        // Limit to ~80 chars
+        const truncated = firstSentence.length > 80 ? firstSentence.slice(0, 77) + '...' : firstSentence;
+        update({ description: truncated });
       } else {
         alert('Failed to generate description: ' + (result.error || 'Unknown error'));
       }

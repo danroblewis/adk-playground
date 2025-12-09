@@ -821,13 +821,17 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
     
     # Find the target agent
     target_agent = None
+    agent_ids_in_project = [a.id for a in project.agents]
     for agent in project.agents:
         if agent.id == request.agent_id:
             target_agent = agent
             break
     
     if not target_agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Agent not found. Looking for '{request.agent_id}', available agents: {agent_ids_in_project}"
+        )
     
     # Build context about the entire agent network
     agent_summaries = []

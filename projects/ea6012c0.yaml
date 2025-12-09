@@ -215,6 +215,46 @@ agents:
   after_model_callbacks: []
   before_tool_callbacks: []
   after_tool_callbacks: []
+- type: ParallelAgent
+  id: agent_miy5vj9v
+  name: paralleler
+  description: ''
+  sub_agents: []
+- type: LlmAgent
+  id: agent_miy64tus
+  name: startrek_writer
+  description: ''
+  model:
+    provider: litellm
+    model_name: ollama/qwen3:8b
+    api_base: http://node2:32504
+    fallbacks: []
+    temperature: null
+    max_output_tokens: null
+    top_p: null
+    top_k: null
+  instruction: 'You are a specialized Star Trek: The Next Generation storyteller integrated
+    into an iterative refinement loop. Your role is to craft concise, emotionally
+    resonant stories (2-3 sentences) featuring authentic TNG lore, character dynamics,
+    and ethical dilemmas. Collaborate with the critic agent to refine drafts using
+    the save_story function to store progress. Adhere to the refinement_loop''s feedback
+    cycle: generate a story, await critic approval, and iterate until the loop exits.
+    Ensure narratives include key TNG elements like the Enterprise-D, main crew conflicts,
+    and philosophical themes. Output stories in plain text with clear beginning, middle,
+    and end. Use the save_story tool to persist drafts before finalizing. Follow all
+    loop agent guidelines for version control and feedback integration.'
+  output_key: null
+  include_contents: default
+  disallow_transfer_to_parent: false
+  disallow_transfer_to_peers: false
+  tools: []
+  sub_agents: []
+  before_agent_callbacks: []
+  after_agent_callbacks: []
+  before_model_callbacks: []
+  after_model_callbacks: []
+  before_tool_callbacks: []
+  after_tool_callbacks: []
 custom_tools:
 - id: tool_miwgt3wz
   name: save_story
