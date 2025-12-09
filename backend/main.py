@@ -138,9 +138,15 @@ class MCPConnectionPool:
         if not tool:
             raise ValueError(f"Tool '{tool_name}' not found on server")
         
-        # Call the tool
+        # Call the tool using keyword arguments
+        # MCP tools have run_async(*, args: dict, tool_context: ToolContext)
+        # We create a minimal mock tool context for direct calls
+        from unittest.mock import MagicMock
+        mock_context = MagicMock()
+        mock_context.actions = MagicMock()
+        
         result = await asyncio.wait_for(
-            tool.run_async(arguments, None),  # tool_context is None for direct calls
+            tool.run_async(args=arguments, tool_context=mock_context),
             timeout=timeout
         )
         return result
