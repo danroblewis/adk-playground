@@ -371,6 +371,14 @@ async def test_mcp_server(request: TestMcpRequest):
                 "name": tool.name,
                 "description": getattr(tool, "description", "") or "",
             }
+            # Try to get parameters schema from various sources
+            if hasattr(tool, "parameters") and tool.parameters:
+                tool_info["parameters"] = tool.parameters
+            elif hasattr(tool, "_schema") and tool._schema:
+                tool_info["parameters"] = tool._schema
+            elif hasattr(tool, "raw_mcp_tool") and hasattr(tool.raw_mcp_tool, "inputSchema"):
+                # MCP tools store schema in raw_mcp_tool.inputSchema
+                tool_info["parameters"] = tool.raw_mcp_tool.inputSchema
             tool_list.append(tool_info)
         
         return {
@@ -498,11 +506,14 @@ async def test_project_mcp_server(project_id: str, server_name: str):
                 "name": getattr(tool, "name", str(tool)),
                 "description": getattr(tool, "description", ""),
             }
-            # Try to get parameters schema
-            if hasattr(tool, "parameters"):
+            # Try to get parameters schema from various sources
+            if hasattr(tool, "parameters") and tool.parameters:
                 tool_info["parameters"] = tool.parameters
-            elif hasattr(tool, "_schema"):
+            elif hasattr(tool, "_schema") and tool._schema:
                 tool_info["parameters"] = tool._schema
+            elif hasattr(tool, "raw_mcp_tool") and hasattr(tool.raw_mcp_tool, "inputSchema"):
+                # MCP tools store schema in raw_mcp_tool.inputSchema
+                tool_info["parameters"] = tool.raw_mcp_tool.inputSchema
             tool_list.append(tool_info)
         
         return {
