@@ -67,6 +67,7 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_miw9xh0n
   instruction: You are a creative writer.
   output_key: dump
   include_contents: default
@@ -100,6 +101,7 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_miw9xh0n
   instruction: "You are a creative writer tasked with crafting a concise, emotionally\
     \ resonant story within a collaborative refinement loop. Your role is to generate\
     \ a 2-3 sentence narrative that establishes a clear beginning, develops a relatable\
@@ -153,6 +155,7 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_miw9xh0n
   instruction: 'You are a story critic. Review the current story from state key "story".
 
 
@@ -198,6 +201,7 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_miw9xh0n
   instruction: 'You are an advanced story architect specializing in blending narrative
     depth with Star Trek: The Next Generation lore. Your role is to refine the current
     story draft by seamlessly integrating authentic TNG themes, characters, and technological
@@ -245,6 +249,7 @@ agents:
     max_output_tokens: null
     top_p: null
     top_k: null
+    app_model_id: model_miw9xh0n
   instruction: 'You are a specialized Star Trek: The Next Generation storyteller integrated
     into an iterative refinement loop. Your role is to craft concise, emotionally
     resonant stories (2-3 sentences) featuring authentic TNG lore, character dynamics,

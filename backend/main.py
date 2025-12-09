@@ -232,7 +232,7 @@ async def create_project(data: dict):
         name=data.get("name", "New Project"),
         description=data.get("description", ""),
     )
-    return {"project": project.model_dump(mode="json")}
+    return {"project": project.model_dump(mode="json", by_alias=True)}
 
 
 @app.get("/api/projects/{project_id}")
@@ -241,7 +241,7 @@ async def get_project(project_id: str):
     project = project_manager.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return {"project": project.model_dump(mode="json")}
+    return {"project": project.model_dump(mode="json", by_alias=True)}
 
 
 @app.put("/api/projects/{project_id}")
@@ -288,7 +288,7 @@ async def update_project_yaml(project_id: str, data: dict):
     project = project_manager.update_project_from_yaml(project_id, yaml_content)
     if not project:
         raise HTTPException(status_code=400, detail="Invalid YAML")
-    return {"project": project.model_dump(mode="json")}
+    return {"project": project.model_dump(mode="json", by_alias=True)}
 
 
 # ============================================================================
@@ -301,7 +301,7 @@ async def list_agents(project_id: str):
     project = project_manager.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return {"agents": [a.model_dump(mode="json") for a in project.agents]}
+    return {"agents": [a.model_dump(mode="json", by_alias=True) for a in project.agents]}
 
 
 @app.post("/api/projects/{project_id}/agents")
@@ -326,7 +326,7 @@ async def create_agent(project_id: str, data: dict):
         
         project.agents.append(agent)
         project_manager.save_project(project)
-        return {"agent": agent.model_dump(mode="json")}
+        return {"agent": agent.model_dump(mode="json", by_alias=True)}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -355,7 +355,7 @@ async def update_agent(project_id: str, agent_id: str, data: dict):
                 
                 project.agents[i] = updated
                 project_manager.save_project(project)
-                return {"agent": updated.model_dump(mode="json")}
+                return {"agent": updated.model_dump(mode="json", by_alias=True)}
             except Exception as e:
                 raise HTTPException(status_code=400, detail=str(e))
     
