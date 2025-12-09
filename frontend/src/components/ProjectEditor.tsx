@@ -162,8 +162,8 @@ export default function ProjectEditor() {
         .top-bar {
           display: flex;
           align-items: center;
-          justify-content: space-between;
-          padding: 12px 20px;
+          gap: 16px;
+          padding: 8px 16px;
           background: var(--bg-secondary);
           border-bottom: 1px solid var(--border-color);
         }
@@ -171,7 +171,8 @@ export default function ProjectEditor() {
         .top-bar-left {
           display: flex;
           align-items: center;
-          gap: 16px;
+          gap: 12px;
+          flex-shrink: 0;
         }
         
         .back-btn {
@@ -198,6 +199,8 @@ export default function ProjectEditor() {
           display: flex;
           align-items: center;
           gap: 12px;
+          flex-shrink: 0;
+          margin-left: auto;
         }
         
         .save-indicator {
@@ -207,21 +210,26 @@ export default function ProjectEditor() {
         
         .tabs-bar {
           display: flex;
-          gap: 4px;
-          padding: 8px 20px;
-          background: var(--bg-primary);
-          border-bottom: 1px solid var(--border-color);
+          align-items: center;
+          gap: 2px;
         }
         
         .tab-btn {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 10px 16px;
+          gap: 6px;
+          padding: 6px 12px;
           border-radius: var(--radius-md);
           color: var(--text-secondary);
           font-weight: 500;
+          font-size: 13px;
           transition: all 0.2s ease;
+          white-space: nowrap;
+        }
+        
+        .tab-btn svg {
+          width: 14px;
+          height: 14px;
         }
         
         .tab-btn:hover {
@@ -249,12 +257,23 @@ export default function ProjectEditor() {
         <div className="top-bar-left">
           <button className="back-btn" onClick={() => navigate('/')}>
             <ArrowLeft size={18} />
-            Projects
+            Project
           </button>
           <h1 className="project-name">{project.name}</h1>
         </div>
+        <nav className="tabs-bar">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => handleTabChange(tab.id)}
+            >
+              <tab.icon size={14} />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
         <div className="top-bar-right">
-          {hasUnsavedChanges && <span className="save-indicator">Unsaved changes</span>}
           <button 
             className="btn btn-primary" 
             onClick={handleSave}
@@ -265,19 +284,6 @@ export default function ProjectEditor() {
           </button>
         </div>
       </header>
-      
-      <nav className="tabs-bar">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => handleTabChange(tab.id)}
-          >
-            <tab.icon size={16} />
-            {tab.label}
-          </button>
-        ))}
-      </nav>
       
       <main className="main-content">
         {activeTab === 'app' && <AppConfigPanel />}

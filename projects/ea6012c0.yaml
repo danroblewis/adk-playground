@@ -210,8 +210,8 @@ agents:
     The Next Generation lore.'
   model:
     provider: litellm
-    model_name: ollama/qwen3:8b
-    api_base: http://node2:32504
+    model_name: gemini/gemini-2.5-flash
+    api_base: null
     fallbacks: []
     temperature: null
     max_output_tokens: null
