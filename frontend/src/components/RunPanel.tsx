@@ -259,6 +259,19 @@ function EventDetail({ event }: { event: RunEvent }) {
           )}
         </div>
       )}
+      
+      {/* Raw JSON - always at the end */}
+      <div className="detail-section">
+        <div className="section-header" onClick={() => toggleSection('raw')}>
+          {expandedSections.has('raw') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <span>Raw JSON</span>
+        </div>
+        {expandedSections.has('raw') && (
+          <div className="section-content">
+            <pre className="raw-json">{JSON.stringify(event, null, 2)}</pre>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1868,6 +1881,19 @@ export default function RunPanel() {
           border-radius: 4px;
           max-height: 300px;
           overflow-y: auto;
+        }
+        
+        .raw-json {
+          white-space: pre-wrap;
+          word-break: break-all;
+          background: #09090b;
+          padding: 8px;
+          border-radius: 4px;
+          max-height: 400px;
+          overflow-y: auto;
+          font-size: 10px;
+          color: #71717a;
+          border: 1px solid #27272a;
         }
         
         /* State Snapshot */
