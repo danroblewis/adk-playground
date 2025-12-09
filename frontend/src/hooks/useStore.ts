@@ -1,17 +1,26 @@
 import { create } from 'zustand';
 import type { Project, AgentConfig, CustomToolDefinition, MCPServerConfig, BuiltinTool, RunEvent } from '../utils/types';
 
+// Watch result snapshot
+export interface WatchResultSnapshot {
+  eventIndex: number;
+  timestamp: number;
+  result?: any;
+  error?: string;
+}
+
 // Watch expression type for Tool Watch panel
-interface WatchExpression {
+export interface WatchExpression {
   id: string;
   serverName: string;
   toolName: string;
   args: Record<string, any>;
   transform?: string;
-  result?: any;
+  result?: any;  // Current/latest result
   error?: string;
   isLoading?: boolean;
   lastRun?: number;
+  history: WatchResultSnapshot[];  // History of results at each event
 }
 
 interface Store {
@@ -47,6 +56,7 @@ interface Store {
   updateWatch: (id: string, updates: Partial<WatchExpression>) => void;
   addWatch: (watch: WatchExpression) => void;
   removeWatch: (id: string) => void;
+  clearWatchHistories: () => void;
   
   // UI state
   activeTab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml';
@@ -97,6 +107,9 @@ export const useStore = create<Store>((set, get) => ({
   })),
   addWatch: (watch) => set((state) => ({ watches: [...state.watches, watch] })),
   removeWatch: (id) => set((state) => ({ watches: state.watches.filter(w => w.id !== id) })),
+  clearWatchHistories: () => set((state) => ({
+    watches: state.watches.map(w => ({ ...w, history: [], result: undefined, error: undefined }))
+  })),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setHasUnsavedChanges: (has) => set({ hasUnsavedChanges: has }),

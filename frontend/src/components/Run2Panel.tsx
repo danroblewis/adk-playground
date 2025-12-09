@@ -312,18 +312,8 @@ function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; sel
   );
 }
 
-// Watch expression type
-interface WatchExpression {
-  id: string;
-  serverName: string;
-  toolName: string;
-  args: Record<string, any>;
-  transform?: string;  // JavaScript transform expression
-  result?: any;
-  error?: string;
-  isLoading?: boolean;
-  lastRun?: number;
-}
+// Import WatchExpression type from store
+import type { WatchExpression } from '../hooks/useStore';
 
 // Extract clean result text from MCP response
 function extractResultText(result: any): { text: string; isError: boolean } {
@@ -386,7 +376,7 @@ function applyTransform(text: string, transform: string | undefined): string {
 }
 
 // Tool Watch Panel component
-function ToolWatchPanel({ project }: { project: Project }) {
+function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; selectedEventIndex: number | null }) {
   // Use global store for watches so they persist across tab switches
   const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch, runEvents } = useStore();
   
@@ -420,11 +410,12 @@ function ToolWatchPanel({ project }: { project: Project }) {
   useEffect(() => {
     if (!autoRefresh) return;
     if (runEvents.length > lastEventCountRef.current && watches.length > 0) {
+      const newEventIndex = runEvents.length - 1;
       // New event(s) added, refresh all watches
       watches.forEach(watch => {
         // Don't re-run if already loading
         if (!watch.isLoading) {
-          runWatchRef.current?.(watch);
+          runWatchRef.current?.(watch, newEventIndex);
         }
       });
     }
@@ -581,7 +572,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
       // Re-run the watch with new config
       const updatedWatch = watches.find(w => w.id === editingWatchId);
       if (updatedWatch) {
-        runWatch({ ...updatedWatch, serverName: formServerName, toolName: formToolName, args: formArgs, transform: formTransform || undefined });
+        runWatch({ ...updatedWatch, serverName: formServerName, toolName: formToolName, args: formArgs, transform: formTransform || undefined, history: updatedWatch.history || [] });
       }
     } else {
       // Add new watch
@@ -591,6 +582,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
         toolName: formToolName,
         args: { ...formArgs },
         transform: formTransform || undefined,
+        history: [],
       };
       storeAddWatch(watch);
       // Run immediately
@@ -604,8 +596,11 @@ function ToolWatchPanel({ project }: { project: Project }) {
     storeRemoveWatch(id);
   };
   
-  const runWatch = useCallback(async (watch: WatchExpression) => {
+  const runWatch = useCallback(async (watch: WatchExpression, eventIndex?: number) => {
     updateWatch(watch.id, { isLoading: true, error: undefined });
+    
+    const currentEventIndex = eventIndex ?? runEvents.length - 1;
+    const timestamp = Date.now();
     
     try {
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
@@ -617,11 +612,20 @@ function ToolWatchPanel({ project }: { project: Project }) {
           arguments: watch.args,
         }),
       });
-      updateWatch(watch.id, { result, isLoading: false, lastRun: Date.now() });
+      
+      // Add to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, result };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { result, isLoading: false, lastRun: timestamp, history });
     } catch (err) {
-      updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: Date.now() });
+      // Add error to history
+      const newSnapshot = { eventIndex: currentEventIndex, timestamp, error: String(err) };
+      const history = [...(watch.history || []), newSnapshot];
+      
+      updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: timestamp, history });
     }
-  }, [project.id, updateWatch]);
+  }, [project.id, updateWatch, runEvents.length]);
   
   // Keep ref updated for the auto-refresh effect
   useEffect(() => {
@@ -671,13 +675,32 @@ function ToolWatchPanel({ project }: { project: Project }) {
       ) : (
         <div className="watch-list">
           {watches.map(watch => {
-            const { text, isError } = watch.result 
-              ? extractResultText(watch.result)
+            // Find the result at or before the selected event index
+            let resultToShow = watch.result;
+            let errorToShow = watch.error;
+            
+            if (selectedEventIndex !== null && watch.history && watch.history.length > 0) {
+              // Find the most recent snapshot at or before selectedEventIndex
+              const relevantSnapshots = watch.history.filter(s => s.eventIndex <= selectedEventIndex);
+              if (relevantSnapshots.length > 0) {
+                const latestSnapshot = relevantSnapshots[relevantSnapshots.length - 1];
+                resultToShow = latestSnapshot.result;
+                errorToShow = latestSnapshot.error;
+              } else {
+                // No snapshots at or before this event
+                resultToShow = undefined;
+                errorToShow = undefined;
+              }
+            }
+            
+            const { text, isError } = resultToShow 
+              ? extractResultText(resultToShow)
               : { text: '', isError: false };
-            const displayText = watch.result ? applyTransform(text, watch.transform) : '';
+            const displayText = resultToShow ? applyTransform(text, watch.transform) : '';
+            const hasError = errorToShow || isError;
             
             return (
-              <div key={watch.id} className={`watch-item ${watch.error || isError ? 'error' : ''}`}>
+              <div key={watch.id} className={`watch-item ${hasError ? 'error' : ''}`}>
                 <div className="watch-item-header">
                   <span className="watch-expr">
                     <span className="watch-server">{watch.serverName}</span>
@@ -686,6 +709,9 @@ function ToolWatchPanel({ project }: { project: Project }) {
                       <span className="watch-args">
                         ({Object.entries(watch.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')})
                       </span>
+                    )}
+                    {selectedEventIndex !== null && (
+                      <span className="watch-time-indicator">@{selectedEventIndex}</span>
                     )}
                   </span>
                   <div className="watch-item-actions">
@@ -703,12 +729,12 @@ function ToolWatchPanel({ project }: { project: Project }) {
                 <div className="watch-result">
                   {watch.isLoading ? (
                     <span className="loading">Loading...</span>
-                  ) : watch.error ? (
-                    <span className="error">{watch.error}</span>
-                  ) : watch.result ? (
+                  ) : errorToShow ? (
+                    <span className="error">{errorToShow}</span>
+                  ) : resultToShow ? (
                     <pre className={isError ? 'error-text' : ''}>{displayText}</pre>
                   ) : (
-                    <span className="no-result">Not yet run</span>
+                    <span className="no-result">{selectedEventIndex !== null ? 'No data at this event' : 'Not yet run'}</span>
                   )}
                 </div>
               </div>
@@ -871,7 +897,7 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function Run2Panel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories } = useStore();
   
   // UI state
   const [userInput, setUserInput] = useState('');
@@ -963,6 +989,7 @@ export default function Run2Panel() {
     }
     
     clearRunEvents();
+    clearWatchHistories();  // Clear watch histories when starting a new run
     setIsRunning(true);
     setSelectedEventIndex(null);
     setTimeRange(null);
@@ -1878,6 +1905,17 @@ export default function Run2Panel() {
           white-space: nowrap;
         }
         
+        .watch-time-indicator {
+          color: #3b82f6;
+          font-size: 9px;
+          font-weight: 500;
+          margin-left: 4px;
+          background: #3b82f620;
+          padding: 1px 4px;
+          border-radius: 3px;
+          flex-shrink: 0;
+        }
+        
         .watch-item-actions {
           display: flex;
           gap: 4px;
@@ -2430,7 +2468,7 @@ export default function Run2Panel() {
           
           <div className="side-panel-content">
             {showToolRunner ? (
-              <ToolWatchPanel project={project} />
+              <ToolWatchPanel project={project} selectedEventIndex={selectedEventIndex} />
             ) : showStatePanel ? (
               <StateSnapshot 
                 events={runEvents} 
