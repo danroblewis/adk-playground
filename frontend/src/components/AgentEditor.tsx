@@ -1450,6 +1450,9 @@ function ToolsEditor({
 }
 
 // Model selector component
+// Uses a special marker in model config to track if using an app model
+// model._appModelId = "id" means use that app model
+// No _appModelId means custom config
 function ModelSelector({
   agent,
   appModels,
@@ -1459,32 +1462,59 @@ function ModelSelector({
   agent: LlmAgentConfig;
   appModels: AppModelConfig[];
   defaultModelId?: string;
-  onUpdate: (model: ModelConfig) => void;
+  onUpdate: (model: ModelConfig | null) => void;
 }) {
-  const [useCustom, setUseCustom] = useState(() => {
-    // Check if current model matches any app model
-    if (!agent.model) return false;
-    return !appModels.some(m => 
-      m.provider === agent.model?.provider && 
-      m.model_name === agent.model?.model_name &&
-      m.api_base === agent.model?.api_base
-    );
-  });
+  // Determine if using an app model by checking for _appModelId marker
+  const appModelId = (agent.model as any)?._appModelId as string | undefined;
+  const useCustom = agent.model !== null && agent.model !== undefined && !appModelId;
   
-  const [selectedModelId, setSelectedModelId] = useState(() => {
-    // Find matching app model
+  // Find the current app model (either by marker or by matching config for legacy)
+  const currentAppModelId = appModelId || (() => {
+    if (!agent.model) return defaultModelId;
     const match = appModels.find(m => 
       m.provider === agent.model?.provider && 
       m.model_name === agent.model?.model_name &&
       m.api_base === agent.model?.api_base
     );
-    return match?.id || defaultModelId || appModels[0]?.id;
-  });
+    return match?.id;
+  })();
+  
+  const selectedModelId = currentAppModelId || defaultModelId || appModels[0]?.id;
+  
+  // When using an app model, sync the agent's model config if the app model has changed
+  React.useEffect(() => {
+    if (appModelId) {
+      const appModel = appModels.find(m => m.id === appModelId);
+      if (appModel) {
+        // Check if the agent's model config is out of sync with the app model
+        const needsSync = 
+          agent.model?.provider !== appModel.provider ||
+          agent.model?.model_name !== appModel.model_name ||
+          agent.model?.api_base !== appModel.api_base ||
+          agent.model?.temperature !== appModel.temperature ||
+          agent.model?.max_output_tokens !== appModel.max_output_tokens;
+        
+        if (needsSync) {
+          onUpdate({
+            provider: appModel.provider,
+            model_name: appModel.model_name,
+            api_base: appModel.api_base,
+            temperature: appModel.temperature,
+            max_output_tokens: appModel.max_output_tokens,
+            top_p: appModel.top_p,
+            top_k: appModel.top_k,
+            fallbacks: [],
+            _appModelId: appModelId,
+          } as ModelConfig);
+        }
+      }
+    }
+  }, [appModelId, appModels, agent.model, onUpdate]);
   
   function selectAppModel(modelId: string) {
-    setSelectedModelId(modelId);
     const model = appModels.find(m => m.id === modelId);
     if (model) {
+      // Store with _appModelId marker so we know it's linked to an app model
       onUpdate({
         provider: model.provider,
         model_name: model.model_name,
@@ -1493,25 +1523,40 @@ function ModelSelector({
         max_output_tokens: model.max_output_tokens,
         top_p: model.top_p,
         top_k: model.top_k,
-        fallbacks: []
-      });
+        fallbacks: [],
+        _appModelId: modelId,
+      } as ModelConfig);
     }
   }
   
   function toggleCustom() {
     if (useCustom) {
-      // Switch to app model
-      setUseCustom(false);
-      if (selectedModelId) {
-        selectAppModel(selectedModelId);
+      // Switch to app model - select default or first available
+      const modelId = defaultModelId || appModels[0]?.id;
+      if (modelId) {
+        selectAppModel(modelId);
       }
     } else {
-      setUseCustom(true);
+      // Switch to custom - remove the marker but keep the config
+      const currentModel = agent.model;
+      if (currentModel) {
+        const { _appModelId, ...rest } = currentModel as any;
+        onUpdate(rest as ModelConfig);
+      } else {
+        // No model yet, create a default custom config
+        onUpdate({
+          provider: 'gemini',
+          model_name: 'gemini-2.0-flash',
+          fallbacks: [],
+        });
+      }
     }
   }
   
   function updateCustomModel(updates: Partial<ModelConfig>) {
-    onUpdate({ ...agent.model!, ...updates });
+    // When updating custom model, ensure no _appModelId marker
+    const { _appModelId, ...currentModel } = (agent.model || {}) as any;
+    onUpdate({ ...currentModel, ...updates });
   }
   
   const selectedModel = appModels.find(m => m.id === selectedModelId);
