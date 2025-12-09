@@ -314,7 +314,8 @@ function StateSnapshot({ events, selectedEventIndex }: { events: RunEvent[]; sel
 
 // Import WatchExpression type from store
 import type { WatchExpression } from '../hooks/useStore';
-import jmespath from 'jmespath';
+// @ts-ignore - jq-web doesn't have types
+import jq from 'jq-web';
 
 // Extract clean result text from MCP response
 function extractResultText(result: any): { text: string; isError: boolean } {
@@ -361,8 +362,8 @@ function extractResultText(result: any): { text: string; isError: boolean } {
   };
 }
 
-// Apply transform to result - supports both JMESPath queries and JavaScript expressions
-// JMESPath: starts with "jq:" or just use JMESPath syntax directly (e.g., "data.items[0].name")
+// Apply transform to result - supports both jq queries and JavaScript expressions
+// jq: default syntax (e.g., ".items[0].name", ".content[].text")
 // JavaScript: starts with "js:" (e.g., "js:value.split('\n')[0]")
 function applyTransform(text: string, transform: string | undefined): string {
   if (!transform || !transform.trim()) return text;
@@ -390,27 +391,26 @@ function applyTransform(text: string, transform: string | undefined): string {
     }
   }
   
-  // JMESPath query (default, or explicit "jq:" prefix)
-  const jmesExpr = trimmed.startsWith('jq:') ? trimmed.slice(3).trim() : trimmed;
+  // jq query (default)
   try {
-    const result = jmespath.search(data, jmesExpr);
+    const result = jq.json(data, trimmed);
     if (result === null || result === undefined) {
       return '[No match]';
     }
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   } catch (e: any) {
-    // If JMESPath fails and no explicit prefix, try as JS expression
-    if (!trimmed.startsWith('jq:')) {
+    // If jq fails and doesn't start with ".", try as JS expression
+    if (!trimmed.startsWith('.')) {
       try {
         // eslint-disable-next-line no-new-func
         const fn = new Function('value', 'data', `return ${trimmed}`);
         const result = fn(text, data);
         return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
       } catch {
-        // Return JMESPath error
+        // Return jq error
       }
     }
-    return `[JMESPath error: ${e.message || e}]`;
+    return `[jq error: ${e.message || e}]`;
   }
 }
 
@@ -886,13 +886,14 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
                   type="text"
                   value={formTransform}
                   onChange={e => setFormTransform(e.target.value)}
-                  placeholder="e.g., items[0].name or content[*].text"
+                  placeholder="e.g., .items[0].name or .content[].text"
                 />
                 <div className="transform-hints">
-                  <span className="hint-title">JMESPath:</span>
-                  <code onClick={() => setFormTransform('items[0].name')}>items[0].name</code>
-                  <code onClick={() => setFormTransform('content[*].text')}>content[*].text</code>
-                  <code onClick={() => setFormTransform('result.content[0].text')}>result.content[0].text</code>
+                  <span className="hint-title">jq:</span>
+                  <code onClick={() => setFormTransform('.items[0].name')}>.items[0].name</code>
+                  <code onClick={() => setFormTransform('.content[].text')}>.content[].text</code>
+                  <code onClick={() => setFormTransform('.result.content[0].text')}>.result.content[0].text</code>
+                  <code onClick={() => setFormTransform('.[] | select(.status == "active")')}>.[] | select()</code>
                   <span className="hint-title">JS:</span>
                   <code onClick={() => setFormTransform("js:value.split('\\n')[0]")}>js:value.split('\n')[0]</code>
                   <code onClick={() => setFormTransform('js:data.length')}>js:data.length</code>
