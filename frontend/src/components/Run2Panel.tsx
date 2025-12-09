@@ -390,15 +390,16 @@ function ToolWatchPanel({ project }: { project: Project }) {
   // Use global store for watches so they persist across tab switches
   const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch } = useStore();
   
-  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingWatchId, setEditingWatchId] = useState<string | null>(null);  // null = adding new
   const [availableTools, setAvailableTools] = useState<Record<string, any[]>>({});
   const [loadingServers, setLoadingServers] = useState<Set<string>>(new Set());
   
-  // New watch form state
-  const [newServerName, setNewServerName] = useState('');
-  const [newToolName, setNewToolName] = useState('');
-  const [newArgs, setNewArgs] = useState<Record<string, any>>({});
-  const [newTransform, setNewTransform] = useState('');
+  // Form state (used for both add and edit)
+  const [formServerName, setFormServerName] = useState('');
+  const [formToolName, setFormToolName] = useState('');
+  const [formArgs, setFormArgs] = useState<Record<string, any>>({});
+  const [formTransform, setFormTransform] = useState('');
   const [knownServers, setKnownServers] = useState<MCPServerConfig[]>([]);
   
   // Fetch known MCP servers on mount
@@ -439,16 +440,17 @@ function ToolWatchPanel({ project }: { project: Project }) {
     }
   }, [project.id, availableTools, loadingServers]);
   
-  // Update args when tool changes
+  // Update args when tool changes (only when adding new, not editing)
   useEffect(() => {
-    if (!newServerName || !newToolName) {
-      setNewArgs({});
+    if (editingWatchId) return;  // Don't auto-update args when editing
+    if (!formServerName || !formToolName) {
+      setFormArgs({});
       return;
     }
-    const tools = availableTools[newServerName] || [];
-    const tool = tools.find(t => t.name === newToolName);
+    const tools = availableTools[formServerName] || [];
+    const tool = tools.find(t => t.name === formToolName);
     if (!tool?.parameters?.properties) {
-      setNewArgs({});
+      setFormArgs({});
       return;
     }
     const placeholders: Record<string, any> = {};
@@ -458,26 +460,65 @@ function ToolWatchPanel({ project }: { project: Project }) {
       else if (schema.type === 'boolean') placeholders[key] = schema.default || false;
       else placeholders[key] = schema.default || null;
     });
-    setNewArgs(placeholders);
-  }, [newServerName, newToolName, availableTools]);
+    setFormArgs(placeholders);
+  }, [formServerName, formToolName, availableTools, editingWatchId]);
   
-  const addWatch = () => {
-    if (!newServerName || !newToolName) return;
-    const watch: WatchExpression = {
-      id: `watch-${Date.now()}`,
-      serverName: newServerName,
-      toolName: newToolName,
-      args: { ...newArgs },
-      transform: newTransform || undefined,
-    };
-    storeAddWatch(watch);
-    setShowAddDialog(false);
-    setNewServerName('');
-    setNewToolName('');
-    setNewArgs({});
-    setNewTransform('');
-    // Run immediately
-    runWatch(watch);
+  // Open dialog for adding new watch
+  const openAddDialog = () => {
+    setEditingWatchId(null);
+    setFormServerName('');
+    setFormToolName('');
+    setFormArgs({});
+    setFormTransform('');
+    setShowDialog(true);
+  };
+  
+  // Open dialog for editing existing watch
+  const openEditDialog = (watch: WatchExpression) => {
+    setEditingWatchId(watch.id);
+    setFormServerName(watch.serverName);
+    setFormToolName(watch.toolName);
+    setFormArgs({ ...watch.args });
+    setFormTransform(watch.transform || '');
+    // Load tools for the server if not already loaded
+    if (!availableTools[watch.serverName]) {
+      loadServerTools(watch.serverName);
+    }
+    setShowDialog(true);
+  };
+  
+  // Save (add or update) watch
+  const saveWatch = () => {
+    if (!formServerName || !formToolName) return;
+    
+    if (editingWatchId) {
+      // Update existing watch
+      updateWatch(editingWatchId, {
+        serverName: formServerName,
+        toolName: formToolName,
+        args: { ...formArgs },
+        transform: formTransform || undefined,
+      });
+      // Re-run the watch with new config
+      const updatedWatch = watches.find(w => w.id === editingWatchId);
+      if (updatedWatch) {
+        runWatch({ ...updatedWatch, serverName: formServerName, toolName: formToolName, args: formArgs, transform: formTransform || undefined });
+      }
+    } else {
+      // Add new watch
+      const watch: WatchExpression = {
+        id: `watch-${Date.now()}`,
+        serverName: formServerName,
+        toolName: formToolName,
+        args: { ...formArgs },
+        transform: formTransform || undefined,
+      };
+      storeAddWatch(watch);
+      // Run immediately
+      runWatch(watch);
+    }
+    
+    setShowDialog(false);
   };
   
   const removeWatch = (id: string) => {
@@ -508,10 +549,10 @@ function ToolWatchPanel({ project }: { project: Project }) {
   };
   
   const selectedToolSchema = useMemo(() => {
-    if (!newServerName || !newToolName) return null;
-    const tools = availableTools[newServerName] || [];
-    return tools.find(t => t.name === newToolName);
-  }, [newServerName, newToolName, availableTools]);
+    if (!formServerName || !formToolName) return null;
+    const tools = availableTools[formServerName] || [];
+    return tools.find(t => t.name === formToolName);
+  }, [formServerName, formToolName, availableTools]);
   
   return (
     <div className="tool-watch-panel">
@@ -522,7 +563,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
           <button className="watch-btn" onClick={runAllWatches} title="Refresh all">
             <RefreshCw size={12} />
           </button>
-          <button className="watch-btn" onClick={() => setShowAddDialog(true)} title="Add watch">
+          <button className="watch-btn" onClick={openAddDialog} title="Add watch">
             <Plus size={12} />
           </button>
         </div>
@@ -532,7 +573,7 @@ function ToolWatchPanel({ project }: { project: Project }) {
         <div className="watch-empty">
           <Eye size={20} style={{ opacity: 0.3 }} />
           <span>No watch expressions</span>
-          <button className="add-watch-btn" onClick={() => setShowAddDialog(true)}>
+          <button className="add-watch-btn" onClick={openAddDialog}>
             <Plus size={12} /> Add Tool Watch
           </button>
         </div>
@@ -557,17 +598,8 @@ function ToolWatchPanel({ project }: { project: Project }) {
                     )}
                   </span>
                   <div className="watch-item-actions">
-                    <button 
-                      onClick={() => {
-                        const transform = prompt('Transform expression (use "value" for input):', watch.transform || '');
-                        if (transform !== null) {
-                          updateWatch(watch.id, { transform });
-                        }
-                      }} 
-                      title="Edit transform"
-                      style={{ opacity: watch.transform ? 1 : 0.5 }}
-                    >
-                      <Zap size={10} />
+                    <button onClick={() => openEditDialog(watch)} title="Edit watch">
+                      <Wrench size={10} />
                     </button>
                     <button onClick={() => runWatch(watch)} title="Refresh">
                       {watch.isLoading ? <RefreshCw size={10} className="spin" /> : <RefreshCw size={10} />}
@@ -594,23 +626,23 @@ function ToolWatchPanel({ project }: { project: Project }) {
         </div>
       )}
       
-      {/* Add Watch Dialog */}
-      {showAddDialog && (
-        <div className="watch-dialog-overlay" onClick={() => setShowAddDialog(false)}>
+      {/* Add/Edit Watch Dialog */}
+      {showDialog && (
+        <div className="watch-dialog-overlay" onClick={() => setShowDialog(false)}>
           <div className="watch-dialog" onClick={e => e.stopPropagation()}>
             <div className="dialog-header">
-              <span>Add Tool Watch</span>
-              <button onClick={() => setShowAddDialog(false)}><X size={14} /></button>
+              <span>{editingWatchId ? 'Edit Watch' : 'Add Tool Watch'}</span>
+              <button onClick={() => setShowDialog(false)}><X size={14} /></button>
             </div>
             
             <div className="dialog-body">
               <div className="form-row">
                 <label>MCP Server</label>
                 <select 
-                  value={newServerName} 
+                  value={formServerName} 
                   onChange={e => {
-                    setNewServerName(e.target.value);
-                    setNewToolName('');
+                    setFormServerName(e.target.value);
+                    if (!editingWatchId) setFormToolName('');  // Only clear tool when adding new
                     if (e.target.value) loadServerTools(e.target.value);
                   }}
                 >
@@ -624,14 +656,14 @@ function ToolWatchPanel({ project }: { project: Project }) {
               <div className="form-row">
                 <label>Tool</label>
                 <select 
-                  value={newToolName} 
-                  onChange={e => setNewToolName(e.target.value)}
-                  disabled={!newServerName || loadingServers.has(newServerName)}
+                  value={formToolName} 
+                  onChange={e => setFormToolName(e.target.value)}
+                  disabled={!formServerName || loadingServers.has(formServerName)}
                 >
                   <option value="">
-                    {loadingServers.has(newServerName) ? 'Loading tools...' : 'Select tool...'}
+                    {loadingServers.has(formServerName) ? 'Loading tools...' : 'Select tool...'}
                   </option>
-                  {(availableTools[newServerName] || []).map(tool => (
+                  {(availableTools[formServerName] || []).map(tool => (
                     <option key={tool.name} value={tool.name}>{tool.name}</option>
                   ))}
                 </select>
@@ -652,8 +684,8 @@ function ToolWatchPanel({ project }: { project: Project }) {
                       </span>
                       <input
                         type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'}
-                        value={typeof newArgs[key] === 'object' ? JSON.stringify(newArgs[key]) : newArgs[key] ?? ''}
-                        onChange={e => setNewArgs(prev => ({ ...prev, [key]: e.target.value }))}
+                        value={typeof formArgs[key] === 'object' ? JSON.stringify(formArgs[key]) : formArgs[key] ?? ''}
+                        onChange={e => setFormArgs(prev => ({ ...prev, [key]: e.target.value }))}
                         placeholder={schema.description?.slice(0, 40) || key}
                       />
                     </div>
@@ -665,8 +697,8 @@ function ToolWatchPanel({ project }: { project: Project }) {
                 <label>Transform (optional)</label>
                 <input
                   type="text"
-                  value={newTransform}
-                  onChange={e => setNewTransform(e.target.value)}
+                  value={formTransform}
+                  onChange={e => setFormTransform(e.target.value)}
                   placeholder="e.g., value.split('\\n')[0] or JSON.parse(value)"
                 />
                 <span className="form-hint">JS expression. Use "value" for the result text.</span>
@@ -674,9 +706,9 @@ function ToolWatchPanel({ project }: { project: Project }) {
             </div>
             
             <div className="dialog-footer">
-              <button className="cancel-btn" onClick={() => setShowAddDialog(false)}>Cancel</button>
-              <button className="add-btn" onClick={addWatch} disabled={!newServerName || !newToolName}>
-                Add Watch
+              <button className="cancel-btn" onClick={() => setShowDialog(false)}>Cancel</button>
+              <button className="add-btn" onClick={saveWatch} disabled={!formServerName || !formToolName}>
+                {editingWatchId ? 'Save Changes' : 'Add Watch'}
               </button>
             </div>
           </div>
