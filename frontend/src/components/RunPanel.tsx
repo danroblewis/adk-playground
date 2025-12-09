@@ -2927,14 +2927,11 @@ export default function RunPanel() {
                     key={globalIndex}
                     className={`event-row ${selectedEventIndex === globalIndex ? 'selected' : ''}`}
                     style={{ background: colors.bg }}
-                    onClick={() => {
-                      setSelectedEventIndex(globalIndex);
+                    onClick={() => setSelectedEventIndex(globalIndex)}
+                    onDoubleClick={() => {
+                      // Switch to Details tab
                       setShowStatePanel(false);
                       setShowToolRunner(false);
-                    }}
-                    onDoubleClick={() => {
-                      // Set time range to this event and next few seconds
-                      setTimeRange([event.timestamp, event.timestamp + 5]);
                     }}
                   >
                     <div className="index">{globalIndex}</div>

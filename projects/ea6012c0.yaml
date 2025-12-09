@@ -269,7 +269,7 @@ agents:
     and philosophical themes. Output stories in plain text with clear beginning, middle,
     and end. Use the save_story tool to persist drafts before finalizing. Follow all
     loop agent guidelines for version control and feedback integration.'
-  output_key: null
+  output_key: startrek_story
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
