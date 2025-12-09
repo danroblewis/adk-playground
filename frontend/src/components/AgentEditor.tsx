@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig } from '../utils/types';
 import { generatePrompt } from '../utils/api';
@@ -10,7 +10,7 @@ interface Props {
 }
 
 export default function AgentEditor({ agent }: Props) {
-  const { project, updateAgent, mcpServers, builtinTools } = useStore();
+  const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRun2AgentId } = useStore();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
@@ -201,6 +201,15 @@ Your response (5-10 words only):`;
         .editor-header input:focus {
           background: var(--bg-tertiary);
           border-radius: var(--radius-sm);
+        }
+        
+        .editor-header .run-agent-btn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 12px;
+          font-size: 12px;
+          white-space: nowrap;
         }
         
         .editor-content {
@@ -490,6 +499,17 @@ Your response (5-10 words only):`;
           placeholder="Agent name"
         />
         <span className="badge badge-info">{agent.type}</span>
+        <button
+          className="btn btn-primary btn-sm run-agent-btn"
+          onClick={() => {
+            setRun2AgentId(agent.id);
+            setActiveTab('run2');
+          }}
+          title="Test this agent in Run2"
+        >
+          <Play size={14} />
+          Run
+        </button>
       </div>
       
       <div className="editor-content">

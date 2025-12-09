@@ -29,6 +29,11 @@ app:
     type: string
     default_value: null
     scope: session
+  - name: startrek_story
+    description: star trek story
+    type: string
+    default_value: null
+    scope: session
   artifacts: []
   models:
   - id: model_miw9xh0n
@@ -75,7 +80,7 @@ agents:
   name: refinement_loop
   description: Loops author/critic until satisfied
   sub_agents:
-  - agent_author_critic
+  - agent_miy5vj9v
   max_iterations: 3
 - type: LlmAgent
   id: agent_author
@@ -137,7 +142,7 @@ agents:
   model:
     provider: litellm
     model_name: ollama/qwen3:8b
-    api_base: http://node1:11434
+    api_base: http://node2:32504
     fallbacks: []
     temperature: null
     max_output_tokens: null
@@ -152,7 +157,7 @@ agents:
 
     If it needs improvement, provide specific feedback that will be used to improve
     the story. Do NOT call exit_loop if improvements are needed.'
-  output_key: story
+  output_key: null
   include_contents: default
   disallow_transfer_to_parent: false
   disallow_transfer_to_peers: false
@@ -219,11 +224,13 @@ agents:
   id: agent_miy5vj9v
   name: paralleler
   description: ''
-  sub_agents: []
+  sub_agents:
+  - agent_miy64tus
+  - agent_author_critic
 - type: LlmAgent
   id: agent_miy64tus
   name: startrek_writer
-  description: ''
+  description: Writes TNG stories, collaborates with critic, saves drafts
   model:
     provider: litellm
     model_name: ollama/qwen3:8b

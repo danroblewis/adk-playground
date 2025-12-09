@@ -725,14 +725,15 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         data = await websocket.receive_json()
         user_message = data.get("message", "")
         session_id = data.get("session_id", f"ws_{project_id}")
+        agent_id = data.get("agent_id")  # Optional: run specific agent instead of root
         
         await connection_manager.connect(websocket, session_id)
         
         async def event_callback(event: RunEvent):
             await connection_manager.send_event(session_id, event.model_dump(mode="json"))
         
-        # Run the agent
-        async for event in runtime_manager.run_agent(project, user_message, event_callback):
+        # Run the agent (optionally a specific agent instead of root)
+        async for event in runtime_manager.run_agent(project, user_message, event_callback, agent_id=agent_id):
             await websocket.send_json(event.model_dump(mode="json"))
         
         # Send completion message

@@ -945,7 +945,7 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function Run2Panel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories } = useStore();
+  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, run2AgentId, setRun2AgentId } = useStore();
   
   // UI state
   const [userInput, setUserInput] = useState('');
@@ -958,6 +958,16 @@ export default function Run2Panel() {
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
+  
+  // Initialize selectedAgentId from store (allows opening Run2 with specific agent)
+  useEffect(() => {
+    if (run2AgentId !== null) {
+      setSelectedAgentIdLocal(run2AgentId);
+      setRun2AgentId(null); // Clear after using
+    }
+  }, [run2AgentId, setRun2AgentId]);
+  
+  const [selectedAgentIdLocal, setSelectedAgentIdLocal] = useState<string | null>(null); // null = root agent
   
   const eventListRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1046,7 +1056,10 @@ export default function Run2Panel() {
     setWs(websocket);
     
     websocket.onopen = () => {
-      websocket.send(JSON.stringify({ message: userInput }));
+      websocket.send(JSON.stringify({ 
+        message: userInput,
+        agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
+      }));
     };
     
     websocket.onmessage = (event) => {
@@ -1080,7 +1093,7 @@ export default function Run2Panel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
-  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent]);
+  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal]);
   
   // Handle stop
   const handleStop = useCallback(() => {
@@ -1194,6 +1207,29 @@ export default function Run2Panel() {
           padding: 8px;
           background: #18181b;
           border-bottom: 1px solid #27272a;
+        }
+        
+        .input-area .agent-selector {
+          background: #09090b;
+          border: 1px solid #27272a;
+          border-radius: 4px;
+          padding: 8px 12px;
+          color: #e4e4e7;
+          font-family: inherit;
+          font-size: 11px;
+          min-width: 140px;
+          max-width: 200px;
+          cursor: pointer;
+        }
+        
+        .input-area .agent-selector:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        
+        .input-area .agent-selector:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
         
         .input-area input {
@@ -2375,6 +2411,24 @@ export default function Run2Panel() {
       
       {/* Input Area */}
       <div className="input-area">
+        <select
+          className="agent-selector"
+          value={selectedAgentIdLocal || ''}
+          onChange={e => setSelectedAgentIdLocal(e.target.value || null)}
+          disabled={isRunning}
+          title="Select which agent to run"
+        >
+          <option value="">
+            {project.app.root_agent_id 
+              ? `Root: ${project.agents.find(a => a.id === project.app.root_agent_id)?.name || project.app.root_agent_id}`
+              : 'No root agent'}
+          </option>
+          {project.agents.filter(a => a.id !== project.app.root_agent_id).map(agent => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name} ({agent.type.replace('Agent', '')})
+            </option>
+          ))}
+        </select>
         <input
           type="text"
           placeholder="Enter your query..."

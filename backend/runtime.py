@@ -260,8 +260,16 @@ class RuntimeManager:
         project: Project,
         user_message: str,
         event_callback,
+        agent_id: Optional[str] = None,
     ) -> AsyncGenerator[RunEvent, None]:
-        """Run an agent and stream events."""
+        """Run an agent and stream events.
+        
+        Args:
+            project: The project containing agents
+            user_message: User's input message
+            event_callback: Callback for events
+            agent_id: Optional agent ID to run. If None, uses project's root_agent_id
+        """
         session_id = str(uuid.uuid4())[:8]
         
         session = RunSession(
@@ -294,10 +302,14 @@ class RuntimeManager:
             # Build agents from config
             agents = self._build_agents(project)
             
-            if not project.app.root_agent_id or project.app.root_agent_id not in agents:
-                raise ValueError("No root agent configured")
+            # Determine which agent to run
+            target_agent_id = agent_id or project.app.root_agent_id
             
-            root_agent = agents[project.app.root_agent_id]
+            if not target_agent_id or target_agent_id not in agents:
+                available = list(agents.keys())
+                raise ValueError(f"Agent '{target_agent_id}' not found. Available agents: {available}")
+            
+            root_agent = agents[target_agent_id]
             
             # Create tracking plugin
             tracking = TrackingPlugin(session, event_callback)
