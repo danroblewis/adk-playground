@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import yaml
 
-from models import Project, AppConfig, AgentConfig, CustomToolDefinition
+from models import Project, AppConfig, AgentConfig, CustomToolDefinition, CustomCallbackDefinition
 
 
 class ProjectManager:
@@ -74,6 +74,8 @@ class ProjectManager:
             
             # Also save custom tools as separate Python files
             self._save_custom_tools(project)
+            # Also save custom callbacks as separate Python files
+            self._save_custom_callbacks(project)
             return True
         except Exception as e:
             print(f"Error saving project {project.id}: {e}")
