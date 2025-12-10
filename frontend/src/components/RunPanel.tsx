@@ -577,7 +577,17 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
               {key}
               {type && <span className="state-type">({type})</span>}
             </div>
-            <div className="state-value">
+            <div 
+              className="state-value"
+              onClick={() => {
+                if (value !== undefined) {
+                  const displayValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+                  setModalContent({ content: displayValue, title: key });
+                }
+              }}
+              style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
+              title={value !== undefined ? 'Click to view in markdown viewer' : undefined}
+            >
               {value === undefined 
                 ? '(not set)' 
                 : typeof value === 'string' 
