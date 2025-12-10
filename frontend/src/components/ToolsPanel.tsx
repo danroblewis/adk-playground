@@ -46,6 +46,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [isTestingMcp, setIsTestingMcp] = useState(false);
   const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; tools: { name: string; description: string }[]; message?: string; error?: string } | null>(null);
+  const [toolNameError, setToolNameError] = useState<string | null>(null);
   
   if (!project) return null;
   
