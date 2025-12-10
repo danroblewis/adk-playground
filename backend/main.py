@@ -1763,8 +1763,28 @@ async def health_check():
 # Mount frontend build in production mode
 # This serves the built frontend assets and handles SPA routing
 if PRODUCTION_MODE:
-    frontend_build = Path(__file__).parent.parent / "frontend" / "dist"
-    if frontend_build.exists():
+    # Try multiple locations: installed package location and source location
+    _backend_dir = Path(__file__).parent
+    _possible_locations = [
+        _backend_dir.parent / "frontend" / "dist",  # Source location
+        Path(__file__).parent.parent.parent / "frontend" / "dist",  # Alternative source
+    ]
+    
+    # Also try to find it relative to the package root
+    try:
+        import adk_playground
+        _package_root = Path(adk_playground.__file__).parent
+        _possible_locations.insert(0, _package_root / "frontend" / "dist")
+    except (ImportError, AttributeError):
+        pass
+    
+    frontend_build = None
+    for loc in _possible_locations:
+        if loc.exists():
+            frontend_build = loc
+            break
+    
+    if frontend_build and frontend_build.exists():
         # Serve static assets (JS, CSS, images, etc.) from /assets
         assets_dir = frontend_build / "assets"
         if assets_dir.exists():
