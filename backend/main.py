@@ -1770,25 +1770,30 @@ if PRODUCTION_MODE:
         _backend_dir.parent / "frontend" / "dist",  # Source location (development)
     ]
     
-    # Try to find it in the installed package using importlib.resources
+    # Try to find it in the installed package
     try:
-        from importlib import resources
+        import adk_playground
+        _package_root = Path(adk_playground.__file__).parent
+        # Check if frontend/dist is in the package
+        _package_frontend = _package_root / "frontend" / "dist"
+        _possible_locations.insert(0, _package_frontend)
+        print(f"Checking package root: {_package_root}", file=sys.stderr)
+        print(f"Checking: {_package_frontend} (exists: {_package_frontend.exists()})", file=sys.stderr)
+        
+        # Also try importlib.resources
         try:
-            # Try to access frontend/dist as package data from adk_playground package
-            with resources.path("adk_playground.frontend", "dist") as dist_path:
-                if Path(dist_path).exists():
-                    _possible_locations.insert(0, Path(dist_path))
-                    print(f"✅ Found frontend/dist via importlib.resources: {dist_path}", file=sys.stderr)
-        except (ModuleNotFoundError, TypeError, FileNotFoundError) as e:
-            # Fallback: try to find it relative to package
+            from importlib import resources
             try:
-                import adk_playground
-                _package_root = Path(adk_playground.__file__).parent
-                _possible_locations.insert(0, _package_root / "frontend" / "dist")
-                print(f"Checking package root: {_package_root}", file=sys.stderr)
-            except (ImportError, AttributeError):
-                pass
-    except ImportError:
+                with resources.path("adk_playground.frontend", "dist") as dist_path:
+                    if Path(dist_path).exists():
+                        _possible_locations.insert(0, Path(dist_path))
+                        print(f"✅ Found frontend/dist via importlib.resources: {dist_path}", file=sys.stderr)
+            except (ModuleNotFoundError, TypeError, FileNotFoundError, ValueError) as e:
+                print(f"importlib.resources failed: {e}", file=sys.stderr)
+        except ImportError:
+            pass
+    except (ImportError, AttributeError) as e:
+        print(f"Could not import adk_playground: {e}", file=sys.stderr)
         pass
     
     frontend_build = None
