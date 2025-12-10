@@ -392,13 +392,15 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
                 <div className="code-editor-container">
                   <Editor
                     height="100%"
-                    defaultLanguage="python"
+                    language="python"
+                    theme="vs-dark"
                     value={editingCode}
                     onChange={(value) => setEditingCode(value || '')}
                     onMount={handleMonacoMount}
                     options={{
                       minimap: { enabled: false },
                       fontSize: 13,
+                      fontFamily: "'JetBrains Mono', monospace",
                       lineNumbers: 'on',
                       scrollBeyondLastLine: false,
                       automaticLayout: true,
