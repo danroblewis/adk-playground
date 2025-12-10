@@ -385,8 +385,14 @@ export default function AppConfigPanel() {
             <input
               type="text"
               value={app.name}
-              onChange={(e) => updateApp({ name: e.target.value })}
+              onChange={(e) => handleAppNameChange(e.target.value)}
+              style={{ borderColor: appNameError ? 'var(--error)' : undefined }}
             />
+            {appNameError && (
+              <span style={{ fontSize: 11, color: 'var(--error)', marginTop: 4 }}>
+                {appNameError}
+              </span>
+            )}
           </div>
           <div className="form-group">
             <label>Root Agent</label>
