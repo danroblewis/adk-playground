@@ -345,12 +345,136 @@ function EventDetail({ event }: { event: RunEvent }) {
   );
 }
 
+// Markdown modal component
+import ReactMarkdown from 'react-markdown';
+
+function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body markdown-content">
+          <ReactMarkdown>{content}</ReactMarkdown>
+        </div>
+      </div>
+      <style>{`
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        }
+        .modal-content {
+          background: var(--bg-primary);
+          border-radius: var(--radius-lg);
+          width: 90%;
+          max-width: 800px;
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        .modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-color);
+        }
+        .modal-header h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+        }
+        .modal-close {
+          background: none;
+          border: none;
+          font-size: 24px;
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 0;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: var(--radius-sm);
+        }
+        .modal-close:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+        .modal-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 20px;
+        }
+        .markdown-content {
+          line-height: 1.6;
+        }
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3,
+        .markdown-content h4 {
+          margin-top: 1em;
+          margin-bottom: 0.5em;
+          font-weight: 600;
+        }
+        .markdown-content h1 { font-size: 1.5em; }
+        .markdown-content h2 { font-size: 1.3em; }
+        .markdown-content h3 { font-size: 1.1em; }
+        .markdown-content p {
+          margin: 0.5em 0;
+        }
+        .markdown-content code {
+          background: var(--bg-tertiary);
+          padding: 2px 6px;
+          border-radius: var(--radius-sm);
+          font-family: var(--font-mono);
+          font-size: 0.9em;
+        }
+        .markdown-content pre {
+          background: var(--bg-tertiary);
+          padding: 12px;
+          border-radius: var(--radius-md);
+          overflow-x: auto;
+          margin: 1em 0;
+        }
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+        }
+        .markdown-content ul,
+        .markdown-content ol {
+          margin: 0.5em 0;
+          padding-left: 1.5em;
+        }
+        .markdown-content blockquote {
+          border-left: 3px solid var(--accent-primary);
+          padding-left: 1em;
+          margin: 1em 0;
+          color: var(--text-secondary);
+        }
+      `}</style>
+    </div>
+  );
+}
+
 // State snapshot component - shows state after selected event
 function StateSnapshot({ events, selectedEventIndex, project }: { 
   events: RunEvent[]; 
   selectedEventIndex: number | null;
   project: Project | null;
 }) {
+  const [modalContent, setModalContent] = useState<{ content: string; title: string } | null>(null);
+  
   const state = useMemo(() => {
     const snapshot: Record<string, { value: any; timestamp: number | null; defined: boolean; description?: string; type?: string }> = {};
     
@@ -412,8 +536,16 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
   const entries = Object.entries(state);
   
   return (
-    <div className="state-snapshot">
-      <style>{`
+    <>
+      {modalContent && (
+        <MarkdownModal
+          content={modalContent.content}
+          title={modalContent.title}
+          onClose={() => setModalContent(null)}
+        />
+      )}
+      <div className="state-snapshot">
+        <style>{`
         .state-entry.unset {
           opacity: 0.6;
         }
@@ -460,7 +592,8 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           </div>
         ))
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
