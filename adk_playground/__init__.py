@@ -9,8 +9,12 @@ from pathlib import Path
 # Add parent directory to path so we can import backend
 _package_dir = Path(__file__).parent
 _parent_dir = _package_dir.parent
+# Add both parent and backend directory to path
 if str(_parent_dir) not in sys.path:
     sys.path.insert(0, str(_parent_dir))
+_backend_dir = _parent_dir / "backend"
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 
 def main():
