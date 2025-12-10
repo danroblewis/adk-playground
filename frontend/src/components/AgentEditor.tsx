@@ -1917,7 +1917,7 @@ function CallbacksEditor({
     <div className="callbacks-editor">
       {callbackTypes.map(({ key, label }) => {
         const callbacks = (agent[key] as CallbackConfig[]) || [];
-        const availableCallbacks = customCallbacks.filter(c => c.callback_type === key.replace('_callbacks', ''));
+        const availableCallbacks = customCallbacks;
         
         return (
           <div key={key} className="callback-type-group" style={{ marginBottom: '20px' }}>

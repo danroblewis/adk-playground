@@ -289,14 +289,6 @@ class CustomCallbackDefinition(BaseModel):
     description: str = ""
     module_path: str  # e.g., "callbacks.my_callbacks.logger"
     code: str  # Python code
-    callback_type: Literal[
-        "before_agent",
-        "after_agent",
-        "before_model",
-        "after_model",
-        "before_tool",
-        "after_tool",
-    ]
     state_keys_used: List[str] = Field(default_factory=list)
 
 

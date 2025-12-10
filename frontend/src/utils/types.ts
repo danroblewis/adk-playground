@@ -176,7 +176,6 @@ export interface CustomCallbackDefinition {
   description: string;
   module_path: string;
   code: string;
-  callback_type: 'before_agent' | 'after_agent' | 'before_model' | 'after_model' | 'before_tool' | 'after_tool';
   state_keys_used: string[];
 }
 

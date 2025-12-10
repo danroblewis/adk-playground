@@ -29,15 +29,6 @@ const DEFAULT_CALLBACK_CODE = `def my_callback(context: CallbackContext) -> None
     pass
 `;
 
-const CALLBACK_TYPES = [
-  { value: 'before_agent', label: 'Before Agent' },
-  { value: 'after_agent', label: 'After Agent' },
-  { value: 'before_model', label: 'Before Model' },
-  { value: 'after_model', label: 'After Model' },
-  { value: 'before_tool', label: 'Before Tool' },
-  { value: 'after_tool', label: 'After Tool' },
-] as const;
-
 interface CallbacksPanelProps {
   onSelectCallback?: (id: string | null) => void;
 }
@@ -74,7 +65,6 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
       description: '',
       module_path: 'callbacks.custom',
       code: DEFAULT_CALLBACK_CODE,
-      callback_type: 'before_agent',
       state_keys_used: []
     };
     addCustomCallback(callback);
@@ -117,7 +107,6 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
       code: editingCode,
       name,
       description: selectedCallback.description,
-      callback_type: selectedCallback.callback_type,
       module_path: selectedCallback.module_path,
       state_keys_used: selectedCallback.state_keys_used
     });
