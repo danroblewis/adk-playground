@@ -200,9 +200,9 @@ class MCPConnectionPool:
 mcp_pool = MCPConnectionPool()
 
 # Determine if we're in production mode (serving static files)
-# Set ADK_PLAYGROUND_MODE=production to enable static file serving
-# Default is dev mode (separate frontend server)
-PRODUCTION_MODE = os.environ.get("ADK_PLAYGROUND_MODE", "dev").lower() == "production"
+# Set ADK_PLAYGROUND_MODE=dev to use separate frontend dev server
+# Default is production mode (serves built frontend from package)
+PRODUCTION_MODE = os.environ.get("ADK_PLAYGROUND_MODE", "production").lower() == "production"
 
 # Create FastAPI app
 app = FastAPI(
