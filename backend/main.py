@@ -1772,14 +1772,32 @@ if PRODUCTION_MODE:
         try:
             # Try to access frontend/dist from the package
             frontend_dist = files("adk_playground.frontend.dist")
-            # Check if it's a directory with index.html
-            if frontend_dist.is_dir():
-                dist_path = Path(str(frontend_dist))
+            # Convert Traversable to Path
+            import tempfile
+            import shutil
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Copy files from package to temp directory
+                dist_path = Path(tmpdir) / "dist"
+                dist_path.mkdir()
+                for item in frontend_dist.iterdir():
+                    if item.is_file():
+                        shutil.copy(item, dist_path / item.name)
+                    elif item.is_dir():
+                        shutil.copytree(item, dist_path / item.name, dirs_exist_ok=True)
                 if (dist_path / "index.html").exists():
-                    frontend_build = dist_path
-                    print(f"✅ Found frontend/dist via importlib.resources.files: {frontend_build}", file=sys.stderr)
-        except (ModuleNotFoundError, TypeError, AttributeError) as e:
-            pass
+                    # Use the temp directory (or better, find the actual package location)
+                    # Actually, let's try to get the real path
+                    try:
+                        import adk_playground
+                        pkg_root = Path(adk_playground.__file__).parent
+                        real_dist = pkg_root / "frontend" / "dist"
+                        if real_dist.exists() and (real_dist / "index.html").exists():
+                            frontend_build = real_dist
+                            print(f"✅ Found frontend/dist at package: {frontend_build}", file=sys.stderr)
+                    except:
+                        pass
+        except (ModuleNotFoundError, TypeError, AttributeError, Exception) as e:
+            print(f"importlib.resources.files failed: {e}", file=sys.stderr)
     except ImportError:
         # Fallback for older Python versions
         try:
@@ -1788,8 +1806,8 @@ if PRODUCTION_MODE:
                 if Path(dist_path).exists() and (Path(dist_path) / "index.html").exists():
                     frontend_build = Path(dist_path)
                     print(f"✅ Found frontend/dist via importlib.resources.path: {frontend_build}", file=sys.stderr)
-        except (ImportError, ModuleNotFoundError, TypeError, FileNotFoundError, ValueError):
-            pass
+        except (ImportError, ModuleNotFoundError, TypeError, FileNotFoundError, ValueError) as e:
+            print(f"importlib.resources.path failed: {e}", file=sys.stderr)
     
     # Fallback: try relative to package root
     if not frontend_build:
