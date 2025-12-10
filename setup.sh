@@ -22,7 +22,23 @@ fi
 # Create virtual environment
 if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
-    python3 -m venv .venv
+    # Try to find Python 3.10+ using pyenv or system
+    PYTHON_CMD=""
+    if command -v pyenv &> /dev/null; then
+        # Try to use pyenv to find Python 3.12 or 3.11
+        PYTHON_CMD=$(pyenv which python3.12 2>/dev/null || pyenv which python3.11 2>/dev/null || pyenv which python3.10 2>/dev/null || echo "")
+    fi
+    if [ -z "$PYTHON_CMD" ]; then
+        # Fallback to system python3, but check version
+        PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d'.' -f1,2)
+        if [ "$(printf '%s\n' "3.10" "$PYTHON_VERSION" | sort -V | head -n1)" != "3.10" ]; then
+            echo "Error: Python 3.10+ is required, but found Python $PYTHON_VERSION"
+            echo "Please install Python 3.10+ or use pyenv to manage Python versions"
+            exit 1
+        fi
+        PYTHON_CMD="python3"
+    fi
+    $PYTHON_CMD -m venv .venv
 else
     echo "Virtual environment already exists."
 fi

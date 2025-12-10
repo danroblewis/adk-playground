@@ -40,7 +40,7 @@ fi
 echo "  Starting backend server on port 8080..."
 cd backend
 # Use the venv's python to ensure correct environment
-../.venv/bin/python -m uvicorn main:app --port 8080 --host 0.0.0.0 &
+../.venv/bin/python3 -m uvicorn main:app --port 8080 --host 0.0.0.0 &
 BACKEND_PID=$!
 cd ..
 
