@@ -118,6 +118,75 @@ export default function ProjectEditor() {
     }
   }
   
+  // Sync agents when app models change
+  const prevAppModelsRef = useRef<typeof project?.app.models>(null);
+  useEffect(() => {
+    if (project && !initialLoadRef.current && prevAppModelsRef.current) {
+      const currentModels = project.app.models || [];
+      const prevModels = prevAppModelsRef.current || [];
+      
+      // Check if any app models changed
+      const modelsChanged = currentModels.some((model, idx) => {
+        const prevModel = prevModels.find(m => m.id === model.id);
+        if (!prevModel) return false;
+        return (
+          prevModel.provider !== model.provider ||
+          prevModel.model_name !== model.model_name ||
+          prevModel.api_base !== model.api_base ||
+          prevModel.temperature !== model.temperature ||
+          prevModel.max_output_tokens !== model.max_output_tokens ||
+          prevModel.top_p !== model.top_p ||
+          prevModel.top_k !== model.top_k
+        );
+      });
+      
+      // If models changed, update all agents that reference them
+      if (modelsChanged) {
+        const updatedAgents = project.agents.map(agent => {
+          if (agent.type === 'LlmAgent' && agent.model?._appModelId) {
+            const appModelId = agent.model._appModelId;
+            const appModel = currentModels.find(m => m.id === appModelId);
+            if (appModel) {
+              // Update agent's model config to match the app model
+              return {
+                ...agent,
+                model: {
+                  provider: appModel.provider,
+                  model_name: appModel.model_name,
+                  api_base: appModel.api_base,
+                  temperature: appModel.temperature,
+                  max_output_tokens: appModel.max_output_tokens,
+                  top_p: appModel.top_p,
+                  top_k: appModel.top_k,
+                  fallbacks: [],
+                  _appModelId: appModelId,
+                },
+              };
+            }
+          }
+          return agent;
+        });
+        
+        // Only update if any agents actually changed
+        const agentsChanged = updatedAgents.some((agent, idx) => 
+          JSON.stringify(agent) !== JSON.stringify(project.agents[idx])
+        );
+        
+        if (agentsChanged) {
+          setProject({
+            ...project,
+            agents: updatedAgents,
+          });
+        }
+      }
+    }
+    
+    // Update ref for next comparison
+    if (project) {
+      prevAppModelsRef.current = project.app.models || [];
+    }
+  }, [project?.app.models, project, setProject]);
+  
   // Auto-save on changes (debounced)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
