@@ -1330,6 +1330,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
 class CodeCompletionRequest(BaseModel):
     """Request format from Monacopilot."""
     completionMetadata: dict
+    project_id: Optional[str] = None  # Optional project ID to use project's default model
     
 ADK_CODE_COMPLETION_CONTEXT = '''You are an expert Python code completion assistant for the Google Agent Development Kit (ADK).
 
