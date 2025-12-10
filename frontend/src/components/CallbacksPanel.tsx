@@ -212,6 +212,7 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          min-height: 0;
         }
         
         .form-group {
@@ -249,7 +250,8 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
         
         .code-editor-container {
           flex: 1;
-          min-height: 0;
+          min-height: 400px;
+          height: 400px;
           border: 1px solid var(--border-color);
           border-radius: var(--radius-sm);
           overflow: hidden;
