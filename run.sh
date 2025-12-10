@@ -31,7 +31,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 source .venv/bin/activate
-pip install -q -r requirements.txt
+pip install -q -e .
 
 echo "  Starting backend server on port 8080..."
 uvicorn main:app --port 8080 &
