@@ -14,7 +14,7 @@ function isValidName(name: string): boolean {
   return /^[a-zA-Z0-9_]+$/.test(name);
 }
 
-const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext) -> None:
+const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext) -> Optional[LlmResponse]:
     """Description of what this callback does.
     
     Args:
@@ -22,9 +22,9 @@ const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext
             MUST be named 'callback_context' (enforced by ADK).
     
     Returns:
-        Optional[types.Content]: If you return content, it will:
-            - For before_* callbacks: Short-circuit execution and return this content to the user
-            - For after_* callbacks: Add this content as an additional agent response
+        Optional[LlmResponse]: If you return an LlmResponse, it will:
+            - For before_* callbacks: Short-circuit execution and return this response to the user
+            - For after_* callbacks: Add this response as an additional agent response
             - Return None to proceed normally
     """
     # ============================================================
@@ -56,16 +56,22 @@ const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext
     # ============================================================
     # Short-circuiting Execution (before_* callbacks only)
     # ============================================================
-    # Return content to skip the agent/model/tool execution:
+    # Return LlmResponse to skip the agent/model/tool execution:
+    #   from google.adk.models.llm_request import LlmResponse
     #   from google.genai import types
-    #   return types.Content(role="assistant", parts=[types.Part.from_text("Custom response")])
+    #   return LlmResponse(
+    #       contents=[types.Content(role="assistant", parts=[types.Part.from_text("Custom response")])]
+    #   )
     
     # ============================================================
     # Adding Additional Responses (after_* callbacks only)
     # ============================================================
-    # Return content to add an additional response after execution:
+    # Return LlmResponse to add an additional response after execution:
+    #   from google.adk.models.llm_request import LlmResponse
     #   from google.genai import types
-    #   return types.Content(role="assistant", parts=[types.Part.from_text("Additional info")])
+    #   return LlmResponse(
+    #       contents=[types.Content(role="assistant", parts=[types.Part.from_text("Additional info")])]
+    #   )
     
     pass
 `;
