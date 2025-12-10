@@ -344,20 +344,6 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
               </div>
               
               <div className="form-group">
-                <label>Callback Type</label>
-                <select
-                  value={selectedCallback.callback_type}
-                  onChange={(e) => updateCustomCallback(selectedCallback.id, { 
-                    callback_type: e.target.value as CustomCallbackDefinition['callback_type']
-                  })}
-                >
-                  {CALLBACK_TYPES.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="form-group">
                 <label>Module Path</label>
                 <input
                   type="text"
