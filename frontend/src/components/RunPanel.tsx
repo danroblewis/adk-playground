@@ -5,6 +5,7 @@ import {
   CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
   Download, Upload
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
 import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession } from '../utils/api';
