@@ -1392,10 +1392,8 @@ Provide the code completion (just the code to insert, no markdown):"""
         from google.genai import types
         
         # Use a fast model for completions
-        model = LiteLlm(
-            model="ollama/qwen3:8b",
-            api_base="http://node1:11434",
-        )
+        # Default to gemini-2.0-flash for code completion (fast and reliable)
+        model = "gemini-2.0-flash"
         
         completion_agent = Agent(
             name="code_completer",

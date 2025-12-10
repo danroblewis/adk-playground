@@ -68,7 +68,7 @@ from google.adk.models import LiteLlm
 
 root_agent = Agent(
     name="traced_assistant",
-    model=LiteLlm(model="ollama/qwen3:8b", api_base="http://node1:11434"),
+    model="gemini-2.0-flash",  # Default model - can be changed in project config
     instruction="""You are a helpful assistant with access to tools.
     
 When the user asks you something:
