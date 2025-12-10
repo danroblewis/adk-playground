@@ -1814,11 +1814,19 @@ if PRODUCTION_MODE:
         try:
             import adk_playground
             _package_root = Path(adk_playground.__file__).parent
+            # Try frontend/dist first
             _package_frontend = _package_root / "frontend" / "dist"
             if _package_frontend.exists() and (_package_frontend / "index.html").exists():
                 frontend_build = _package_frontend
                 print(f"✅ Found frontend/dist at package root: {frontend_build}", file=sys.stderr)
-        except (ImportError, AttributeError):
+            # If not, try frontend directly (files might be in frontend/ not frontend/dist/)
+            elif not frontend_build:
+                _package_frontend_direct = _package_root / "frontend"
+                if _package_frontend_direct.exists() and (_package_frontend_direct / "index.html").exists():
+                    frontend_build = _package_frontend_direct
+                    print(f"✅ Found frontend at package root: {frontend_build}", file=sys.stderr)
+        except (ImportError, AttributeError) as e:
+            print(f"Package root check failed: {e}", file=sys.stderr)
             pass
     
     # Last resort: try source location (for development)
