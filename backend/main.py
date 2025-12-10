@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -1766,22 +1767,38 @@ if PRODUCTION_MODE:
     # Try multiple locations: installed package location and source location
     _backend_dir = Path(__file__).parent
     _possible_locations = [
-        _backend_dir.parent / "frontend" / "dist",  # Source location
-        Path(__file__).parent.parent.parent / "frontend" / "dist",  # Alternative source
+        _backend_dir.parent / "frontend" / "dist",  # Source location (development)
     ]
     
-    # Also try to find it relative to the package root
+    # Try to find it relative to the package root (when installed)
     try:
         import adk_playground
         _package_root = Path(adk_playground.__file__).parent
         _possible_locations.insert(0, _package_root / "frontend" / "dist")
+        # Also try parent directory (if package is in a subdirectory)
+        _possible_locations.insert(1, _package_root.parent / "frontend" / "dist")
     except (ImportError, AttributeError):
+        pass
+    
+    # Try using importlib.resources for installed packages
+    try:
+        from importlib import resources
+        try:
+            # Try to find frontend/dist as package data
+            with resources.path("adk_playground", "frontend") as frontend_path:
+                _dist_path = Path(frontend_path) / "dist"
+                if _dist_path.exists():
+                    _possible_locations.insert(0, _dist_path)
+        except (ModuleNotFoundError, TypeError):
+            pass
+    except ImportError:
         pass
     
     frontend_build = None
     for loc in _possible_locations:
-        if loc.exists():
+        if loc.exists() and (loc / "index.html").exists():
             frontend_build = loc
+            print(f"Found frontend/dist at: {frontend_build}", file=sys.stderr)
             break
     
     if frontend_build and frontend_build.exists():
