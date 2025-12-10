@@ -31,7 +31,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 # Explicitly specify packages to avoid discovery issues
 packages = ["backend", "tracing_plugin", "mcp_servers"]
-py-modules = ["file_session_service", "file_memory_service"]
+py-modules = ["file_session_service", "file_memory_service", "adk_playground"]
 
 [tool.black]
 line-length = 80
