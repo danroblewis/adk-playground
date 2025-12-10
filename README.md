@@ -110,11 +110,19 @@ uvicorn main:app --port 8080 --host 0.0.0.0
 
 **Environment Variables:**
 
+**Environment Variables:**
 - `ADK_PLAYGROUND_PORT` - Server port (default: `8080`)
 - `ADK_PLAYGROUND_HOST` - Server host (default: `0.0.0.0`)
-- `ADK_PLAYGROUND_MODE` - Run mode: `dev` or `production` (default: `dev`)
-- `ADK_PLAYGROUND_PROJECTS_DIR` - Projects directory (default: `~/adk_tmp/projects`)
-- `ADK_PLAYGROUND_MCP_CONFIG` - MCP servers config file (default: `~/adk_tmp/mcp.json`)
+- `ADK_PLAYGROUND_MODE` - Run mode: `dev` or `production` (default: `production`)
+- `ADK_PLAYGROUND_PROJECTS_DIR` - Projects directory (default: `~/.adk-playground/projects`)
+- `ADK_PLAYGROUND_MCP_CONFIG` - MCP servers config file (default: `~/.adk-playground/mcp.json`)
+
+**Command Line Arguments:**
+- `--projects-dir PATH` - Directory for storing projects
+- `--mcp-config PATH` - Path to MCP servers configuration file
+- `--port PORT` - Server port
+- `--host HOST` - Server host
+- `--mode {dev,production}` - Run mode
 
 **Example:**
 ```bash
