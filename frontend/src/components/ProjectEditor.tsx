@@ -119,7 +119,7 @@ export default function ProjectEditor() {
   }
   
   // Sync agents when app models change
-  const prevAppModelsRef = useRef<typeof project?.app.models>(null);
+  const prevAppModelsRef = useRef<Array<{ id: string; provider: string; model_name: string; api_base?: string; temperature?: number; max_output_tokens?: number; top_p?: number; top_k?: number }> | null>(null);
   useEffect(() => {
     if (project && !initialLoadRef.current && prevAppModelsRef.current) {
       const currentModels = project.app.models || [];
