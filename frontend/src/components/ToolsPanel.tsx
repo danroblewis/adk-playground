@@ -10,6 +10,11 @@ function generateId() {
   return `tool_${Date.now().toString(36)}`;
 }
 
+// Validation function for names (alphanumeric and underscore only)
+function isValidName(name: string): boolean {
+  return /^[a-zA-Z0-9_]+$/.test(name);
+}
+
 const DEFAULT_TOOL_CODE = `def my_tool(tool_context: ToolContext, param1: str) -> dict:
     """Description of what this tool does.
     
@@ -95,6 +100,18 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   
   function handleUpdateTool(updates: Partial<CustomToolDefinition>) {
     if (!selectedTool) return;
+    
+    // Validate name if it's being updated
+    if (updates.name !== undefined) {
+      if (updates.name === '') {
+        setToolNameError(null);
+      } else if (!isValidName(updates.name)) {
+        setToolNameError('Name can only contain letters, numbers, and underscores');
+      } else {
+        setToolNameError(null);
+      }
+    }
+    
     updateCustomTool(selectedTool.id, updates);
   }
   
@@ -1059,12 +1076,20 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           <>
             <div className="editor-header">
               <Wrench size={20} style={{ color: 'var(--accent-primary)' }} />
-              <input
-                type="text"
-                value={selectedTool.name}
-                onChange={(e) => handleUpdateTool({ name: e.target.value })}
-                placeholder="Tool name"
-              />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <input
+                  type="text"
+                  value={selectedTool.name}
+                  onChange={(e) => handleUpdateTool({ name: e.target.value })}
+                  placeholder="Tool name"
+                  style={{ borderColor: toolNameError ? 'var(--error)' : undefined }}
+                />
+                {toolNameError && (
+                  <span style={{ fontSize: 11, color: 'var(--error)', marginTop: -4 }}>
+                    {toolNameError}
+                  </span>
+                )}
+              </div>
             </div>
             
             <div className="editor-meta">

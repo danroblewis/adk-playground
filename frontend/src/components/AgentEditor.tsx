@@ -9,6 +9,11 @@ interface Props {
   agent: AgentConfig;
 }
 
+// Validation function for names (alphanumeric and underscore only)
+function isValidName(name: string): boolean {
+  return /^[a-zA-Z0-9_]+$/.test(name);
+}
+
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRunAgentId } = useStore();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
@@ -16,11 +21,28 @@ export default function AgentEditor({ agent }: Props) {
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [showRequestChanges, setShowRequestChanges] = useState(false);
   const [requestChangesText, setRequestChangesText] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
   
   if (!project) return null;
   
   function update(updates: Partial<AgentConfig>) {
     updateAgent(agent.id, updates);
+  }
+  
+  function handleNameChange(value: string) {
+    if (value === '') {
+      setNameError(null);
+      update({ name: value });
+      return;
+    }
+    
+    if (!isValidName(value)) {
+      setNameError('Name can only contain letters, numbers, and underscores');
+    } else {
+      setNameError(null);
+    }
+    
+    update({ name: value });
   }
   
   function toggleSection(section: string) {
@@ -504,12 +526,20 @@ Your response (5-10 words only):`;
       
       <div className="editor-header">
         <Bot size={24} style={{ color: 'var(--accent-primary)' }} />
-        <input
-          type="text"
-          value={agent.name}
-          onChange={(e) => update({ name: e.target.value })}
-          placeholder="Agent name"
-        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <input
+            type="text"
+            value={agent.name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            placeholder="Agent name"
+            style={{ borderColor: nameError ? 'var(--error)' : undefined }}
+          />
+          {nameError && (
+            <span style={{ fontSize: 11, color: 'var(--error)', marginTop: -4 }}>
+              {nameError}
+            </span>
+          )}
+        </div>
         <span className="badge badge-info">{agent.type}</span>
         <button
           className="btn btn-primary btn-sm run-agent-btn"
