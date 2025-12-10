@@ -1798,17 +1798,23 @@ if PRODUCTION_MODE:
     
     frontend_build = None
     for loc in _possible_locations:
-        print(f"Checking: {loc} (exists: {loc.exists()})", file=sys.stderr)
         if loc.exists() and (loc / "index.html").exists():
             frontend_build = loc
             print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
             break
         elif loc.exists():
-            print(f"  Directory exists but no index.html", file=sys.stderr)
-            try:
-                print(f"  Contents: {list(loc.iterdir())[:5]}", file=sys.stderr)
-            except:
-                pass
+            # Check if index.html is in a subdirectory
+            for item in loc.iterdir():
+                if item.is_file() and item.name == "index.html":
+                    frontend_build = loc
+                    print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
+                    break
+                elif item.is_dir() and (item / "index.html").exists():
+                    frontend_build = item
+                    print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
+                    break
+            if frontend_build:
+                break
     
     if frontend_build and frontend_build.exists():
         # Serve static assets (JS, CSS, images, etc.) from /assets
