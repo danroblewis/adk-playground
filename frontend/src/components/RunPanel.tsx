@@ -347,8 +347,6 @@ function EventDetail({ event }: { event: RunEvent }) {
 }
 
 // Markdown modal component
-import ReactMarkdown from 'react-markdown';
-
 function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
   
   return (
