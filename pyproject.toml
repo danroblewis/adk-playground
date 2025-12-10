@@ -30,14 +30,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 # Explicitly specify packages to avoid discovery issues
-packages = ["backend", "tracing_plugin", "mcp_servers"]
-py-modules = ["file_session_service", "file_memory_service", "adk_playground"]
+packages = ["adk_playground", "backend", "tracing_plugin", "mcp_servers"]
+py-modules = ["file_session_service", "file_memory_service"]
 
 [tool.setuptools.package-data]
-"" = ["frontend/dist/**/*", "frontend/dist/*"]
-
-[tool.setuptools.data-files]
-"share/adk-playground/frontend" = ["frontend/dist/**/*"]
+"adk_playground" = ["frontend/dist/**/*", "frontend/dist/*"]
 
 [tool.black]
 line-length = 80
