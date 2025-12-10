@@ -241,10 +241,10 @@ class AppConfig(BaseModel):
     # Root agent
     root_agent_id: Optional[str] = None
     
-    # Services
-    session_service_uri: str = "memory://"
-    memory_service_uri: str = "memory://"
-    artifact_service_uri: str = "memory://"
+    # Services (default to filesystem-based with standard paths)
+    session_service_uri: str = "file://~/.adk-playground/sessions"
+    memory_service_uri: str = "file://~/.adk-playground/memory"
+    artifact_service_uri: str = "file://~/.adk-playground/artifacts"
     
     # Configuration
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
