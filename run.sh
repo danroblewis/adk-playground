@@ -32,14 +32,15 @@ fi
 source .venv/bin/activate
 
 # Install dependencies if not already installed
-if ! python -c "import fastapi" 2>/dev/null; then
+if ! python -c "import fastapi" 2>/dev/null || ! python -c "import litellm" 2>/dev/null; then
     echo "  Installing dependencies..."
     pip install -q -e .
 fi
 
 echo "  Starting backend server on port 8080..."
 cd backend
-uvicorn main:app --port 8080 --host 0.0.0.0 &
+# Use the venv's python to ensure correct environment
+../.venv/bin/python -m uvicorn main:app --port 8080 --host 0.0.0.0 &
 BACKEND_PID=$!
 cd ..
 
