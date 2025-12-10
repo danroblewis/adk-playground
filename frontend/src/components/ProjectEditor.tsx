@@ -118,14 +118,40 @@ export default function ProjectEditor() {
     }
   }
   
-  // Track changes by comparing to last saved state
+  // Auto-save on changes (debounced)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   useEffect(() => {
     if (project && !initialLoadRef.current && lastSavedProjectRef.current) {
       const currentState = JSON.stringify(project);
       if (currentState !== lastSavedProjectRef.current) {
         setHasUnsavedChanges(true);
+        
+        // Clear existing timeout
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+        
+        // Auto-save after 500ms of no changes (debounce)
+        saveTimeoutRef.current = setTimeout(async () => {
+          try {
+            await apiUpdateProject(project.id, project);
+            lastSavedProjectRef.current = JSON.stringify(project);
+            setHasUnsavedChanges(false);
+          } catch (error) {
+            console.error('Auto-save failed:', error);
+            // Don't clear hasUnsavedChanges on error - user can manually save
+          }
+        }, 500);
       }
     }
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [project]);
   
   if (loading) {
