@@ -355,9 +355,16 @@ class RuntimeManager:
                         return FileMemoryService(base_dir=path)
                     except ImportError:
                         # FileMemoryService may not be available
-                        import sys
-                        print(f"WARNING: FileMemoryService not available. Using InMemoryMemoryService for file:// URI: {uri}", file=sys.stderr)
-                        print(f"  Note: Memory will not be persisted. Consider using 'memory://' or ensuring file_memory_service is available.", file=sys.stderr)
+                        # This is expected - fallback to in-memory
+                        import logging
+                        from pathlib import Path
+                        expanded_path = str(Path(uri[7:]).expanduser()) if uri.startswith("file://") else uri
+                        logger = logging.getLogger(__name__)
+                        logger.debug(
+                            f"FileMemoryService not available. "
+                            f"Using InMemoryMemoryService for file:// URI: {expanded_path}. "
+                            f"Memory will work but not be persisted to disk."
+                        )
                         return InMemoryMemoryService()
                 else:
                     return InMemoryMemoryService()
