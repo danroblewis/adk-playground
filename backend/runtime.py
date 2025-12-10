@@ -375,11 +375,20 @@ class RuntimeManager:
                         path = str(Path(path).expanduser())
                         return FileArtifactService(root_dir=path)
                     except ImportError:
-                        # FileArtifactService may not be in the installed package
-                        # Use our own file-based implementation or fallback to in-memory
+                        # FileArtifactService is not available in the installed google-adk package
+                        # This is expected when using the PyPI package - fallback to in-memory
+                        # Note: This is not an error - artifacts will work, just not persisted to disk
                         import sys
-                        print(f"WARNING: FileArtifactService not available in google-adk package. Using InMemoryArtifactService for file:// URI: {uri}", file=sys.stderr)
-                        print(f"  Note: File artifacts will not be persisted. Consider using 'memory://' or installing google-adk from source.", file=sys.stderr)
+                        from pathlib import Path
+                        expanded_path = str(Path(uri[7:]).expanduser()) if uri.startswith("file://") else uri
+                        # Only log at debug level since this is expected behavior
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(
+                            f"FileArtifactService not available in google-adk package. "
+                            f"Using InMemoryArtifactService for file:// URI: {expanded_path}. "
+                            f"Artifacts will work but not be persisted to disk."
+                        )
                         return InMemoryArtifactService()
                 elif uri.startswith("gcs://"):
                     try:
