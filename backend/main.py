@@ -1388,7 +1388,6 @@ Provide the code completion (just the code to insert, no markdown):"""
         from google.adk.sessions.in_memory_session_service import InMemorySessionService
         from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-        from google.adk.models.lite_llm import LiteLlm
         from google.genai import types
         
         # Use a fast model for completions
