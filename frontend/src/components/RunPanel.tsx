@@ -2347,6 +2347,10 @@ export default function RunPanel() {
           word-break: break-all;
           max-height: 100px;
           overflow-y: auto;
+          transition: background 0.15s ease;
+        }
+        .state-value:hover {
+          background: rgba(255, 255, 255, 0.05);
         }
         
         .state-time {
