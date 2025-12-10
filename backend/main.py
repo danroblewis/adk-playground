@@ -1764,57 +1764,52 @@ async def health_check():
 # Mount frontend build in production mode
 # This serves the built frontend assets and handles SPA routing
 if PRODUCTION_MODE:
-    # Try multiple locations: installed package location and source location
-    _backend_dir = Path(__file__).parent
-    _possible_locations = [
-        _backend_dir.parent / "frontend" / "dist",  # Source location (development)
-    ]
+    frontend_build = None
     
-    # Try to find it in the installed package
+    # First, try using importlib.resources (modern approach for package data)
     try:
-        import adk_playground
-        _package_root = Path(adk_playground.__file__).parent
-        # Check if frontend/dist is in the package
-        _package_frontend = _package_root / "frontend" / "dist"
-        _possible_locations.insert(0, _package_frontend)
-        print(f"Checking package root: {_package_root}", file=sys.stderr)
-        print(f"Checking: {_package_frontend} (exists: {_package_frontend.exists()})", file=sys.stderr)
-        
-        # Also try importlib.resources
+        from importlib.resources import files
+        try:
+            # Try to access frontend/dist from the package
+            frontend_dist = files("adk_playground.frontend.dist")
+            # Check if it's a directory with index.html
+            if frontend_dist.is_dir():
+                dist_path = Path(str(frontend_dist))
+                if (dist_path / "index.html").exists():
+                    frontend_build = dist_path
+                    print(f"✅ Found frontend/dist via importlib.resources.files: {frontend_build}", file=sys.stderr)
+        except (ModuleNotFoundError, TypeError, AttributeError) as e:
+            pass
+    except ImportError:
+        # Fallback for older Python versions
         try:
             from importlib import resources
-            try:
-                with resources.path("adk_playground.frontend", "dist") as dist_path:
-                    if Path(dist_path).exists():
-                        _possible_locations.insert(0, Path(dist_path))
-                        print(f"✅ Found frontend/dist via importlib.resources: {dist_path}", file=sys.stderr)
-            except (ModuleNotFoundError, TypeError, FileNotFoundError, ValueError) as e:
-                print(f"importlib.resources failed: {e}", file=sys.stderr)
-        except ImportError:
+            with resources.path("adk_playground.frontend", "dist") as dist_path:
+                if Path(dist_path).exists() and (Path(dist_path) / "index.html").exists():
+                    frontend_build = Path(dist_path)
+                    print(f"✅ Found frontend/dist via importlib.resources.path: {frontend_build}", file=sys.stderr)
+        except (ImportError, ModuleNotFoundError, TypeError, FileNotFoundError, ValueError):
             pass
-    except (ImportError, AttributeError) as e:
-        print(f"Could not import adk_playground: {e}", file=sys.stderr)
-        pass
     
-    frontend_build = None
-    for loc in _possible_locations:
-        if loc.exists() and (loc / "index.html").exists():
-            frontend_build = loc
-            print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
-            break
-        elif loc.exists():
-            # Check if index.html is in a subdirectory
-            for item in loc.iterdir():
-                if item.is_file() and item.name == "index.html":
-                    frontend_build = loc
-                    print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
-                    break
-                elif item.is_dir() and (item / "index.html").exists():
-                    frontend_build = item
-                    print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
-                    break
-            if frontend_build:
-                break
+    # Fallback: try relative to package root
+    if not frontend_build:
+        try:
+            import adk_playground
+            _package_root = Path(adk_playground.__file__).parent
+            _package_frontend = _package_root / "frontend" / "dist"
+            if _package_frontend.exists() and (_package_frontend / "index.html").exists():
+                frontend_build = _package_frontend
+                print(f"✅ Found frontend/dist at package root: {frontend_build}", file=sys.stderr)
+        except (ImportError, AttributeError):
+            pass
+    
+    # Last resort: try source location (for development)
+    if not frontend_build:
+        _backend_dir = Path(__file__).parent
+        _source_frontend = _backend_dir.parent / "frontend" / "dist"
+        if _source_frontend.exists() and (_source_frontend / "index.html").exists():
+            frontend_build = _source_frontend
+            print(f"✅ Found frontend/dist at source location: {frontend_build}", file=sys.stderr)
     
     if frontend_build and frontend_build.exists():
         # Serve static assets (JS, CSS, images, etc.) from /assets
