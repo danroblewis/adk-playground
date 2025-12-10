@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig, CallbackConfig, CustomCallbackDefinition } from '../utils/types';
 import { generatePrompt } from '../utils/api';
 import MarkdownEditor from './MarkdownEditor';
 
@@ -766,6 +766,22 @@ Your response (5-10 words only):`;
         )}
         
         {/* Sub-agents */}
+        {isLlmAgent && (
+          <Section
+            id="callbacks"
+            title="Callbacks"
+            icon={<Code size={16} />}
+            expanded={expandedSections.has('callbacks')}
+            onToggle={() => toggleSection('callbacks')}
+          >
+            <CallbacksEditor
+              agent={llmAgent}
+              onUpdate={update}
+              customCallbacks={project.custom_callbacks || []}
+            />
+          </Section>
+        )}
+        
         {'sub_agents' in agent && (
           <Section
             id="subagents"
@@ -1860,3 +1876,120 @@ function ModelSelector({
   );
 }
 
+
+// Callbacks editor sub-component
+function CallbacksEditor({
+  agent,
+  onUpdate,
+  customCallbacks
+}: {
+  agent: LlmAgentConfig;
+  onUpdate: (updates: Partial<LlmAgentConfig>) => void;
+  customCallbacks: CustomCallbackDefinition[];
+}) {
+  const callbackTypes: Array<{ key: keyof LlmAgentConfig; label: string }> = [
+    { key: 'before_agent_callbacks', label: 'Before Agent' },
+    { key: 'after_agent_callbacks', label: 'After Agent' },
+    { key: 'before_model_callbacks', label: 'Before Model' },
+    { key: 'after_model_callbacks', label: 'After Model' },
+    { key: 'before_tool_callbacks', label: 'Before Tool' },
+    { key: 'after_tool_callbacks', label: 'After Tool' },
+  ];
+  
+  function addCallback(type: keyof LlmAgentConfig, callbackId: string) {
+    const current = (agent[type] as CallbackConfig[]) || [];
+    const callback = customCallbacks.find(c => c.id === callbackId);
+    if (!callback) return;
+    
+    onUpdate({
+      [type]: [...current, { module_path: callback.module_path }]
+    } as Partial<LlmAgentConfig>);
+  }
+  
+  function removeCallback(type: keyof LlmAgentConfig, index: number) {
+    const current = (agent[type] as CallbackConfig[]) || [];
+    onUpdate({
+      [type]: current.filter((_, i) => i !== index)
+    } as Partial<LlmAgentConfig>);
+  }
+  
+  return (
+    <div className="callbacks-editor">
+      {callbackTypes.map(({ key, label }) => {
+        const callbacks = (agent[key] as CallbackConfig[]) || [];
+        const availableCallbacks = customCallbacks.filter(c => c.callback_type === key.replace('_callbacks', ''));
+        
+        return (
+          <div key={key} className="callback-type-group" style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <label style={{ fontWeight: 500, fontSize: '13px' }}>{label}</label>
+              {availableCallbacks.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      addCallback(key, e.target.value);
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{ padding: '4px 8px', fontSize: '12px', width: '200px' }}
+                >
+                  <option value="">Add callback...</option>
+                  {availableCallbacks
+                    .filter(cb => {
+                      const modulePath = cb.module_path;
+                      return !callbacks.some(c => c.module_path === modulePath);
+                    })
+                    .map(cb => (
+                      <option key={cb.id} value={cb.id}>{cb.name}</option>
+                    ))
+                  }
+                </select>
+              )}
+            </div>
+            {callbacks.length === 0 ? (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '8px' }}>
+                No callbacks
+              </div>
+            ) : (
+              <div className="callback-list">
+                {callbacks.map((callback, index) => {
+                  const customCallback = customCallbacks.find(c => c.module_path === callback.module_path);
+                  return (
+                    <div key={index} className="callback-chip" style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      padding: '6px 10px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '4px',
+                      marginBottom: '4px'
+                    }}>
+                      <span style={{ fontSize: '12px' }}>
+                        {customCallback?.name || callback.module_path}
+                      </span>
+                      <button
+                        onClick={() => removeCallback(key, index)}
+                        style={{ 
+                          background: 'none', 
+                          border: 'none', 
+                          cursor: 'pointer',
+                          padding: '2px',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}
+                        title="Remove callback"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

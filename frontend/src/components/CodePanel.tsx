@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Copy, Download, Check, Code } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import Editor from '@monaco-editor/react';
-import type { Project, AgentConfig, LlmAgentConfig, ToolConfig, MCPServerConfig } from '../utils/types';
+import type { Project, AgentConfig, LlmAgentConfig, ToolConfig, MCPServerConfig, CallbackConfig } from '../utils/types';
 
 function escapeString(s: string): string {
   // Escape for Python triple-quoted string
@@ -107,6 +107,23 @@ function generateAgentCode(agent: AgentConfig, project: Project, agentVarNames: 
     }
     if (llmAgent.disallow_transfer_to_peers) {
       params.push(`disallow_transfer_to_peers=True`);
+    }
+    
+    // Callbacks
+    const callbackTypes = [
+      'before_agent_callbacks',
+      'after_agent_callbacks',
+      'before_model_callbacks',
+      'after_model_callbacks',
+      'before_tool_callbacks',
+      'after_tool_callbacks',
+    ];
+    for (const callbackType of callbackTypes) {
+      const callbacks = (llmAgent[callbackType as keyof LlmAgentConfig] as CallbackConfig[]) || [];
+      if (callbacks.length > 0) {
+        const callbackPaths = callbacks.map(c => `"${c.module_path}"`).join(', ');
+        params.push(`${callbackType}=[${callbackPaths}]`);
+      }
     }
     
     return `${varName} = Agent(\n    ${params.join(',\n    ')}\n)`;

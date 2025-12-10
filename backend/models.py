@@ -282,6 +282,24 @@ class CustomToolDefinition(BaseModel):
     state_keys_used: List[str] = Field(default_factory=list)
 
 
+class CustomCallbackDefinition(BaseModel):
+    """A custom Python callback defined by the user."""
+    id: str
+    name: str
+    description: str = ""
+    module_path: str  # e.g., "callbacks.my_callbacks.logger"
+    code: str  # Python code
+    callback_type: Literal[
+        "before_agent",
+        "after_agent",
+        "before_model",
+        "after_model",
+        "before_tool",
+        "after_tool",
+    ]
+    state_keys_used: List[str] = Field(default_factory=list)
+
+
 class WatchExpression(BaseModel):
     """A tool watch expression for monitoring MCP tool results."""
     id: str
@@ -305,6 +323,7 @@ class Project(BaseModel):
     
     # Custom tools
     custom_tools: List[CustomToolDefinition] = Field(default_factory=list)
+    custom_callbacks: List[CustomCallbackDefinition] = Field(default_factory=list)
     
     # Known MCP servers for quick selection
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)

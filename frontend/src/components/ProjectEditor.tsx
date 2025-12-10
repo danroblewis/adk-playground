@@ -7,6 +7,7 @@ import type { AppModelConfig } from '../utils/types';
 import AppConfigPanel from './AppConfigPanel';
 import AgentsPanel from './AgentsPanel';
 import ToolsPanel from './ToolsPanel';
+import CallbacksPanel from './CallbacksPanel';
 import RunPanel from './RunPanel';
 import EvalPanel from './EvalPanel';
 import YamlPanel from './YamlPanel';
@@ -16,14 +17,15 @@ const tabs = [
   { id: 'app' as const, label: 'App Config', icon: Settings },
   { id: 'agents' as const, label: 'Agents', icon: Bot },
   { id: 'tools' as const, label: 'Tools', icon: Wrench },
+  { id: 'callbacks' as const, label: 'Callbacks', icon: Code },
   { id: 'run' as const, label: 'Run', icon: Layers },
   { id: 'eval' as const, label: 'Evaluate', icon: TestTube },
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
   { id: 'code' as const, label: 'Code', icon: Code },
 ];
 
-type TabId = 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code';
-const validTabs: TabId[] = ['app', 'agents', 'tools', 'run', 'eval', 'yaml', 'code'];
+type TabId = 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'eval' | 'yaml' | 'code';
+const validTabs: TabId[] = ['app', 'agents', 'tools', 'callbacks', 'run', 'eval', 'yaml', 'code'];
 
 export default function ProjectEditor() {
   const { projectId, tab, itemId } = useParams<{ projectId: string; tab?: string; itemId?: string }>();
@@ -413,6 +415,7 @@ export default function ProjectEditor() {
         {activeTab === 'app' && <AppConfigPanel />}
         {activeTab === 'agents' && <AgentsPanel onSelectAgent={updateItemInUrl} />}
         {activeTab === 'tools' && <ToolsPanel onSelectTool={updateItemInUrl} />}
+        {activeTab === 'callbacks' && <CallbacksPanel onSelectCallback={updateItemInUrl} />}
         {activeTab === 'run' && <RunPanel />}
         {activeTab === 'eval' && <EvalPanel />}
         {activeTab === 'yaml' && <YamlPanel />}

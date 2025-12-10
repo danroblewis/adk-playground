@@ -170,6 +170,16 @@ export interface CustomToolDefinition {
   state_keys_used: string[];
 }
 
+export interface CustomCallbackDefinition {
+  id: string;
+  name: string;
+  description: string;
+  module_path: string;
+  code: string;
+  callback_type: 'before_agent' | 'after_agent' | 'before_model' | 'after_model' | 'before_tool' | 'after_tool';
+  state_keys_used: string[];
+}
+
 export interface WatchExpressionConfig {
   id: string;
   serverName: string;
@@ -185,6 +195,7 @@ export interface Project {
   app: AppConfig;
   agents: AgentConfig[];
   custom_tools: CustomToolDefinition[];
+  custom_callbacks: CustomCallbackDefinition[];
   mcp_servers: MCPServerConfig[];
   watches: WatchExpressionConfig[];
 }

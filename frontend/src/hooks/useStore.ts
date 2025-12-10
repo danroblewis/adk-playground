@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, AgentConfig, CustomToolDefinition, MCPServerConfig, BuiltinTool, RunEvent } from '../utils/types';
+import type { Project, AgentConfig, CustomToolDefinition, CustomCallbackDefinition, MCPServerConfig, BuiltinTool, RunEvent } from '../utils/types';
 
 // Watch result snapshot
 export interface WatchResultSnapshot {
@@ -59,8 +59,8 @@ interface Store {
   clearWatchHistories: () => void;
   
   // UI state
-  activeTab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code';
-  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'run' | 'eval' | 'yaml' | 'code') => void;
+  activeTab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'eval' | 'yaml' | 'code';
+  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'eval' | 'yaml' | 'code') => void;
   
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
@@ -84,6 +84,9 @@ interface Store {
   addCustomTool: (tool: CustomToolDefinition) => void;
   updateCustomTool: (id: string, updates: Partial<CustomToolDefinition>) => void;
   removeCustomTool: (id: string) => void;
+  addCustomCallback: (callback: CustomCallbackDefinition) => void;
+  updateCustomCallback: (id: string, updates: Partial<CustomCallbackDefinition>) => void;
+  removeCustomCallback: (id: string) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -263,6 +266,44 @@ export const useStore = create<Store>((set, get) => ({
           custom_tools: project.custom_tools.filter((t) => t.id !== id),
         },
         selectedToolId: selectedToolId === id ? null : selectedToolId,
+      });
+    }
+  },
+  
+  addCustomCallback: (callback) => {
+    const { project } = get();
+    if (project) {
+      set({
+        project: {
+          ...project,
+          custom_callbacks: [...(project.custom_callbacks || []), callback],
+        },
+      });
+    }
+  },
+  
+  updateCustomCallback: (id, updates) => {
+    const { project } = get();
+    if (project) {
+      set({
+        project: {
+          ...project,
+          custom_callbacks: (project.custom_callbacks || []).map((c) =>
+            c.id === id ? { ...c, ...updates } : c
+          ),
+        },
+      });
+    }
+  },
+  
+  removeCustomCallback: (id) => {
+    const { project } = get();
+    if (project) {
+      set({
+        project: {
+          ...project,
+          custom_callbacks: (project.custom_callbacks || []).filter((c) => c.id !== id),
+        },
       });
     }
   },
