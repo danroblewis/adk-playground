@@ -813,7 +813,10 @@ class RuntimeManager:
             def create_memory_service(uri: str):
                 if uri.startswith("file://"):
                     from file_memory_service import FileMemoryService
+                    from pathlib import Path
                     path = uri[7:]  # Remove "file://" prefix
+                    # Expand ~ to home directory
+                    path = str(Path(path).expanduser())
                     return FileMemoryService(base_dir=path)
                 else:
                     from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
