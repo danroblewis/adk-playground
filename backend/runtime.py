@@ -41,7 +41,7 @@ class TrackingPlugin:
     
     async def before_agent_callback(self, *, agent, callback_context, **kwargs):
         """Called before an agent runs."""
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="agent_start",
             agent_name=agent.name,
