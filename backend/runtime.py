@@ -343,9 +343,16 @@ class RuntimeManager:
             # Create memory service based on URI
             def create_memory_service(uri: str):
                 if uri.startswith("file://"):
-                    from file_memory_service import FileMemoryService
-                    path = uri[7:]  # Remove "file://" prefix
-                    return FileMemoryService(base_dir=path)
+                    try:
+                        from file_memory_service import FileMemoryService
+                        path = uri[7:]  # Remove "file://" prefix
+                        return FileMemoryService(base_dir=path)
+                    except ImportError:
+                        # FileMemoryService may not be available
+                        import sys
+                        print(f"WARNING: FileMemoryService not available. Using InMemoryMemoryService for file:// URI: {uri}", file=sys.stderr)
+                        print(f"  Note: Memory will not be persisted. Consider using 'memory://' or ensuring file_memory_service is available.", file=sys.stderr)
+                        return InMemoryMemoryService()
                 else:
                     return InMemoryMemoryService()
             
