@@ -24,10 +24,14 @@ from project_manager import ProjectManager
 from runtime import RuntimeManager
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
 
-# Get projects directory from environment variable, default to ~/adk_tmp/projects
-PROJECTS_DIR = Path(
-    os.environ.get("ADK_PLAYGROUND_PROJECTS_DIR", str(Path.home() / "adk_tmp" / "projects"))
-)
+# Get projects directory from environment variable, default to ~/.adk-playground/projects
+# This can be overridden by setting ADK_PLAYGROUND_PROJECTS_DIR environment variable
+# or by passing --projects-dir command line argument (handled in adk_playground/__init__.py)
+_projects_dir_env = os.environ.get("ADK_PLAYGROUND_PROJECTS_DIR")
+if _projects_dir_env:
+    PROJECTS_DIR = Path(_projects_dir_env)
+else:
+    PROJECTS_DIR = Path.home() / ".adk-playground" / "projects"
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize managers
