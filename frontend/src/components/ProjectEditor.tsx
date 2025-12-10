@@ -142,26 +142,54 @@ export default function ProjectEditor() {
       
       // If models changed, update all agents that reference them
       if (modelsChanged) {
+        const defaultModelId = project.app.default_model_id;
         const updatedAgents = project.agents.map(agent => {
-          if (agent.type === 'LlmAgent' && agent.model?._appModelId) {
+          if (agent.type === 'LlmAgent' && agent.model) {
+            // Check if agent uses an app model via _appModelId marker
             const appModelId = agent.model._appModelId;
-            const appModel = currentModels.find(m => m.id === appModelId);
-            if (appModel) {
-              // Update agent's model config to match the app model
-              return {
-                ...agent,
-                model: {
-                  provider: appModel.provider,
-                  model_name: appModel.model_name,
-                  api_base: appModel.api_base,
-                  temperature: appModel.temperature,
-                  max_output_tokens: appModel.max_output_tokens,
-                  top_p: appModel.top_p,
-                  top_k: appModel.top_k,
-                  fallbacks: [],
-                  _appModelId: appModelId,
-                },
-              };
+            if (appModelId) {
+              const appModel = currentModels.find(m => m.id === appModelId);
+              if (appModel) {
+                // Update agent's model config to match the app model
+                return {
+                  ...agent,
+                  model: {
+                    provider: appModel.provider,
+                    model_name: appModel.model_name,
+                    api_base: appModel.api_base,
+                    temperature: appModel.temperature,
+                    max_output_tokens: appModel.max_output_tokens,
+                    top_p: appModel.top_p,
+                    top_k: appModel.top_k,
+                    fallbacks: [],
+                    _appModelId: appModelId,
+                  },
+                };
+              }
+            } else if (defaultModelId) {
+              // Check if agent is using the default model (legacy - no marker)
+              // Match by comparing config values
+              const defaultModel = currentModels.find(m => m.id === defaultModelId);
+              if (defaultModel && 
+                  agent.model.provider === defaultModel.provider &&
+                  agent.model.model_name === defaultModel.model_name &&
+                  agent.model.api_base === defaultModel.api_base) {
+                // This agent appears to be using the default model, update it
+                return {
+                  ...agent,
+                  model: {
+                    provider: defaultModel.provider,
+                    model_name: defaultModel.model_name,
+                    api_base: defaultModel.api_base,
+                    temperature: defaultModel.temperature,
+                    max_output_tokens: defaultModel.max_output_tokens,
+                    top_p: defaultModel.top_p,
+                    top_k: defaultModel.top_k,
+                    fallbacks: [],
+                    _appModelId: defaultModelId, // Add marker for future syncs
+                  },
+                };
+              }
             }
           }
           return agent;
