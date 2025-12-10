@@ -1774,32 +1774,30 @@ if PRODUCTION_MODE:
     try:
         import adk_playground
         _package_root = Path(adk_playground.__file__).parent
+        # When installed, frontend/dist should be at package root
         _possible_locations.insert(0, _package_root / "frontend" / "dist")
-        # Also try parent directory (if package is in a subdirectory)
+        # Also check if we're in a site-packages structure
         _possible_locations.insert(1, _package_root.parent / "frontend" / "dist")
-    except (ImportError, AttributeError):
-        pass
-    
-    # Try using importlib.resources for installed packages
-    try:
-        from importlib import resources
-        try:
-            # Try to find frontend/dist as package data
-            with resources.path("adk_playground", "frontend") as frontend_path:
-                _dist_path = Path(frontend_path) / "dist"
-                if _dist_path.exists():
-                    _possible_locations.insert(0, _dist_path)
-        except (ModuleNotFoundError, TypeError):
-            pass
-    except ImportError:
+        # Debug: print what we're checking
+        print(f"Checking package root: {_package_root}", file=sys.stderr)
+        print(f"Checking locations: {_possible_locations[:3]}", file=sys.stderr)
+    except (ImportError, AttributeError) as e:
+        print(f"Could not import adk_playground: {e}", file=sys.stderr)
         pass
     
     frontend_build = None
     for loc in _possible_locations:
+        print(f"Checking: {loc} (exists: {loc.exists()})", file=sys.stderr)
         if loc.exists() and (loc / "index.html").exists():
             frontend_build = loc
-            print(f"Found frontend/dist at: {frontend_build}", file=sys.stderr)
+            print(f"✅ Found frontend/dist at: {frontend_build}", file=sys.stderr)
             break
+        elif loc.exists():
+            print(f"  Directory exists but no index.html", file=sys.stderr)
+            try:
+                print(f"  Contents: {list(loc.iterdir())[:5]}", file=sys.stderr)
+            except:
+                pass
     
     if frontend_build and frontend_build.exists():
         # Serve static assets (JS, CSS, images, etc.) from /assets
