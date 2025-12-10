@@ -101,8 +101,10 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
     if (selectedCallback) {
       setEditingCode(selectedCallback.code);
       setCallbackNameError(null);
+    } else {
+      setEditingCode('');
     }
-  }, [selectedCallbackId]);
+  }, [selectedCallbackId, selectedCallback]);
   
   function handleAddCallback() {
     const id = generateId();
