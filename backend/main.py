@@ -1069,6 +1069,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
             name="prompt_generator",
             model=model,
             instruction="You are a prompt engineering expert. Generate high-quality instruction prompts for AI agents.",
+            output_key="generated_prompt",  # Store final response in session state
         )
         
         runner = Runner(
@@ -1084,8 +1085,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
             user_id="prompt_gen_user",
         )
         
-        # Run the prompt generation
-        generated_prompt = ""
+        # Run the prompt generation (consume all events but don't extract text from them)
         async for event in runner.run_async(
             session_id=session.id,
             user_id="prompt_gen_user",
@@ -1094,12 +1094,20 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
                 parts=[types.Part.from_text(text=meta_prompt)]
             ),
         ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        generated_prompt += part.text
+            # Just consume events - we'll get the result from session state
+            pass
         
-        return {"prompt": generated_prompt.strip(), "success": True}
+        # Get the final session to extract the generated prompt from state
+        final_session = await runner.session_service.get_session(
+            app_name="prompt_generator",
+            user_id="prompt_gen_user",
+            session_id=session.id,
+        )
+        
+        # Extract the prompt from session state (this avoids <think> blocks)
+        generated_prompt = final_session.state.get("generated_prompt", "").strip() if final_session else ""
+        
+        return {"prompt": generated_prompt, "success": True}
         
     except Exception as e:
         import traceback
