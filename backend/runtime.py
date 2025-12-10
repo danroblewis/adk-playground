@@ -136,10 +136,15 @@ class TrackingPlugin:
         if hasattr(llm_request, "config") and llm_request.config:
             if hasattr(llm_request.config, "system_instruction"):
                 si = llm_request.config.system_instruction
-                if si and hasattr(si, "parts"):
-                    system_instruction = "".join(
-                        getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
-                    )
+                if si:
+                    # Handle string system_instruction (from append_instructions with strings)
+                    if isinstance(si, str):
+                        system_instruction = si
+                    # Handle Content object with parts
+                    elif hasattr(si, "parts"):
+                        system_instruction = "".join(
+                            getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
+                        )
         
         # Get tool names
         tool_names = []
@@ -513,6 +518,31 @@ class RuntimeManager:
                 except Exception as e:
                     logger.warning(f"Failed to save session to memory: {e}")
             
+            # Save RunEvents to session service if it's a FileSessionService
+            try:
+                # Import here to avoid circular dependency
+                from file_session_service import FileSessionService
+                if isinstance(session_service, FileSessionService):
+                    # Convert RunEvents to dict format
+                    run_events_dict = [
+                        {
+                            "timestamp": e.timestamp,
+                            "event_type": e.event_type,
+                            "agent_name": e.agent_name,
+                            "data": e.data,
+                        }
+                        for e in session.events
+                    ]
+                    session_service.save_run_events(
+                        app_name=project.app.name,
+                        user_id=adk_session.user_id,
+                        session_id=adk_session.id,
+                        run_events=run_events_dict,
+                    )
+                    logger.debug(f"Saved {len(run_events_dict)} RunEvents to session {adk_session.id}")
+            except Exception as e:
+                logger.debug(f"Could not save RunEvents to session service (may not be FileSessionService): {e}")
+            
             await runner.close()
             
         except Exception as e:
@@ -628,63 +658,88 @@ class RuntimeManager:
             if not adk_session:
                 return None
             
-            # Convert ADK events to RunEvents
-            # Note: ADK events don't have all the same structure as RunEvents,
-            # so we do our best to reconstruct them
-            run_events = []
-            for event in adk_session.events:
-                event_data = {}
-                event_type = "model_response"  # default
-                
-                # Extract content from event
-                if event.content and event.content.parts:
-                    parts_data = []
-                    for part in event.content.parts:
-                        part_data = {}
-                        if hasattr(part, 'text') and part.text:
-                            part_data["type"] = "text"
-                            part_data["text"] = part.text
-                        elif hasattr(part, 'function_call') and part.function_call:
-                            fc = part.function_call
-                            part_data["type"] = "function_call"
-                            part_data["name"] = getattr(fc, "name", "unknown")
-                            part_data["args"] = dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {}
-                        elif hasattr(part, 'function_response') and part.function_response:
-                            fr = part.function_response
-                            part_data["type"] = "function_response"
-                            part_data["name"] = getattr(fr, "name", "unknown")
-                            response = getattr(fr, "response", None)
-                            if response:
-                                part_data["response"] = response
-                        
-                        if part_data:
-                            parts_data.append(part_data)
+            # Try to load stored RunEvents first (if using FileSessionService)
+            run_events = None
+            try:
+                from file_session_service import FileSessionService
+                if isinstance(session_service, FileSessionService):
+                    stored_run_events = session_service.get_run_events(
+                        app_name=project.app.name,
+                        user_id="playground_user",
+                        session_id=session_id,
+                    )
+                    if stored_run_events:
+                        # Convert dicts back to RunEvent objects
+                        run_events = [
+                            RunEvent(
+                                timestamp=e.get("timestamp", 0),
+                                event_type=e.get("event_type", "model_response"),
+                                agent_name=e.get("agent_name", "unknown"),
+                                data=e.get("data", {}),
+                            )
+                            for e in stored_run_events
+                        ]
+                        logger.debug(f"Loaded {len(run_events)} stored RunEvents for session {session_id}")
+            except Exception as e:
+                logger.debug(f"Could not load stored RunEvents: {e}")
+            
+            # If no stored RunEvents, convert ADK events to RunEvents
+            if run_events is None:
+                logger.debug(f"Converting ADK events to RunEvents for session {session_id}")
+                run_events = []
+                for event in adk_session.events:
+                    event_data = {}
+                    event_type = "model_response"  # default
                     
-                    if parts_data:
-                        event_data["response_content"] = {"parts": parts_data}
-                        # Check if it's a function call to determine type
-                        if any(p.get("type") == "function_call" for p in parts_data):
-                            event_type = "model_response"
-                        elif any(p.get("type") == "function_response" for p in parts_data):
-                            event_type = "tool_result"
-                
-                # Check event actions for state changes
-                if hasattr(event, 'actions') and event.actions and event.actions.state_delta:
-                    event_data["state_delta"] = dict(event.actions.state_delta)
-                    # Also emit a separate state_change event
+                    # Extract content from event
+                    if event.content and event.content.parts:
+                        parts_data = []
+                        for part in event.content.parts:
+                            part_data = {}
+                            if hasattr(part, 'text') and part.text:
+                                part_data["type"] = "text"
+                                part_data["text"] = part.text
+                            elif hasattr(part, 'function_call') and part.function_call:
+                                fc = part.function_call
+                                part_data["type"] = "function_call"
+                                part_data["name"] = getattr(fc, "name", "unknown")
+                                part_data["args"] = dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {}
+                            elif hasattr(part, 'function_response') and part.function_response:
+                                fr = part.function_response
+                                part_data["type"] = "function_response"
+                                part_data["name"] = getattr(fr, "name", "unknown")
+                                response = getattr(fr, "response", None)
+                                if response:
+                                    part_data["response"] = response
+                            
+                            if part_data:
+                                parts_data.append(part_data)
+                        
+                        if parts_data:
+                            event_data["response_content"] = {"parts": parts_data}
+                            # Check if it's a function call to determine type
+                            if any(p.get("type") == "function_call" for p in parts_data):
+                                event_type = "model_response"
+                            elif any(p.get("type") == "function_response" for p in parts_data):
+                                event_type = "tool_result"
+                    
+                    # Check event actions for state changes
+                    if hasattr(event, 'actions') and event.actions and event.actions.state_delta:
+                        event_data["state_delta"] = dict(event.actions.state_delta)
+                        # Also emit a separate state_change event
+                        run_events.append(RunEvent(
+                            timestamp=event.timestamp,
+                            event_type="state_change",
+                            agent_name=event.author or "unknown",
+                            data={"state_delta": dict(event.actions.state_delta)},
+                        ))
+                    
                     run_events.append(RunEvent(
                         timestamp=event.timestamp,
-                        event_type="state_change",
+                        event_type=event_type,
                         agent_name=event.author or "unknown",
-                        data={"state_delta": dict(event.actions.state_delta)},
+                        data=event_data,
                     ))
-                
-                run_events.append(RunEvent(
-                    timestamp=event.timestamp,
-                    event_type=event_type,
-                    agent_name=event.author or "unknown",
-                    data=event_data,
-                ))
             
             # Create RunSession
             return RunSession(

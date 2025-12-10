@@ -148,21 +148,42 @@ class FileSessionService(BaseSessionService):
         """Save user-level state."""
         self._write_json(self._user_state_path(app_name, user_id), state)
     
-    def _load_session(self, app_name: str, user_id: str, session_id: str) -> Optional[Session]:
-        """Load a session from disk."""
+    def _load_session(self, app_name: str, user_id: str, session_id: str) -> tuple[Optional[Session], Optional[list]]:
+        """Load a session from disk.
+        
+        Returns:
+            Tuple of (Session, run_events) where run_events is a list of RunEvent dicts
+            or None if not present
+        """
         data = self._read_json(self._session_path(app_name, user_id, session_id))
         if data is None:
-            return None
+            return None, None
+        
+        # Extract RunEvents metadata before validation
+        run_events = data.pop("_run_events", None)
+        
         try:
-            return Session.model_validate(data)
+            session = Session.model_validate(data)
+            return session, run_events
         except Exception as e:
             logger.warning(f"Failed to parse session {session_id}: {e}")
-            return None
+            return None, None
     
-    def _save_session(self, session: Session) -> None:
-        """Save a session to disk."""
+    def _save_session(self, session: Session, run_events: Optional[list] = None) -> None:
+        """Save a session to disk.
+        
+        Args:
+            session: The ADK Session to save
+            run_events: Optional list of RunEvent dicts to store as metadata
+        """
         path = self._session_path(session.app_name, session.user_id, session.id)
-        self._write_json(path, session.model_dump(mode='json', by_alias=True))
+        data = session.model_dump(mode='json', by_alias=True)
+        
+        # Store RunEvents as metadata if provided
+        if run_events is not None:
+            data["_run_events"] = run_events
+        
+        self._write_json(path, data)
     
     def _merge_state(self, app_name: str, user_id: str, session: Session) -> Session:
         """Merge app and user state into session state."""
@@ -196,7 +217,7 @@ class FileSessionService(BaseSessionService):
                 else str(uuid.uuid4())
             )
             
-            existing = self._load_session(app_name, user_id, session_id)
+            existing, _ = self._load_session(app_name, user_id, session_id)
             if existing:
                 raise AlreadyExistsError(f'Session with id {session_id} already exists.')
             
@@ -243,7 +264,7 @@ class FileSessionService(BaseSessionService):
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         """Get a session."""
-        session = self._load_session(app_name, user_id, session_id)
+        session, _ = self._load_session(app_name, user_id, session_id)
         if session is None:
             return None
         
@@ -291,7 +312,7 @@ class FileSessionService(BaseSessionService):
                 session_id = session_file.stem
                 actual_user_id = user_dir.name
                 
-                session = self._load_session(app_name, actual_user_id, session_id)
+                session, _ = self._load_session(app_name, actual_user_id, session_id)
                 if session:
                     # Clear events for list response
                     session.events = []
@@ -322,7 +343,7 @@ class FileSessionService(BaseSessionService):
             session_id = session.id
             
             # Load current session from disk
-            storage_session = self._load_session(app_name, user_id, session_id)
+            storage_session, run_events = self._load_session(app_name, user_id, session_id)
             if storage_session is None:
                 logger.warning(f'Session {session_id} not found on disk')
                 return event
@@ -357,10 +378,47 @@ class FileSessionService(BaseSessionService):
                 if state_deltas['session']:
                     storage_session.state.update(state_deltas['session'])
             
-            # Save updated session
-            self._save_session(storage_session)
+            # Save updated session (preserve existing run_events if any)
+            self._save_session(storage_session, run_events=run_events)
             
             return event
+    
+    def save_run_events(self, app_name: str, user_id: str, session_id: str, run_events: list[dict]) -> None:
+        """Save RunEvents as metadata for a session.
+        
+        Args:
+            app_name: The app name
+            user_id: The user ID
+            session_id: The session ID
+            run_events: List of RunEvent dicts to save
+        """
+        session, existing_run_events = self._load_session(app_name, user_id, session_id)
+        if session is None:
+            logger.warning(f"Cannot save run_events: session {session_id} not found")
+            return
+        
+        # Merge with existing run_events if any
+        if existing_run_events:
+            # Combine and sort by timestamp
+            all_events = existing_run_events + run_events
+            all_events.sort(key=lambda e: e.get("timestamp", 0))
+            run_events = all_events
+        
+        self._save_session(session, run_events=run_events)
+    
+    def get_run_events(self, app_name: str, user_id: str, session_id: str) -> Optional[list[dict]]:
+        """Get RunEvents metadata for a session.
+        
+        Args:
+            app_name: The app name
+            user_id: The user ID
+            session_id: The session ID
+            
+        Returns:
+            List of RunEvent dicts, or None if not found
+        """
+        _, run_events = self._load_session(app_name, user_id, session_id)
+        return run_events
 
 
 # Factory function for use with ADK services.py
