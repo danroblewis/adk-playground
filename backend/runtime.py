@@ -352,13 +352,35 @@ class RuntimeManager:
             # Create artifact service based on URI
             def create_artifact_service(uri: str):
                 if uri.startswith("file://"):
-                    from google.adk.artifacts.file_artifact_service import FileArtifactService
-                    path = uri[7:]  # Remove "file://" prefix
-                    return FileArtifactService(root_dir=path)
+                    try:
+                        from google.adk.artifacts.file_artifact_service import FileArtifactService
+                        path = uri[7:]  # Remove "file://" prefix
+                        return FileArtifactService(root_dir=path)
+                    except ImportError:
+                        # Fallback: try importing from artifacts module
+                        try:
+                            from google.adk.artifacts import FileArtifactService
+                            path = uri[7:]  # Remove "file://" prefix
+                            return FileArtifactService(root_dir=path)
+                        except (ImportError, AttributeError):
+                            # If FileArtifactService is not available, use in-memory
+                            import sys
+                            print(f"WARNING: FileArtifactService not available, using InMemoryArtifactService for file:// URI", file=sys.stderr)
+                            return InMemoryArtifactService()
                 elif uri.startswith("gcs://"):
-                    from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
-                    bucket = uri[6:]  # Remove "gcs://" prefix
-                    return GcsArtifactService(bucket_name=bucket)
+                    try:
+                        from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
+                        bucket = uri[6:]  # Remove "gcs://" prefix
+                        return GcsArtifactService(bucket_name=bucket)
+                    except ImportError:
+                        try:
+                            from google.adk.artifacts import GcsArtifactService
+                            bucket = uri[6:]  # Remove "gcs://" prefix
+                            return GcsArtifactService(bucket_name=bucket)
+                        except (ImportError, AttributeError):
+                            import sys
+                            print(f"WARNING: GcsArtifactService not available, using InMemoryArtifactService for gcs:// URI", file=sys.stderr)
+                            return InMemoryArtifactService()
                 else:
                     return InMemoryArtifactService()
             
