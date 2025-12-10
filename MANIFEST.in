@@ -3,9 +3,13 @@ include LICENSE
 include pyproject.toml
 include requirements.txt
 include setup.sh
+include __main__.py
+include adk_playground.py
 recursive-include backend *.py
 recursive-include tracing_plugin *.py
 recursive-include mcp_servers *.py
 include file_session_service.py
 include file_memory_service.py
+# Include built frontend for production mode
+recursive-include frontend/dist *
 

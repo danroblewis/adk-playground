@@ -2,12 +2,91 @@
 
 from models import MCPServerConfig, MCPConnectionType
 
+import json
 import os
+from pathlib import Path
+from typing import List
 
 # Path to our custom MCP servers
 MCP_SERVERS_DIR = os.path.join(os.path.dirname(__file__), "..", "mcp_servers")
 
-KNOWN_MCP_SERVERS = [
+# Get MCP config file path from environment variable, default to ~/adk_tmp/mcp.json
+MCP_CONFIG_FILE = Path(
+    os.environ.get("ADK_PLAYGROUND_MCP_CONFIG", str(Path.home() / "adk_tmp" / "mcp.json"))
+)
+
+
+def load_mcp_servers_from_file() -> List[MCPServerConfig]:
+    """Load MCP servers from a standard mcp.json file.
+    
+    Supports standard mcp.json format:
+    {
+        "mcpServers": {
+            "server-name": {
+                "command": "npx",
+                "args": ["-y", "@package/server"],
+                "env": {"KEY": "value"},
+                ...
+            }
+        }
+    }
+    
+    Returns:
+        List of MCPServerConfig objects parsed from the file
+    """
+    servers = []
+    
+    if not MCP_CONFIG_FILE.exists():
+        return servers
+    
+    try:
+        with open(MCP_CONFIG_FILE, "r") as f:
+            data = json.load(f)
+        
+        # Handle standard mcp.json format with "mcpServers" key
+        mcp_servers = data.get("mcpServers", {})
+        
+        for server_name, server_config in mcp_servers.items():
+            try:
+                # Convert to MCPServerConfig
+                # Default to STDIO if not specified
+                connection_type = MCPConnectionType.STDIO
+                if "url" in server_config:
+                    # If URL is present, assume SSE or HTTP
+                    if server_config.get("transport", "sse") == "http":
+                        connection_type = MCPConnectionType.HTTP
+                    else:
+                        connection_type = MCPConnectionType.SSE
+                
+                config = MCPServerConfig(
+                    name=server_name,
+                    description=server_config.get("description", ""),
+                    connection_type=connection_type,
+                    command=server_config.get("command"),
+                    args=server_config.get("args", []),
+                    env=server_config.get("env", {}),
+                    url=server_config.get("url"),
+                    headers=server_config.get("headers", {}),
+                    timeout=server_config.get("timeout", 10.0),
+                    tool_filter=server_config.get("tool_filter"),
+                    tool_name_prefix=server_config.get("tool_name_prefix"),
+                )
+                servers.append(config)
+            except Exception as e:
+                # Skip invalid server configs but continue loading others
+                print(f"Warning: Failed to load MCP server '{server_name}' from {MCP_CONFIG_FILE}: {e}")
+                continue
+                
+    except json.JSONDecodeError as e:
+        print(f"Warning: Invalid JSON in {MCP_CONFIG_FILE}: {e}")
+    except Exception as e:
+        print(f"Warning: Failed to load MCP servers from {MCP_CONFIG_FILE}: {e}")
+    
+    return servers
+
+
+# Built-in known MCP servers (hardcoded defaults)
+_BUILTIN_MCP_SERVERS = [
     MCPServerConfig(
         name="time",
         description="Get the current time in various formats",
@@ -117,6 +196,18 @@ KNOWN_MCP_SERVERS = [
                      "maps_elevation"],
     ),
 ]
+
+# Load user-defined MCP servers from mcp.json file
+_USER_MCP_SERVERS = load_mcp_servers_from_file()
+
+# Combine built-in and user-defined servers
+# User-defined servers take precedence if there's a name conflict
+KNOWN_MCP_SERVERS = _BUILTIN_MCP_SERVERS.copy()
+_user_server_names = {s.name for s in _USER_MCP_SERVERS}
+# Remove built-in servers that are overridden by user config
+KNOWN_MCP_SERVERS = [s for s in KNOWN_MCP_SERVERS if s.name not in _user_server_names]
+# Add user-defined servers
+KNOWN_MCP_SERVERS.extend(_USER_MCP_SERVERS)
 
 BUILTIN_TOOLS = [
     {"name": "google_search", "description": "Search Google for information"},

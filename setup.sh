@@ -41,6 +41,7 @@ echo ""
 echo "Note: If google-adk is not available on PyPI, you may need to install it separately."
 echo "For example, from the parent adk-python repository: pip install -e ."
 echo ""
+echo "Installing from pyproject.toml..."
 pip install -e .
 
 # Install frontend dependencies if package.json exists

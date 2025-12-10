@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -22,8 +23,13 @@ from project_manager import ProjectManager
 from runtime import RuntimeManager
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
 
+# Get projects directory from environment variable, default to ~/adk_tmp/projects
+PROJECTS_DIR = Path(
+    os.environ.get("ADK_PLAYGROUND_PROJECTS_DIR", str(Path.home() / "adk_tmp" / "projects"))
+)
+PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+
 # Initialize managers
-PROJECTS_DIR = Path(__file__).parent.parent / "projects"
 project_manager = ProjectManager(str(PROJECTS_DIR))
 runtime_manager = RuntimeManager(str(PROJECTS_DIR))
 
@@ -192,6 +198,11 @@ class MCPConnectionPool:
 # Global MCP connection pool
 mcp_pool = MCPConnectionPool()
 
+# Determine if we're in production mode (serving static files)
+# Set ADK_PLAYGROUND_MODE=production to enable static file serving
+# Default is dev mode (separate frontend server)
+PRODUCTION_MODE = os.environ.get("ADK_PLAYGROUND_MODE", "dev").lower() == "production"
+
 # Create FastAPI app
 app = FastAPI(
     title="ADK Playground",
@@ -199,20 +210,21 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS for frontend (only in dev mode)
+if not PRODUCTION_MODE:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 # ============================================================================
@@ -1748,10 +1760,34 @@ async def health_check():
 # Static Files (for production)
 # ============================================================================
 
-# Mount frontend build in production
-frontend_build = Path(__file__).parent.parent / "frontend" / "dist"
-if frontend_build.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_build), html=True), name="frontend")
+# Mount frontend build in production mode
+# This serves the built frontend assets and handles SPA routing
+if PRODUCTION_MODE:
+    frontend_build = Path(__file__).parent.parent / "frontend" / "dist"
+    if frontend_build.exists():
+        # Serve static assets (JS, CSS, images, etc.) from /assets
+        assets_dir = frontend_build / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        
+        # Serve index.html for all non-API/WebSocket routes (SPA routing)
+        # This must be last to catch all other routes
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            """Serve index.html for SPA routing, but exclude API and WebSocket routes."""
+            # Don't serve index.html for API or WebSocket routes
+            if full_path.startswith(("api/", "ws/", "assets/")):
+                raise HTTPException(status_code=404, detail="Not found")
+            
+            index_file = frontend_build / "index.html"
+            if index_file.exists():
+                from fastapi.responses import FileResponse
+                return FileResponse(str(index_file))
+            raise HTTPException(status_code=404, detail="Frontend not built. Run 'npm run build' in frontend/")
+    else:
+        import sys
+        print("WARNING: Production mode enabled but frontend/dist not found.", file=sys.stderr)
+        print("Run 'npm run build' in the frontend/ directory to build the frontend.", file=sys.stderr)
 
 
 if __name__ == "__main__":
