@@ -126,10 +126,15 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
   
   function handleMonacoMount(editor: any, monaco: Monaco) {
     monacoRef.current = monaco;
-    registerCompletion(monaco, {
-      endpoint: '/api/code-completion',
-      language: 'python',
-    });
+    try {
+      registerCompletion(monaco, {
+        endpoint: '/api/code-completion',
+        language: 'python',
+      });
+    } catch (e) {
+      // Ignore registration errors
+      console.warn('Failed to register Monacopilot completion:', e);
+    }
   }
   
   const availableStateKeys = project.app?.state_keys?.map(k => k.name) || [];

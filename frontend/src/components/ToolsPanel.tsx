@@ -158,25 +158,43 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   
   const handleEditorMount = useCallback((editor: any, monaco: Monaco) => {
     // Clean up previous completion registration
-    if (completionCleanupRef.current) {
-      completionCleanupRef.current();
+    if (completionCleanupRef.current && typeof completionCleanupRef.current === 'function') {
+      try {
+        completionCleanupRef.current();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
     }
     
     // Register Monacopilot completion
-    const cleanup = registerCompletion(monaco, editor, {
-      language: 'python',
-      endpoint: '/api/code-completion',
-      trigger: 'onTyping', // Also supports 'onIdle' or 'onDemand'
-    });
-    
-    completionCleanupRef.current = cleanup;
+    try {
+      const cleanup = registerCompletion(monaco, editor, {
+        language: 'python',
+        endpoint: '/api/code-completion',
+        trigger: 'onTyping', // Also supports 'onIdle' or 'onDemand'
+      });
+      
+      // Only store if it's actually a function
+      if (typeof cleanup === 'function') {
+        completionCleanupRef.current = cleanup;
+      } else {
+        completionCleanupRef.current = null;
+      }
+    } catch (e) {
+      // If registration fails, clear the ref
+      completionCleanupRef.current = null;
+    }
   }, []);
   
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (completionCleanupRef.current) {
-        completionCleanupRef.current();
+      if (completionCleanupRef.current && typeof completionCleanupRef.current === 'function') {
+        try {
+          completionCleanupRef.current();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
       }
     };
   }, []);
