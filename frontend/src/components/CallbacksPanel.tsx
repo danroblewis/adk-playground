@@ -132,9 +132,13 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
   }
   
   function handleSaveCallback() {
-    if (!selectedCallback) return;
+    if (!selectedCallbackId) return;
     
-    const name = selectedCallback.name.trim();
+    // Get fresh callback data from the store
+    const latestCallback = callbacks.find(c => c.id === selectedCallbackId);
+    if (!latestCallback) return;
+    
+    const name = latestCallback.name.trim();
     if (!name) {
       alert('Please enter a name');
       return;
@@ -146,18 +150,18 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
     }
     
     // Check for duplicate names (excluding current)
-    const duplicate = callbacks.find(c => c.name === name && c.id !== selectedCallback.id);
+    const duplicate = callbacks.find(c => c.name === name && c.id !== latestCallback.id);
     if (duplicate) {
       setCallbackNameError('A callback with this name already exists');
       return;
     }
     
-    updateCustomCallback(selectedCallback.id, {
+    updateCustomCallback(latestCallback.id, {
       code: editingCode,
       name,
-      description: selectedCallback.description,
-      module_path: selectedCallback.module_path,
-      state_keys_used: selectedCallback.state_keys_used
+      description: latestCallback.description,
+      module_path: latestCallback.module_path,
+      state_keys_used: latestCallback.state_keys_used
     });
     setCallbackNameError(null);
   }
