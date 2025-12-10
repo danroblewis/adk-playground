@@ -196,3 +196,57 @@ class ProjectManager:
             print(f"Error updating project from YAML: {e}")
             return None
 
+
+    def _save_custom_callbacks(self, project: Project) -> None:
+        """Save custom callbacks as Python files for execution."""
+        callbacks_dir = self.projects_dir / project.id / "callbacks"
+        callbacks_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Group callbacks by module path
+        modules: Dict[str, List[CustomCallbackDefinition]] = {}
+        for callback in project.custom_callbacks:
+            parts = callback.module_path.rsplit(".", 1)
+            if len(parts) == 2:
+                module_name = parts[0]
+            else:
+                module_name = "callbacks"
+            
+            if module_name not in modules:
+                modules[module_name] = []
+            modules[module_name].append(callback)
+        
+        # Create Python files for each module
+        for module_name, callbacks in modules.items():
+            # Convert dots to directory structure
+            module_parts = module_name.split(".")
+            module_dir = callbacks_dir
+            for part in module_parts[:-1]:
+                module_dir = module_dir / part
+                module_dir.mkdir(parents=True, exist_ok=True)
+                # Create __init__.py
+                init_file = module_dir / "__init__.py"
+                if not init_file.exists():
+                    init_file.write_text("")
+            
+            # Write the module file
+            file_name = f"{module_parts[-1]}.py" if module_parts else "callbacks.py"
+            file_path = module_dir / file_name
+            
+            code_lines = [
+                '"""Auto-generated custom callbacks module."""',
+                "",
+                "from google.adk.agents.callback_context import CallbackContext",
+                "from google.adk.models.llm_request import LlmResponse",
+                "from typing import Optional",
+                "",
+            ]
+            
+            for callback in callbacks:
+                code_lines.append(f"# Callback: {callback.name}")
+                code_lines.append(f'# Description: {callback.description}')
+                code_lines.append(f"# State keys used: {', '.join(callback.state_keys_used)}")
+                code_lines.append("")
+                code_lines.append(callback.code)
+                code_lines.append("")
+            
+            file_path.write_text("\n".join(code_lines))
