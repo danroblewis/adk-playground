@@ -10,10 +10,14 @@ from typing import List
 # Path to our custom MCP servers
 MCP_SERVERS_DIR = os.path.join(os.path.dirname(__file__), "..", "mcp_servers")
 
-# Get MCP config file path from environment variable, default to ~/adk_tmp/mcp.json
-MCP_CONFIG_FILE = Path(
-    os.environ.get("ADK_PLAYGROUND_MCP_CONFIG", str(Path.home() / "adk_tmp" / "mcp.json"))
-)
+# Get MCP config file path from environment variable, default to ~/.adk-playground/mcp.json
+_mcp_config_env = os.environ.get("ADK_PLAYGROUND_MCP_CONFIG")
+if _mcp_config_env:
+    MCP_CONFIG_FILE = Path(_mcp_config_env)
+else:
+    MCP_CONFIG_FILE = Path.home() / ".adk-playground" / "mcp.json"
+# Create parent directory if it doesn't exist
+MCP_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def load_mcp_servers_from_file() -> List[MCPServerConfig]:
