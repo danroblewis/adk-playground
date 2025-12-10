@@ -331,7 +331,10 @@ class RuntimeManager:
             def create_session_service(uri: str):
                 if uri.startswith("file://"):
                     from file_session_service import FileSessionService
+                    from pathlib import Path
                     path = uri[7:]  # Remove "file://" prefix
+                    # Expand ~ to home directory
+                    path = str(Path(path).expanduser())
                     return FileSessionService(base_dir=path)
                 elif uri.startswith("sqlite://"):
                     from google.adk.sessions.sqlite_session_service import SqliteSessionService
@@ -345,7 +348,10 @@ class RuntimeManager:
                 if uri.startswith("file://"):
                     try:
                         from file_memory_service import FileMemoryService
+                        from pathlib import Path
                         path = uri[7:]  # Remove "file://" prefix
+                        # Expand ~ to home directory
+                        path = str(Path(path).expanduser())
                         return FileMemoryService(base_dir=path)
                     except ImportError:
                         # FileMemoryService may not be available
@@ -363,7 +369,10 @@ class RuntimeManager:
                     try:
                         # First try direct import
                         from google.adk.artifacts.file_artifact_service import FileArtifactService
+                        from pathlib import Path
                         path = uri[7:]  # Remove "file://" prefix
+                        # Expand ~ to home directory
+                        path = str(Path(path).expanduser())
                         return FileArtifactService(root_dir=path)
                     except ImportError:
                         # FileArtifactService may not be in the installed package
