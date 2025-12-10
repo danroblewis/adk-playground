@@ -609,7 +609,10 @@ class RuntimeManager:
             def create_session_service(uri: str):
                 if uri.startswith("file://"):
                     from file_session_service import FileSessionService
+                    from pathlib import Path
                     path = uri[7:]  # Remove "file://" prefix
+                    # Expand ~ to home directory
+                    path = str(Path(path).expanduser())
                     return FileSessionService(base_dir=path)
                 elif uri.startswith("sqlite://"):
                     from google.adk.sessions.sqlite_session_service import SqliteSessionService
@@ -667,7 +670,10 @@ class RuntimeManager:
             def create_session_service(uri: str):
                 if uri.startswith("file://"):
                     from file_session_service import FileSessionService
+                    from pathlib import Path
                     path = uri[7:]  # Remove "file://" prefix
+                    # Expand ~ to home directory
+                    path = str(Path(path).expanduser())
                     return FileSessionService(base_dir=path)
                 elif uri.startswith("sqlite://"):
                     from google.adk.sessions.sqlite_session_service import SqliteSessionService
@@ -819,7 +825,10 @@ class RuntimeManager:
             def create_session_service(uri: str):
                 if uri.startswith("file://"):
                     from file_session_service import FileSessionService
+                    from pathlib import Path
                     path = uri[7:]  # Remove "file://" prefix
+                    # Expand ~ to home directory
+                    path = str(Path(path).expanduser())
                     return FileSessionService(base_dir=path)
                 elif uri.startswith("sqlite://"):
                     from google.adk.sessions.sqlite_session_service import SqliteSessionService
