@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Settings, Bot, Wrench, TestTube, FileCode, Code, Save, Layers } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { getProject, updateProject as apiUpdateProject } from '../utils/api';
+import type { AppModelConfig } from '../utils/types';
 import AppConfigPanel from './AppConfigPanel';
 import AgentsPanel from './AgentsPanel';
 import ToolsPanel from './ToolsPanel';
@@ -119,7 +120,7 @@ export default function ProjectEditor() {
   }
   
   // Sync agents when app models change
-  const prevAppModelsRef = useRef<Array<{ id: string; provider: string; model_name: string; api_base?: string; temperature?: number; max_output_tokens?: number; top_p?: number; top_k?: number }> | null>(null);
+  const prevAppModelsRef = useRef<AppModelConfig[] | null>(null);
   useEffect(() => {
     if (project && !initialLoadRef.current && prevAppModelsRef.current) {
       const currentModels = project.app.models || [];
