@@ -14,17 +14,58 @@ function isValidName(name: string): boolean {
   return /^[a-zA-Z0-9_]+$/.test(name);
 }
 
-const DEFAULT_CALLBACK_CODE = `def my_callback(context: CallbackContext) -> None:
+const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext) -> None:
     """Description of what this callback does.
     
     Args:
-        context: The callback context containing agent, model, tool, and state information
+        callback_context: The callback context containing agent, model, tool, and state information.
+            MUST be named 'callback_context' (enforced by ADK).
+    
+    Returns:
+        Optional[types.Content]: If you return content, it will:
+            - For before_* callbacks: Short-circuit execution and return this content to the user
+            - For after_* callbacks: Add this content as an additional agent response
+            - Return None to proceed normally
     """
-    # Access state: context.state['key']
-    # Set state: context.state['key'] = value
-    # Access agent info: context.agent_name, context.agent_id
-    # Access model info: context.model_name (if model callback)
-    # Access tool info: context.tool_name, context.tool_args (if tool callback)
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Read state: callback_context.state.get('key', default_value)
+    # Read state: callback_context.state['key']
+    # Write state: callback_context.state['key'] = value
+    # State changes are automatically tracked in state_delta
+    
+    # ============================================================
+    # Context Information (available depending on callback type)
+    # ============================================================
+    # Agent info: callback_context.agent_name, callback_context.agent_id
+    # Invocation info: callback_context.invocation_id
+    # Model info: callback_context.model_name (for model callbacks)
+    # Tool info: callback_context.tool_name, callback_context.tool_args (for tool callbacks)
+    
+    # ============================================================
+    # Artifacts (async methods)
+    # ============================================================
+    # Load artifact: artifact = await callback_context.load_artifact(filename, version=None)
+    # Save artifact: version = await callback_context.save_artifact(filename, artifact, custom_metadata=None)
+    # Example:
+    #   from google.genai import types
+    #   artifact = types.Part.from_text(text="some content")
+    #   version = await callback_context.save_artifact("report.txt", artifact)
+    
+    # ============================================================
+    # Short-circuiting Execution (before_* callbacks only)
+    # ============================================================
+    # Return content to skip the agent/model/tool execution:
+    #   from google.genai import types
+    #   return types.Content(role="assistant", parts=[types.Part.from_text("Custom response")])
+    
+    # ============================================================
+    # Adding Additional Responses (after_* callbacks only)
+    # ============================================================
+    # Return content to add an additional response after execution:
+    #   from google.genai import types
+    #   return types.Content(role="assistant", parts=[types.Part.from_text("Additional info")])
     
     pass
 `;

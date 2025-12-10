@@ -18,14 +18,95 @@ function isValidName(name: string): boolean {
 const DEFAULT_TOOL_CODE = `def my_tool(tool_context: ToolContext, param1: str) -> dict:
     """Description of what this tool does.
     
+    This description is shown to the LLM to help it understand when and how to use this tool.
+    Be clear and specific about what the tool does and when it should be used.
+    
     Args:
-        param1: Description of this parameter
+        tool_context: The tool context (MUST be the first parameter, named 'tool_context').
+            Provides access to state, actions, memory, artifacts, and more.
+        param1: Description of this parameter. The LLM uses this to understand what to pass.
+            Use type hints (str, int, bool, dict, list, etc.) - the LLM uses these!
     
     Returns:
-        A dictionary with the result
+        A dictionary with the result. This will be converted to JSON and sent to the LLM.
+        Always return a dict, even for errors: {"success": False, "error": "message"}
     """
-    # Access state: tool_context.state['key']
-    # Set state: tool_context.state['key'] = value
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Read state: value = tool_context.state.get('key', default_value)
+    # Read state: value = tool_context.state['key']
+    # Write state: tool_context.state['key'] = value
+    # State changes are automatically tracked in state_delta
+    
+    # ============================================================
+    # Control Flow Actions
+    # ============================================================
+    # Escalate to parent agent (exit loops):
+    #   tool_context.actions.escalate = True
+    #   tool_context.actions.skip_summarization = True
+    
+    # Skip LLM summarization of tool result:
+    #   tool_context.actions.skip_summarization = True
+    
+    # Access state delta (changes made in this tool):
+    #   delta = tool_context.actions.state_delta
+    
+    # ============================================================
+    # Context Information
+    # ============================================================
+    # Agent info: tool_context.agent_name
+    # Invocation info: tool_context.invocation_id
+    # Function call ID: tool_context.function_call_id
+    
+    # ============================================================
+    # Memory Service (async)
+    # ============================================================
+    # Search memory: results = await tool_context.search_memory(query)
+    #   Returns: SearchMemoryResponse with .memories list
+    
+    # ============================================================
+    # Artifacts (async)
+    # ============================================================
+    # List artifacts: artifacts = await tool_context.list_artifacts()
+    # Load artifact: artifact = await tool_context.load_artifact(filename, version=None)
+    # Save artifact: version = await tool_context.save_artifact(filename, artifact, custom_metadata=None)
+    # Example:
+    #   from google.genai import types
+    #   artifact = types.Part.from_text(text="some content")
+    #   version = await tool_context.save_artifact("report.txt", artifact)
+    
+    # ============================================================
+    # Authentication
+    # ============================================================
+    # Request credentials: tool_context.request_credential(auth_config)
+    # Get auth response: credential = tool_context.get_auth_response(auth_config)
+    
+    # ============================================================
+    # User Confirmation
+    # ============================================================
+    # Request user confirmation before proceeding:
+    #   tool_context.request_confirmation(hint="Are you sure?", payload={"action": "delete"})
+    
+    # ============================================================
+    # Error Handling
+    # ============================================================
+    # Always handle errors gracefully and return informative messages:
+    #   try:
+    #       result = process(param1)
+    #       return {"success": True, "result": result}
+    #   except ValueError as e:
+    #       return {"success": False, "error": f"Invalid input: {e}"}
+    #   except Exception as e:
+    #       return {"success": False, "error": f"Unexpected error: {e}"}
+    
+    # ============================================================
+    # Async Tools
+    # ============================================================
+    # If you need async operations, make the function async:
+    #   async def my_async_tool(tool_context: ToolContext, query: str) -> dict:
+    #       results = await tool_context.search_memory(query)
+    #       return {"memories": [m.text for m in results.memories]}
     
     return {"result": "success"}
 `;
