@@ -1391,9 +1391,26 @@ Provide the code completion (just the code to insert, no markdown):"""
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
         from google.genai import types
         
-        # Use a fast model for completions
-        # Default to gemini-2.0-flash for code completion (fast and reliable)
-        model = "gemini-2.0-flash"
+        # Get model from project if project_id is provided, otherwise use default
+        model = "gemini-2.0-flash"  # Default fallback
+        if request.project_id:
+            project = project_manager.get_project(request.project_id)
+            if project and project.app.models and len(project.app.models) > 0:
+                model_config = None
+                if project.app.default_model_id:
+                    model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+                if not model_config:
+                    model_config = project.app.models[0]
+                
+                if model_config:
+                    if model_config.provider == "litellm":
+                        from google.adk.models.lite_llm import LiteLlm
+                        model = LiteLlm(
+                            model=model_config.model_name,
+                            api_base=model_config.api_base,
+                        )
+                    else:
+                        model = model_config.model_name or "gemini-2.0-flash"
         
         completion_agent = Agent(
             name="code_completer",
