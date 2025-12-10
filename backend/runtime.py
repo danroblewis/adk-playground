@@ -33,11 +33,11 @@ class TrackingPlugin:
         self.callback = callback  # async callback to send events
         self.token_counts = {"input": 0, "output": 0}
     
-    def _emit(self, event: RunEvent):
+    async def _emit(self, event: RunEvent):
         """Emit an event."""
         self.session.events.append(event)
-        # Run callback in background
-        asyncio.create_task(self.callback(event))
+        # Await callback to ensure it completes before continuing
+        await self.callback(event)
     
     async def before_agent_callback(self, *, agent, callback_context, **kwargs):
         """Called before an agent runs."""
@@ -51,7 +51,7 @@ class TrackingPlugin:
     
     async def after_agent_callback(self, *, agent, callback_context, **kwargs):
         """Called after an agent runs."""
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="agent_end",
             agent_name=agent.name,
@@ -66,7 +66,7 @@ class TrackingPlugin:
             state_delta = event.actions.state_delta
             if state_delta:
                 agent_name = getattr(event, "author", None) or "system"
-                self._emit(RunEvent(
+                await self._emit(RunEvent(
                     timestamp=time.time(),
                     event_type="state_change",
                     agent_name=agent_name,
@@ -152,7 +152,7 @@ class TrackingPlugin:
             tool_names = list(llm_request.tools_dict.keys())
         
         agent_name = getattr(callback_context, "agent_name", None) or "system"
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_call",
             agent_name=agent_name,
@@ -206,7 +206,7 @@ class TrackingPlugin:
                     finish_reason = str(finish_reason)
         
         agent_name = getattr(callback_context, "agent_name", None) or "system"
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="model_response",
             agent_name=agent_name,
@@ -222,7 +222,7 @@ class TrackingPlugin:
         """Called before a tool is executed."""
         agent_name = getattr(tool_context, "agent_name", None) or "system"
         
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="tool_call",
             agent_name=agent_name,
@@ -239,7 +239,7 @@ class TrackingPlugin:
         
         # Track state changes
         if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
-            self._emit(RunEvent(
+            await self._emit(RunEvent(
                 timestamp=time.time(),
                 event_type="state_change",
                 agent_name=agent_name,
@@ -248,7 +248,7 @@ class TrackingPlugin:
                 },
             ))
         
-        self._emit(RunEvent(
+        await self._emit(RunEvent(
             timestamp=time.time(),
             event_type="tool_result",
             agent_name=agent_name,
@@ -546,9 +546,6 @@ class RuntimeManager:
                                 data={"text": part.text},
                             )
             
-            # Wait for any pending async tasks from TrackingPlugin to complete
-            # This ensures the final model_response event is sent before we finish
-            await asyncio.sleep(0.1)  # Small delay to let async tasks complete
             
             # Get final state
             final_session = await runner.session_service.get_session(
