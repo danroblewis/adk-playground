@@ -33,7 +33,7 @@ source .venv/bin/activate
 
 # Upgrade pip
 echo "Upgrading pip..."
-pip install --upgrade pip
+.venv/bin/python -m pip install --upgrade pip
 
 # Install dependencies
 echo "Installing dependencies..."
@@ -42,7 +42,7 @@ echo "Note: If google-adk is not available on PyPI, you may need to install it s
 echo "For example, from the parent adk-python repository: pip install -e ."
 echo ""
 echo "Installing from pyproject.toml..."
-pip install -e .
+.venv/bin/pip install -e .
 
 # Install frontend dependencies if package.json exists
 if [ -f "frontend/package.json" ]; then
