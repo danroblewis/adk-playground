@@ -964,6 +964,32 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
             summary["is_target"] = True
         agent_summaries.append(summary)
     
+    # If target_agent is not in saved project, add it to summaries
+    if target_agent.id not in agent_ids_in_project:
+        summary: Dict[str, Any] = {
+            "name": target_agent.name,
+            "type": target_agent.type,
+            "description": getattr(target_agent, "description", "") or "",
+            "is_target": True,
+        }
+        if target_agent.type == "LlmAgent":
+            # Handle different tool types
+            tool_names = []
+            for t in getattr(target_agent, "tools", []):
+                if hasattr(t, "name") and t.name:
+                    tool_names.append(f"{t.type}:{t.name}")
+                elif hasattr(t, "server") and t.server:
+                    tool_names.append(f"{t.type}:{t.server.name}")
+                elif hasattr(t, "agent_id"):
+                    tool_names.append(f"{t.type}:{t.agent_id}")
+                else:
+                    tool_names.append(t.type)
+            summary["tools"] = tool_names
+            summary["current_instruction"] = getattr(target_agent, "instruction", "")[:200] if getattr(target_agent, "instruction", "") else ""
+        elif target_agent.type in ["SequentialAgent", "LoopAgent", "ParallelAgent"]:
+            summary["sub_agents"] = getattr(target_agent, "sub_agent_ids", [])
+        agent_summaries.append(summary)
+    
     # Build the meta-prompt for prompt generation
     meta_prompt = f"""You are an expert prompt engineer for AI agents. Your task is to write a detailed, effective instruction prompt for an agent in a multi-agent system.
 
