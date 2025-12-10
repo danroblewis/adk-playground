@@ -13,8 +13,14 @@ const COMMON_ENV_VARS = [
   { key: 'GOOGLE_CLOUD_REGION', description: 'Google Cloud region for Vertex AI (e.g., us-central1)' },
 ];
 
+// Validation function for names (alphanumeric and underscore only)
+function isValidName(name: string): boolean {
+  return /^[a-zA-Z0-9_]+$/.test(name);
+}
+
 export default function AppConfigPanel() {
   const { project, updateProject } = useStore();
+  const [appNameError, setAppNameError] = useState<string | null>(null);
   
   if (!project) return null;
   
@@ -24,6 +30,22 @@ export default function AppConfigPanel() {
     updateProject({
       app: { ...app, ...updates }
     });
+  }
+  
+  function handleAppNameChange(value: string) {
+    if (value === '') {
+      setAppNameError(null);
+      updateApp({ name: value });
+      return;
+    }
+    
+    if (!isValidName(value)) {
+      setAppNameError('Name can only contain letters, numbers, and underscores');
+    } else {
+      setAppNameError(null);
+    }
+    
+    updateApp({ name: value });
   }
   
   function addStateKey() {
