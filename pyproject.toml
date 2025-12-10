@@ -34,7 +34,10 @@ packages = ["backend", "tracing_plugin", "mcp_servers"]
 py-modules = ["file_session_service", "file_memory_service", "adk_playground"]
 
 [tool.setuptools.package-data]
-"*" = ["frontend/dist/**/*"]
+"" = ["frontend/dist/**/*", "frontend/dist/*"]
+
+[tool.setuptools.data-files]
+"share/adk-playground/frontend" = ["frontend/dist/**/*"]
 
 [tool.black]
 line-length = 80

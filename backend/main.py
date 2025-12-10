@@ -1778,11 +1778,27 @@ if PRODUCTION_MODE:
         _possible_locations.insert(0, _package_root / "frontend" / "dist")
         # Also check if we're in a site-packages structure
         _possible_locations.insert(1, _package_root.parent / "frontend" / "dist")
+        # Check data-files location (share/adk-playground/frontend)
+        _possible_locations.insert(2, Path("/usr/local/share/adk-playground/frontend/dist"))
+        _possible_locations.insert(3, Path.home() / ".local" / "share" / "adk-playground" / "frontend" / "dist")
         # Debug: print what we're checking
         print(f"Checking package root: {_package_root}", file=sys.stderr)
-        print(f"Checking locations: {_possible_locations[:3]}", file=sys.stderr)
     except (ImportError, AttributeError) as e:
         print(f"Could not import adk_playground: {e}", file=sys.stderr)
+        pass
+    
+    # Try using importlib.resources to find package data
+    try:
+        from importlib import resources
+        try:
+            # Try to access frontend/dist as package data
+            with resources.path("", "frontend/dist") as dist_path:
+                if Path(dist_path).exists():
+                    _possible_locations.insert(0, Path(dist_path))
+                    print(f"Found via importlib.resources: {dist_path}", file=sys.stderr)
+        except (ModuleNotFoundError, TypeError, FileNotFoundError):
+            pass
+    except ImportError:
         pass
     
     frontend_build = None
