@@ -80,7 +80,13 @@ export default function AgentEditor({ agent }: Props) {
         ? `Current instruction to improve:\n\n${currentPrompt}\n\nPlease improve and expand this instruction while preserving its core intent.`
         : undefined;
       
-      const result = await generatePrompt(project.id, agent.id, context);
+      // Check if agent is saved in project (exists in project.agents)
+      const agentExists = project.agents.some(a => a.id === agent.id);
+      
+      // If agent doesn't exist in saved project, send the agent config
+      const agentConfig = agentExists ? undefined : agent;
+      
+      const result = await generatePrompt(project.id, agent.id, context, agentConfig);
       if (result.success && result.prompt) {
         update({ instruction: result.prompt } as Partial<LlmAgentConfig>);
       } else {
@@ -100,7 +106,13 @@ export default function AgentEditor({ agent }: Props) {
       const currentPrompt = llmAgent.instruction || '';
       const context = `Current instruction:\n\n${currentPrompt}\n\n---\n\nRequested changes:\n${requestChangesText}\n\nPlease apply the requested changes to the instruction above. Output only the updated instruction, nothing else.`;
       
-      const result = await generatePrompt(project.id, agent.id, context);
+      // Check if agent is saved in project (exists in project.agents)
+      const agentExists = project.agents.some(a => a.id === agent.id);
+      
+      // If agent doesn't exist in saved project, send the agent config
+      const agentConfig = agentExists ? undefined : agent;
+      
+      const result = await generatePrompt(project.id, agent.id, context, agentConfig);
       if (result.success && result.prompt) {
         update({ instruction: result.prompt } as Partial<LlmAgentConfig>);
         setShowRequestChanges(false);

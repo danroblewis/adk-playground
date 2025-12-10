@@ -166,11 +166,16 @@ export interface GeneratePromptResult {
 export async function generatePrompt(
   projectId: string, 
   agentId: string, 
-  context?: string
+  context?: string,
+  agentConfig?: any  // Optional: agent config if not yet saved
 ): Promise<GeneratePromptResult> {
   const data = await fetchJSON<GeneratePromptResult>(`/projects/${projectId}/generate-prompt`, {
     method: 'POST',
-    body: JSON.stringify({ agent_id: agentId, context }),
+    body: JSON.stringify({ 
+      agent_id: agentId, 
+      context,
+      agent_config: agentConfig ? agentConfig : undefined,
+    }),
   });
   return data;
 }

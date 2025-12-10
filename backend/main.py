@@ -900,6 +900,7 @@ async def save_session_to_memory(session_id: str):
 class GeneratePromptRequest(BaseModel):
     agent_id: str
     context: Optional[str] = None  # Optional user hints
+    agent_config: Optional[Dict[str, Any]] = None  # Optional: agent config if not yet saved
 
 @app.post("/api/projects/{project_id}/generate-prompt")
 async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest):
@@ -908,7 +909,7 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Find the target agent
+    # Find the target agent - first try in saved project, then use provided config
     target_agent = None
     agent_ids_in_project = [a.id for a in project.agents]
     for agent in project.agents:
@@ -916,10 +917,22 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
             target_agent = agent
             break
     
+    # If agent not found in saved project, try to use provided agent_config
+    if not target_agent and request.agent_config:
+        try:
+            # Parse the agent config from the request
+            from models import AgentConfig
+            target_agent = AgentConfig(**request.agent_config)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Agent not found and provided agent_config is invalid: {str(e)}"
+            )
+    
     if not target_agent:
         raise HTTPException(
             status_code=404, 
-            detail=f"Agent not found. Looking for '{request.agent_id}', available agents: {agent_ids_in_project}"
+            detail=f"Agent not found. Looking for '{request.agent_id}', available agents: {agent_ids_in_project}. If this is a new agent, please provide 'agent_config' in the request."
         )
     
     # Build context about the entire agent network
