@@ -546,6 +546,10 @@ class RuntimeManager:
                                 data={"text": part.text},
                             )
             
+            # Wait for any pending async tasks from TrackingPlugin to complete
+            # This ensures the final model_response event is sent before we finish
+            await asyncio.sleep(0.1)  # Small delay to let async tasks complete
+            
             # Get final state
             final_session = await runner.session_service.get_session(
                 app_name=project.app.name,
