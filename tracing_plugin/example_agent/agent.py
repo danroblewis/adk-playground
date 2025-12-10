@@ -63,9 +63,6 @@ def calculate(expression: str) -> str:
 
 
 # Create a simple agent with some tools
-# Using LiteLLM wrapper for Ollama
-from google.adk.models import LiteLlm
-
 root_agent = Agent(
     name="traced_assistant",
     model="gemini-2.0-flash",  # Default model - can be changed in project config
