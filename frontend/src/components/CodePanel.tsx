@@ -348,6 +348,16 @@ function generatePythonCode(project: Project): string {
     lines.push('');
   }
   
+  // Generate custom callbacks (if any)
+  if (project.custom_callbacks && project.custom_callbacks.length > 0) {
+    lines.push('# Custom Callbacks');
+    project.custom_callbacks.forEach(callback => {
+      lines.push(callback.code);
+      lines.push('');
+    });
+    lines.push('');
+  }
+  
   // Generate model definitions
   lines.push('# Models');
   sortedAgents.forEach(agent => {
