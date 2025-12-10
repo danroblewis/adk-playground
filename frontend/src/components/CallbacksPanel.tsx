@@ -281,9 +281,11 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
               >
                 <div style={{ flex: 1 }}>
                   <div className="tool-item-name">{callback.name}</div>
-                  <div className="tool-item-type">
-                    {CALLBACK_TYPES.find(t => t.value === callback.callback_type)?.label || callback.callback_type}
-                  </div>
+                  {callback.description && (
+                    <div className="tool-item-type" style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      {callback.description}
+                    </div>
+                  )}
                 </div>
                 <div className="tool-item-actions">
                   <button
