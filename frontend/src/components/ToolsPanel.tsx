@@ -66,6 +66,8 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   useEffect(() => {
     if (selectedTool) {
       setEditingCode(selectedTool.code);
+      // Clear error when switching tools
+      setToolNameError(null);
     }
   }, [selectedToolId]);
   
