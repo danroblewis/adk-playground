@@ -304,9 +304,9 @@ function EventDetail({ event }: { event: RunEvent }) {
           <div className="section-header" onClick={() => toggleSection('response')}>
             {expandedSections.has('response') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span>Response ({event.data.parts.length} part{event.data.parts.length !== 1 ? 's' : ''})</span>
-            {event.data.tokens && (
+            {event.data.token_counts && (
               <span className="token-badge">
-                {event.data.tokens.input}↑ {event.data.tokens.output}↓
+                {event.data.token_counts.input}↑ {event.data.token_counts.output}↓
               </span>
             )}
           </div>
@@ -1516,9 +1516,9 @@ export default function RunPanel() {
     let input = 0;
     let output = 0;
     runEvents.forEach(event => {
-      if (event.event_type === 'model_response' && event.data?.tokens) {
-        input += event.data.tokens.input || 0;
-        output += event.data.tokens.output || 0;
+      if (event.event_type === 'model_response' && event.data?.token_counts) {
+        input += event.data.token_counts.input || 0;
+        output += event.data.token_counts.output || 0;
       }
     });
     return { input, output, total: input + output };
