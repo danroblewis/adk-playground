@@ -2036,7 +2036,7 @@ if PRODUCTION_MODE:
         from importlib.resources import files
         try:
             # Try to access frontend/dist from the package
-            frontend_dist = files("adk_playground.frontend.dist")
+            frontend_dist = files("adk_playground.frontend") / "dist"
             # Convert Traversable to Path
             import tempfile
             import shutil
