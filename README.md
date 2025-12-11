@@ -34,31 +34,31 @@ ADK_PLAYGROUND_MODE=production uvx --from . adk-playground
 ### Install from Source
 
 1. **Clone the repository:**
-   ```bash
+```bash
    git clone https://github.com/danroblewis/adk-playground.git
    cd adk-playground
-   ```
+```
 
 2. **Install dependencies:**
-   
+
    **Option A: Using `uv` (recommended)**
-   ```bash
+```bash
    uv sync
-   ```
-   
+```
+
    **Option B: Using pip**
-   ```bash
-   python3 -m venv .venv
+```bash
+python3 -m venv .venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   pip install -e .
+pip install -e .
    ```
 
 3. **Install frontend dependencies:**
    ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
+cd frontend
+npm install
+cd ..
+```
 
 4. **Build the frontend (for production mode):**
    ```bash

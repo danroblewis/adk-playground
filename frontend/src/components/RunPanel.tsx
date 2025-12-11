@@ -3,7 +3,7 @@ import {
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
   CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
-  Download, Upload
+  Download, Upload, Code
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
@@ -20,6 +20,8 @@ const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> =
   model_response: { bg: '#3d2f0d', fg: '#fde047', border: '#eab308' },
   state_change: { bg: '#3d0d1f', fg: '#fda4af', border: '#f43f5e' },
   transfer: { bg: '#0d2d3d', fg: '#7dd3fc', border: '#0ea5e9' },
+  callback_start: { bg: '#1a1a2e', fg: '#a29bfe', border: '#6c5ce7' },
+  callback_end: { bg: '#1a1a2e', fg: '#a29bfe', border: '#6c5ce7' },
   error: { bg: '#450a0a', fg: '#fca5a5', border: '#dc2626' },
 };
 
@@ -33,6 +35,8 @@ const EVENT_ICONS: Record<string, React.FC<{ size: number }>> = {
   model_response: MessageSquare,
   state_change: Database,
   transfer: Zap,
+  callback_start: Code,
+  callback_end: Code,
 };
 
 // Single-line event summary renderer
@@ -82,6 +86,15 @@ function getEventSummary(event: RunEvent): string {
       return `STATE ${keys.join(', ')}`;
     case 'transfer':
       return `TRANSFER → ${event.data?.target || 'unknown'}`;
+    case 'callback_start':
+      const callbackName = event.data?.callback_name || 'unknown';
+      const callbackType = event.data?.callback_type || '';
+      return `CALLBACK START ${callbackType ? `[${callbackType}]` : ''} ${callbackName}`;
+    case 'callback_end':
+      const endCallbackName = event.data?.callback_name || 'unknown';
+      const endCallbackType = event.data?.callback_type || '';
+      const hadError = event.data?.error ? ' [ERROR]' : '';
+      return `CALLBACK END ${endCallbackType ? `[${endCallbackType}]` : ''} ${endCallbackName}${hadError}`;
     default:
       return event.event_type.toUpperCase();
   }
@@ -322,6 +335,27 @@ function EventDetail({ event }: { event: RunEvent }) {
         </div>
       )}
       
+      {(event.event_type === 'callback_start' || event.event_type === 'callback_end') && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('callback_info')}>
+            {expandedSections.has('callback_info') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>Callback Information</span>
+          </div>
+          {expandedSections.has('callback_info') && (
+            <div className="section-content">
+              <div><strong>Name:</strong> {event.data?.callback_name || 'unknown'}</div>
+              <div><strong>Type:</strong> {event.data?.callback_type || 'unknown'}</div>
+              <div><strong>Module Path:</strong> {event.data?.module_path || 'unknown'}</div>
+              {event.data?.error && (
+                <div style={{ color: '#ef4444', marginTop: '8px' }}>
+                  <strong>Error:</strong> {event.data.error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      
       {event.event_type === 'state_change' && event.data?.state_delta && (
         <div className="detail-section">
           <div className="section-header" onClick={() => toggleSection('state_delta')}>
@@ -543,8 +577,8 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           onClose={() => setModalContent(null)}
         />
       )}
-      <div className="state-snapshot">
-        <style>{`
+    <div className="state-snapshot">
+      <style>{`
         .state-entry.unset {
           opacity: 0.6;
         }
@@ -601,7 +635,7 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           </div>
         ))
       )}
-      </div>
+    </div>
     </>
   );
 }
@@ -1437,8 +1471,19 @@ export default function RunPanel() {
   
   // Handle session selection
   const handleSessionSelect = useCallback(async (sessionId: string | null) => {
-    if (!project || !sessionId) {
+    if (!project) {
       setSelectedSessionId(null);
+      return;
+    }
+    
+    // If sessionId is null (user selected "Load Session..."), clear the session
+    if (!sessionId) {
+      clearRunEvents();
+      clearWatchHistories();
+      setCurrentSessionId(null);
+      setSelectedSessionId(null);
+      setSelectedEventIndex(null);
+      setTimeRange(null);
       return;
     }
     

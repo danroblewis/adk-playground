@@ -47,42 +47,42 @@ if [ "$MODE" = "production" ]; then
 else
     # Dev mode: separate servers
     echo "Starting ADK Playground in DEV mode..."
-    echo ""
-    echo "Backend will run on http://localhost:8080"
-    echo "Frontend will run on http://localhost:3000"
-    echo ""
-    echo "Press Ctrl+C to stop all servers"
-    echo ""
-    
-    # Start backend in background
-    cd backend
-    uvicorn main:app --port 8080 --host 0.0.0.0 &
-    BACKEND_PID=$!
-    cd ..
-    
-    # Start frontend in background
-    cd frontend
+echo ""
+echo "Backend will run on http://localhost:8080"
+echo "Frontend will run on http://localhost:3000"
+echo ""
+echo "Press Ctrl+C to stop all servers"
+echo ""
+
+# Start backend in background
+cd backend
+uvicorn main:app --port 8080 --host 0.0.0.0 &
+BACKEND_PID=$!
+cd ..
+
+# Start frontend in background
+cd frontend
     if [ ! -d "node_modules" ]; then
         echo "Installing frontend dependencies..."
         npm install
     fi
-    npm run dev &
-    FRONTEND_PID=$!
-    cd ..
-    
-    # Function to cleanup on exit
-    cleanup() {
-        echo ""
-        echo "Stopping servers..."
-        kill $BACKEND_PID 2>/dev/null || true
-        kill $FRONTEND_PID 2>/dev/null || true
-        exit 0
-    }
-    
-    # Trap Ctrl+C
-    trap cleanup INT TERM
-    
-    # Wait for both processes
-    wait
+npm run dev &
+FRONTEND_PID=$!
+cd ..
+
+# Function to cleanup on exit
+cleanup() {
+    echo ""
+    echo "Stopping servers..."
+    kill $BACKEND_PID 2>/dev/null || true
+    kill $FRONTEND_PID 2>/dev/null || true
+    exit 0
+}
+
+# Trap Ctrl+C
+trap cleanup INT TERM
+
+# Wait for both processes
+wait
 fi
 

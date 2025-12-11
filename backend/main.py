@@ -1316,6 +1316,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
             name="tool_code_generator",
             model=model,
             instruction=ADK_TOOL_SYSTEM_PROMPT,
+            output_key="generated_code",  # Store final response in session state
         )
         
         runner = Runner(
@@ -1331,8 +1332,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
             user_id="code_gen_user",
         )
         
-        # Run the code generation
-        generated_code = ""
+        # Run the code generation (consume all events but don't extract text from them)
         async for event in runner.run_async(
             session_id=session.id,
             user_id="code_gen_user",
@@ -1341,10 +1341,18 @@ Write the complete Python code for this tool. Include appropriate imports at the
                 parts=[types.Part.from_text(text=user_prompt)]
             ),
         ):
-            if event.content and event.content.parts:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        generated_code += part.text
+            # Just consume events - we'll get the result from session state
+            pass
+        
+        # Get the final session to extract the generated code from state
+        final_session = await runner.session_service.get_session(
+            app_name="tool_code_generator",
+            user_id="code_gen_user",
+            session_id=session.id,
+        )
+        
+        # Extract the code from session state (this avoids <think> blocks)
+        generated_code = final_session.state.get("generated_code", "").strip() if final_session else ""
         
         # Clean up the code (remove markdown code blocks if present)
         code = generated_code.strip()
@@ -1361,6 +1369,339 @@ Write the complete Python code for this tool. Include appropriate imports at the
     except Exception as e:
         import traceback
         print(f"[generate-tool-code] ERROR: {e}", file=sys.stderr, flush=True)
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
+        return {
+            "code": None,
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+# ============================================================================
+# AI-Assisted Callback Code Generation
+# ============================================================================
+
+class GenerateCallbackCodeRequest(BaseModel):
+    callback_name: str
+    callback_description: str
+    callback_type: str  # e.g., "before_agent", "after_agent", "before_model", etc.
+    state_keys_used: List[str] = []
+    context: Optional[str] = None  # Additional hints from user
+
+ADK_CALLBACK_SYSTEM_PROMPT = '''You are an expert Python developer specializing in writing callbacks for the Google Agent Development Kit (ADK).
+
+## ADK Callback Architecture
+
+ADK callbacks are Python functions that are invoked at specific points during agent execution. The key component is `CallbackContext`, which provides access to:
+
+### CallbackContext Properties and Methods:
+- `callback_context.state` - Dictionary-like access to session state. Read: `callback_context.state.get('key')`, Write: `callback_context.state['key'] = value`
+- `callback_context.agent_name` - Name of the agent
+- `callback_context.agent_id` - ID of the agent
+- `callback_context.invocation_id` - Unique ID for this invocation
+- `callback_context.model_name` - Name of the model (for model callbacks)
+- `callback_context.tool_name` - Name of the tool (for tool callbacks)
+- `callback_context.tool_args` - Arguments passed to the tool (for tool callbacks)
+- `await callback_context.load_artifact(filename, version=None)` - Load an artifact
+- `await callback_context.save_artifact(filename, artifact, custom_metadata=None)` - Save an artifact
+
+### Callback Function Signatures:
+
+#### Agent Callbacks (before_agent, after_agent):
+```python
+from google.adk.agents.callback_context import CallbackContext
+from typing import Optional
+from google.genai import types
+
+def my_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Callback description.
+    
+    Args:
+        callback_context: The callback context containing agent and state information.
+            MUST be named 'callback_context' (enforced by ADK).
+    
+    Returns:
+        Optional[types.Content]: Return a Content object to short-circuit (before_*) or add response (after_*), or None to proceed normally.
+    """
+    # Implementation
+    return None  # Proceed normally
+```
+
+#### Model Callbacks (before_model, after_model):
+```python
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_request import LlmRequest, LlmResponse
+from typing import Optional
+
+# Before model callback
+def before_model_callback(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]:
+    """Before model callback description.
+    
+    Args:
+        callback_context: The callback context (MUST be named 'callback_context').
+        llm_request: The LLM request about to be made.
+    
+    Returns:
+        Optional[LlmResponse]: Return LlmResponse to short-circuit, or None to proceed.
+    """
+    # Implementation
+    return None  # Proceed with model call
+
+# After model callback
+def after_model_callback(*, callback_context: CallbackContext, llm_response: LlmResponse, model_response_event: Optional[Event] = None) -> Optional[LlmResponse]:
+    """After model callback description.
+    
+    Args:
+        callback_context: The callback context (MUST be named 'callback_context').
+        llm_response: The LLM response that was received.
+        model_response_event: Optional event object.
+    
+    Returns:
+        Optional[LlmResponse]: Return modified LlmResponse or None to keep original.
+    """
+    # Implementation
+    return None  # Keep original response
+```
+
+#### Tool Callbacks (before_tool, after_tool):
+```python
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.tool_context import ToolContext
+from typing import Dict, Any, Optional
+
+# Before tool callback
+def before_tool_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext) -> Optional[Dict]:
+    """Before tool callback description.
+    
+    Args:
+        tool: The tool about to be called.
+        tool_args: The arguments passed to the tool.
+        tool_context: The tool context.
+    
+    Returns:
+        Optional[Dict]: Return modified args or None to use original.
+    """
+    # Implementation
+    return None  # Use original args
+
+# After tool callback
+def after_tool_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]:
+    """After tool callback description.
+    
+    Args:
+        tool: The tool that was called.
+        tool_args: The arguments that were passed.
+        tool_context: The tool context.
+        result: The result from the tool.
+    
+    Returns:
+        Optional[Dict]: Return modified result or None to keep original.
+    """
+    # Implementation
+    return None  # Keep original result
+```
+
+### State Management Patterns:
+```python
+def callback_with_state(callback_context: CallbackContext) -> Optional[types.Content]:
+    # Reading state
+    counter = callback_context.state.get('counter', 0)
+    user_prefs = callback_context.state.get('user_preferences', {{}})
+    
+    # Writing state (automatically tracked in state_delta)
+    callback_context.state['counter'] = counter + 1
+    callback_context.state['last_action'] = 'callback_executed'
+    
+    return None
+```
+
+### Working with Artifacts:
+```python
+async def callback_with_artifacts(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Load or save artifacts in callbacks."""
+    from google.genai import types
+    
+    # Load artifact
+    artifact = await callback_context.load_artifact("report.txt")
+    if artifact and hasattr(artifact, 'text'):
+        content = artifact.text
+    
+    # Save artifact
+    new_artifact = types.Part.from_text(text="New content")
+    version = await callback_context.save_artifact("output.txt", new_artifact)
+    
+    return None
+```
+
+### Short-circuiting Execution (before_* callbacks):
+```python
+def short_circuit_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Skip execution and return custom response."""
+    from google.genai import types
+    
+    # For agent callbacks
+    return types.Content(
+        role="assistant",
+        parts=[types.Part.from_text("Custom response without executing agent")]
+    )
+    
+    # For model callbacks, return LlmResponse instead
+    # from google.adk.models.llm_request import LlmResponse
+    # return LlmResponse(contents=[...])
+```
+
+### Adding Additional Responses (after_* callbacks):
+```python
+def add_response_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Add additional response after execution."""
+    from google.genai import types
+    
+    return types.Content(
+        role="assistant",
+        parts=[types.Part.from_text("Additional information")]
+    )
+```
+
+## Important Guidelines:
+1. Always name the callback context parameter exactly `callback_context` (enforced by ADK)
+2. Use type hints for all parameters - ADK uses these for proper binding
+3. Write clear docstrings explaining what the callback does
+4. Return `None` to proceed normally or keep original values
+5. For before_* callbacks, you can return a value to short-circuit execution
+6. For after_* callbacks, you can return a modified value or additional response
+7. State changes are automatically tracked when you modify callback_context.state
+8. For async operations (artifacts), make the function async
+
+## Output Format:
+Return ONLY the Python code for the callback function. Do not include any explanation, markdown formatting, or code blocks. Just the raw Python code starting with the imports (if any) and the function definition.
+'''
+
+@app.post("/api/projects/{project_id}/generate-callback-code")
+async def generate_callback_code(project_id: str, request: GenerateCallbackCodeRequest):
+    """Generate Python code for an ADK callback using AI."""
+    import traceback
+    import sys
+    
+    print(f"[generate-callback-code] Starting for project {project_id}", file=sys.stderr, flush=True)
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    print(f"[generate-callback-code] Project found: {project.name}", file=sys.stderr, flush=True)
+    
+    try:
+        # Build context about available state keys
+        state_keys_info = []
+        for key in project.app.state_keys:
+            state_keys_info.append(f"- {key.name} ({key.type}): {key.description or 'No description'}")
+        
+        # Build the user prompt
+        user_prompt = f"""Write an ADK callback with the following specifications:
+
+**Callback Name:** {request.callback_name}
+**Description:** {request.callback_description}
+**Callback Type:** {request.callback_type}
+
+**Available State Keys:**
+{chr(10).join(state_keys_info) if state_keys_info else 'No state keys defined yet.'}
+
+**State Keys This Callback Should Use:**
+{', '.join(request.state_keys_used) if request.state_keys_used else 'None specified - decide based on the callback purpose.'}
+
+{f"**Additional Requirements:** {request.context}" if request.context else ""}
+
+Write the complete Python code for this callback. Include appropriate imports at the top if needed. Make sure the function name matches the callback name (use snake_case). The callback type is {request.callback_type}, so use the appropriate signature:
+- For before_agent/after_agent: `(callback_context: CallbackContext) -> Optional[types.Content]`
+- For before_model: `(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]`
+- For after_model: `(*, callback_context: CallbackContext, llm_response: LlmResponse, model_response_event: Optional[Event] = None) -> Optional[LlmResponse]`
+- For before_tool: `(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext) -> Optional[Dict]`
+- For after_tool: `(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]`
+"""
+        
+        from google.adk import Agent
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+        from google.genai import types
+        
+        # Get model config from project
+        model_config = None
+        if project.app.models and len(project.app.models) > 0:
+            if project.app.default_model_id:
+                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+            if not model_config:
+                model_config = project.app.models[0]
+        
+        # Create a code generation agent
+        if model_config and model_config.provider == "litellm":
+            from google.adk.models.lite_llm import LiteLlm
+            model = LiteLlm(
+                model=model_config.model_name,
+                api_base=model_config.api_base,
+            )
+        else:
+            model = "gemini-2.0-flash"
+        
+        code_agent = Agent(
+            name="callback_code_generator",
+            model=model,
+            instruction=ADK_CALLBACK_SYSTEM_PROMPT,
+            output_key="generated_code",  # Store final response in session state
+        )
+        
+        runner = Runner(
+            app_name="callback_code_generator",
+            agent=code_agent,
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+            artifact_service=InMemoryArtifactService(),
+        )
+        
+        session = await runner.session_service.create_session(
+            app_name="callback_code_generator",
+            user_id="code_gen_user",
+        )
+        
+        # Run the code generation (consume all events but don't extract text from them)
+        async for event in runner.run_async(
+            session_id=session.id,
+            user_id="code_gen_user",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=user_prompt)]
+            ),
+        ):
+            # Just consume events - we'll get the result from session state
+            pass
+        
+        # Get the final session to extract the generated code from state
+        final_session = await runner.session_service.get_session(
+            app_name="callback_code_generator",
+            user_id="code_gen_user",
+            session_id=session.id,
+        )
+        
+        # Extract the code from session state (this avoids <think> blocks)
+        generated_code = final_session.state.get("generated_code", "").strip() if final_session else ""
+        
+        # Clean up the code (remove markdown code blocks if present)
+        code = generated_code.strip()
+        if code.startswith("```python"):
+            code = code[9:]
+        elif code.startswith("```"):
+            code = code[3:]
+        if code.endswith("```"):
+            code = code[:-3]
+        code = code.strip()
+        
+        return {"code": code, "success": True}
+        
+    except Exception as e:
+        import traceback
+        print(f"[generate-callback-code] ERROR: {e}", file=sys.stderr, flush=True)
         print(traceback.format_exc(), file=sys.stderr, flush=True)
         return {
             "code": None,

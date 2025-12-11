@@ -527,11 +527,11 @@ Your response (5-10 words only):`;
       <div className="editor-header">
         <Bot size={24} style={{ color: 'var(--accent-primary)' }} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <input
-            type="text"
-            value={agent.name}
+        <input
+          type="text"
+          value={agent.name}
             onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="Agent name"
+          placeholder="Agent name"
             style={{ borderColor: nameError ? 'var(--error)' : undefined }}
           />
           {nameError && (

@@ -238,6 +238,34 @@ export async function generateToolCode(
   return data;
 }
 
+// AI-assisted callback code generation
+export interface GenerateCallbackCodeResult {
+  code: string | null;
+  success: boolean;
+  error?: string;
+}
+
+export async function generateCallbackCode(
+  projectId: string,
+  callbackName: string,
+  callbackDescription: string,
+  callbackType: string,
+  stateKeysUsed: string[] = [],
+  context?: string
+): Promise<GenerateCallbackCodeResult> {
+  const data = await fetchJSON<GenerateCallbackCodeResult>(`/projects/${projectId}/generate-callback-code`, {
+    method: 'POST',
+    body: JSON.stringify({
+      callback_name: callbackName,
+      callback_description: callbackDescription,
+      callback_type: callbackType,
+      state_keys_used: stateKeysUsed,
+      context,
+    }),
+  });
+  return data;
+}
+
 // MCP Server Testing
 export interface McpToolInfo {
   name: string;

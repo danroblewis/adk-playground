@@ -202,7 +202,8 @@ export interface Project {
 export interface RunEvent {
   timestamp: number;
   event_type: 'agent_start' | 'agent_end' | 'tool_call' | 'tool_result' | 
-              'model_call' | 'model_response' | 'state_change' | 'transfer';
+              'model_call' | 'model_response' | 'state_change' | 'transfer' |
+              'callback_start' | 'callback_end';
   agent_name: string;
   data: Record<string, any>;
 }

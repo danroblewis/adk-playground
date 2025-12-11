@@ -241,7 +241,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     // Clean up previous completion registration
     if (completionCleanupRef.current && typeof completionCleanupRef.current === 'function') {
       try {
-        completionCleanupRef.current();
+      completionCleanupRef.current();
       } catch (e) {
         // Ignore cleanup errors
       }
@@ -249,15 +249,15 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     
     // Register Monacopilot completion
     try {
-      const cleanup = registerCompletion(monaco, editor, {
-        language: 'python',
-        endpoint: '/api/code-completion',
-        trigger: 'onTyping', // Also supports 'onIdle' or 'onDemand'
-      });
-      
+    const cleanup = registerCompletion(monaco, editor, {
+      language: 'python',
+      endpoint: '/api/code-completion',
+      trigger: 'onTyping', // Also supports 'onIdle' or 'onDemand'
+    });
+    
       // Only store if it's actually a function
       if (typeof cleanup === 'function') {
-        completionCleanupRef.current = cleanup;
+    completionCleanupRef.current = cleanup;
       } else {
         completionCleanupRef.current = null;
       }
@@ -272,7 +272,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     return () => {
       if (completionCleanupRef.current && typeof completionCleanupRef.current === 'function') {
         try {
-          completionCleanupRef.current();
+        completionCleanupRef.current();
         } catch (e) {
           // Ignore cleanup errors
         }
@@ -1179,11 +1179,11 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
             <div className="editor-header">
               <Wrench size={20} style={{ color: 'var(--accent-primary)' }} />
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <input
-                  type="text"
-                  value={selectedTool.name}
-                  onChange={(e) => handleUpdateTool({ name: e.target.value })}
-                  placeholder="Tool name"
+              <input
+                type="text"
+                value={selectedTool.name}
+                onChange={(e) => handleUpdateTool({ name: e.target.value })}
+                placeholder="Tool name"
                   style={{ borderColor: toolNameError ? 'var(--error)' : undefined }}
                 />
                 {toolNameError && (

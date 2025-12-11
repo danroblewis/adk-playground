@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Code, Key, Save, Loader } from 'lucide-react';
+import { Plus, Trash2, Code, Key, Save, Loader, Sparkles } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { CustomCallbackDefinition } from '../utils/types';
 import Editor, { Monaco } from '@monaco-editor/react';
 import { registerCompletion } from 'monacopilot';
+import { generateCallbackCode } from '../utils/api';
 
 function generateId() {
   return `callback_${Date.now().toString(36)}`;
@@ -85,6 +86,7 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
   const [editingCode, setEditingCode] = useState('');
   const [selectedCallbackId, setSelectedCallbackId] = useState<string | null>(null);
   const [callbackNameError, setCallbackNameError] = useState<string | null>(null);
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const monacoRef = useRef<Monaco | null>(null);
   
   if (!project) return null;
@@ -176,6 +178,53 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
     } catch (e) {
       // Ignore registration errors
       console.warn('Failed to register Monacopilot completion:', e);
+    }
+  }
+  
+  async function handleGenerateCallback() {
+    if (!selectedCallback) return;
+    
+    setIsGeneratingCode(true);
+    try {
+      // Try to infer callback type from name/description, default to before_agent
+      let callbackType = 'before_agent';
+      const nameLower = selectedCallback.name.toLowerCase();
+      const descLower = selectedCallback.description.toLowerCase();
+      
+      if (nameLower.includes('after_agent') || descLower.includes('after agent')) {
+        callbackType = 'after_agent';
+      } else if (nameLower.includes('before_model') || descLower.includes('before model')) {
+        callbackType = 'before_model';
+      } else if (nameLower.includes('after_model') || descLower.includes('after model')) {
+        callbackType = 'after_model';
+      } else if (nameLower.includes('before_tool') || descLower.includes('before tool')) {
+        callbackType = 'before_tool';
+      } else if (nameLower.includes('after_tool') || descLower.includes('after tool')) {
+        callbackType = 'after_tool';
+      } else if (nameLower.includes('before_agent') || descLower.includes('before agent')) {
+        callbackType = 'before_agent';
+      }
+      
+      const result = await generateCallbackCode(
+        project.id,
+        selectedCallback.name,
+        selectedCallback.description,
+        callbackType,
+        selectedCallback.state_keys_used
+      );
+      
+      if (result.success && result.code) {
+        setEditingCode(result.code);
+        updateCustomCallback(selectedCallback.id, { code: result.code });
+      } else {
+        console.error('Failed to generate callback code:', result.error);
+        alert('Failed to generate callback code: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error generating callback code:', error);
+      alert('Error generating callback code: ' + (error as Error).message);
+    } finally {
+      setIsGeneratingCode(false);
     }
   }
   
@@ -309,6 +358,15 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
           border-radius: var(--radius-sm);
           overflow: hidden;
         }
+        
+        .spinning {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
       
       <div className="tools-sidebar">
@@ -441,7 +499,30 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
               </div>
               
               <div className="form-group">
-                <label>Code</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <label>Code</label>
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleGenerateCallback}
+                    disabled={isGeneratingCode || !selectedCallback.name || !selectedCallback.description}
+                    title={!selectedCallback.name || !selectedCallback.description ? 'Add a name and description first' : 'Generate code using AI'}
+                  >
+                    {isGeneratingCode ? (
+                      <>
+                        <Loader size={14} className="spinning" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={14} />
+                        Generate
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  AI will generate code based on the callback name, description, and selected state keys
+                </div>
                 <div className="code-editor-container">
                   <Editor
                     height="100%"

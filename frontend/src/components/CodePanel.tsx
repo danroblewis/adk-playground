@@ -109,20 +109,26 @@ function generateAgentCode(agent: AgentConfig, project: Project, agentVarNames: 
       params.push(`disallow_transfer_to_peers=True`);
     }
     
-    // Callbacks
-    const callbackTypes = [
-      'before_agent_callbacks',
-      'after_agent_callbacks',
-      'before_model_callbacks',
-      'after_model_callbacks',
-      'before_tool_callbacks',
-      'after_tool_callbacks',
-    ];
-    for (const callbackType of callbackTypes) {
-      const callbacks = (llmAgent[callbackType as keyof LlmAgentConfig] as CallbackConfig[]) || [];
+    // Callbacks - ADK uses singular names
+    const callbackMapping: Record<string, string> = {
+      'before_agent_callbacks': 'before_agent_callback',
+      'after_agent_callbacks': 'after_agent_callback',
+      'before_model_callbacks': 'before_model_callback',
+      'after_model_callbacks': 'after_model_callback',
+      'before_tool_callbacks': 'before_tool_callback',
+      'after_tool_callbacks': 'after_tool_callback',
+    };
+    
+    for (const [configKey, adkKey] of Object.entries(callbackMapping)) {
+      const callbacks = (llmAgent[configKey as keyof LlmAgentConfig] as CallbackConfig[]) || [];
       if (callbacks.length > 0) {
         const callbackPaths = callbacks.map(c => `"${c.module_path}"`).join(', ');
-        params.push(`${callbackType}=[${callbackPaths}]`);
+        // ADK accepts single callback or list
+        if (callbacks.length === 1) {
+          params.push(`${adkKey}="${callbacks[0].module_path}"`);
+        } else {
+          params.push(`${adkKey}=[${callbackPaths}]`);
+        }
       }
     }
     
