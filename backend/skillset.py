@@ -275,21 +275,10 @@ class SkillSet(BaseToolset):
                 f"{knowledge_text}\n"
             )
             
-            # Append to system instructions
-            print(f"[SkillSet] Current system_instructions: {llm_request.system_instructions}")
-            
-            if llm_request.system_instructions:
-                llm_request.system_instructions.append(
-                    types.Part.from_text(text=preload_instruction)
-                )
-                print(f"[SkillSet] APPENDED to existing instructions")
-            else:
-                llm_request.system_instructions = [
-                    types.Part.from_text(text=preload_instruction)
-                ]
-                print(f"[SkillSet] CREATED new instructions list")
-            
-            print(f"[SkillSet] Final system_instructions count: {len(llm_request.system_instructions)}")
+            # Append to system instructions using ADK's append_instructions method
+            print(f"[SkillSet] Appending to system instructions via llm_request.append_instructions()")
+            llm_request.append_instructions([preload_instruction])
+            print(f"[SkillSet] Instructions appended successfully!")
             tool_context.state[f"_skillset_{self.skillset_id}_status"] = f"injected_{len(results)}"
             tool_context.state[f"_skillset_{self.skillset_id}_preview"] = knowledge_text[:500]
             

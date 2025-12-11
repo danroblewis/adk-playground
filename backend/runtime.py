@@ -170,7 +170,7 @@ class TrackingPlugin:
         # Serialize the response content
         response_parts = []
         if hasattr(llm_response, "content") and llm_response.content:
-            if hasattr(llm_response.content, "parts"):
+            if hasattr(llm_response.content, "parts") and llm_response.content.parts:
                 for part in llm_response.content.parts:
                     part_data = {}
                     
@@ -1377,7 +1377,10 @@ class RuntimeManager:
         """Build tools from config."""
         tools = []
         
-        for tool_config in tools_config:
+        print(f"\n[_build_tools] Building {len(tools_config)} tools...")
+        for i, tool_config in enumerate(tools_config):
+            print(f"[_build_tools] Tool {i}: {type(tool_config).__name__}")
+            
             if isinstance(tool_config, BuiltinToolConfig):
                 tool = self._get_builtin_tool(tool_config.name)
                 if tool:
@@ -1394,13 +1397,23 @@ class RuntimeManager:
                     tools.append(toolset)
             
             elif isinstance(tool_config, SkillSetToolConfig):
+                print(f"[_build_tools] Building SkillSet: {tool_config.skillset_id}")
                 toolset = self._build_skillset_toolset(tool_config, project)
                 if toolset:
+                    from google.adk.tools.base_toolset import BaseToolset
+                    print(f"[_build_tools] SkillSet built: {type(toolset).__name__}")
+                    print(f"[_build_tools] Is BaseToolset? {isinstance(toolset, BaseToolset)}")
                     tools.append(toolset)
+                else:
+                    print(f"[_build_tools] SkillSet build returned None!")
             
             elif isinstance(tool_config, AgentToolConfig):
                 # Will be handled after all agents are built
                 pass
+        
+        print(f"[_build_tools] Built {len(tools)} tools total")
+        for i, t in enumerate(tools):
+            print(f"[_build_tools] Final tool {i}: {type(t).__name__}")
         
         return tools
     
@@ -1562,8 +1575,8 @@ class RuntimeManager:
                 if app_model:
                     model_name = app_model.model_name
             
-            # Create the knowledge service manager
-            manager = KnowledgeServiceManager(self.projects_dir)
+            # Create the knowledge service manager (uses default ~/.adk-playground/skillsets)
+            manager = KnowledgeServiceManager()
             
             logger.info(
                 f"[SkillSet] Creating toolset: {skillset_config.name} "
