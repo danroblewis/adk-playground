@@ -597,7 +597,7 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
               
               <div className="form-group">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label>Code</label>
+                <label>Code</label>
                   <button 
                     className="btn btn-secondary btn-sm"
                     onClick={handleGenerateCallback}

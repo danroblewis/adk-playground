@@ -1,7 +1,8 @@
 """Knowledge Service - Vector database for semantic search.
 
-This service provides a simple vector database for storing and retrieving
+This service provides vector databases for storing and retrieving
 knowledge entries using semantic similarity search.
+Supports multiple named stores per project.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import logging
 import os
 import time
+import aiohttp
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -39,7 +41,8 @@ class KnowledgeEntry:
     embedding: List[float] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
-    source: str = ""  # e.g., "file:document.txt" or "manual"
+    source_id: str = ""  # Reference to source config
+    source_name: str = ""  # Display name
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -48,7 +51,8 @@ class KnowledgeEntry:
             "embedding": self.embedding,
             "metadata": self.metadata,
             "created_at": self.created_at,
-            "source": self.source,
+            "source_id": self.source_id,
+            "source_name": self.source_name,
         }
     
     @classmethod
@@ -59,7 +63,8 @@ class KnowledgeEntry:
             embedding=data.get("embedding", []),
             metadata=data.get("metadata", {}),
             created_at=data.get("created_at", time.time()),
-            source=data.get("source", ""),
+            source_id=data.get("source_id", ""),
+            source_name=data.get("source_name", data.get("source", "")),
         )
 
 
@@ -70,25 +75,27 @@ class SearchResult:
     score: float  # Cosine similarity, 0-1
 
 
-class KnowledgeService:
-    """Vector database service for semantic search.
+class SkillSetStore:
+    """A single vector store for a SkillSet.
     
-    Uses sentence-transformers for embeddings and numpy for similarity search.
-    Persists to a JSON file for simplicity.
+    Each SkillSet has its own store with its own entries.
     """
     
     def __init__(
         self,
-        storage_path: str = "~/.adk-playground/knowledge",
+        project_id: str,
+        skillset_id: str,
+        storage_path: Path,
         model_name: str = "all-MiniLM-L6-v2",
     ):
-        self.storage_path = Path(storage_path).expanduser()
-        self.storage_path.mkdir(parents=True, exist_ok=True)
+        self.project_id = project_id
+        self.skillset_id = skillset_id
+        self.storage_path = storage_path
         self.model_name = model_name
         
         self._entries: Dict[str, KnowledgeEntry] = {}
         self._model: Optional[SentenceTransformer] = None
-        self._embedding_dim: int = 384  # Default for all-MiniLM-L6-v2
+        self._embedding_dim: int = 384
         
         # Load existing entries
         self._load()
@@ -111,7 +118,6 @@ class KnowledgeService:
         """Generate embedding for text."""
         model = self._get_model()
         if model is None:
-            # Return empty embedding if model not available
             return []
         embedding = model.encode(text, convert_to_numpy=True)
         return embedding.tolist()
@@ -138,21 +144,20 @@ class KnowledgeService:
         if query_norm == 0:
             return np.zeros(len(entry_embeddings))
         
-        # Normalize query
         query = query / query_norm
-        
-        # Normalize entries (row-wise)
         norms = np.linalg.norm(entry_embeddings, axis=1, keepdims=True)
-        norms[norms == 0] = 1  # Avoid division by zero
+        norms[norms == 0] = 1
         normalized = entry_embeddings / norms
-        
-        # Compute dot products (cosine similarity for normalized vectors)
         similarities = np.dot(normalized, query)
         return similarities
     
+    def _get_index_file(self) -> Path:
+        """Get the index file path for this store."""
+        return self.storage_path / f"{self.skillset_id}.json"
+    
     def _load(self) -> None:
         """Load entries from disk."""
-        index_file = self.storage_path / "index.json"
+        index_file = self._get_index_file()
         if index_file.exists():
             try:
                 with open(index_file, "r") as f:
@@ -160,13 +165,14 @@ class KnowledgeService:
                     for entry_data in data.get("entries", []):
                         entry = KnowledgeEntry.from_dict(entry_data)
                         self._entries[entry.id] = entry
-                logger.info(f"Loaded {len(self._entries)} knowledge entries")
+                logger.info(f"Loaded {len(self._entries)} entries for skillset {self.skillset_id}")
             except Exception as e:
-                logger.error(f"Failed to load knowledge index: {e}")
+                logger.error(f"Failed to load skillset index: {e}")
     
     def _save(self) -> None:
         """Save entries to disk."""
-        index_file = self.storage_path / "index.json"
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+        index_file = self._get_index_file()
         try:
             data = {
                 "entries": [e.to_dict() for e in self._entries.values()],
@@ -176,26 +182,17 @@ class KnowledgeService:
             with open(index_file, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save knowledge index: {e}")
+            logger.error(f"Failed to save skillset index: {e}")
     
     def add(
         self,
         text: str,
+        source_id: str = "",
+        source_name: str = "",
         metadata: Optional[Dict[str, Any]] = None,
-        source: str = "manual",
         entry_id: Optional[str] = None,
     ) -> KnowledgeEntry:
-        """Add a text entry to the knowledge base.
-        
-        Args:
-            text: The text content to add
-            metadata: Optional metadata dict
-            source: Source identifier (e.g., "file:doc.txt")
-            entry_id: Optional specific ID (generated if not provided)
-            
-        Returns:
-            The created KnowledgeEntry
-        """
+        """Add a text entry."""
         if entry_id is None:
             entry_id = self._generate_id(text)
         
@@ -206,67 +203,67 @@ class KnowledgeService:
             text=text,
             embedding=embedding,
             metadata=metadata or {},
-            source=source,
+            source_id=source_id,
+            source_name=source_name,
         )
         
         self._entries[entry_id] = entry
         self._save()
-        
-        logger.info(f"Added knowledge entry: {entry_id[:8]}...")
         return entry
     
     def add_batch(
         self,
         texts: List[str],
-        metadata_list: Optional[List[Dict[str, Any]]] = None,
-        source: str = "manual",
+        source_id: str = "",
+        source_name: str = "",
     ) -> List[KnowledgeEntry]:
-        """Add multiple text entries in batch (more efficient)."""
+        """Add multiple text entries in batch."""
         if not texts:
             return []
         
         embeddings = self._embed_batch(texts)
-        metadata_list = metadata_list or [{} for _ in texts]
-        
         entries = []
-        for i, (text, embedding, metadata) in enumerate(
-            zip(texts, embeddings, metadata_list)
-        ):
+        
+        for text, embedding in zip(texts, embeddings):
             entry_id = self._generate_id(text)
             entry = KnowledgeEntry(
                 id=entry_id,
                 text=text,
                 embedding=embedding,
-                metadata=metadata,
-                source=source,
+                source_id=source_id,
+                source_name=source_name,
             )
             self._entries[entry_id] = entry
             entries.append(entry)
         
         self._save()
-        logger.info(f"Added {len(entries)} knowledge entries in batch")
         return entries
     
     def remove(self, entry_id: str) -> bool:
-        """Remove an entry by ID.
-        
-        Returns:
-            True if entry was removed, False if not found
-        """
+        """Remove an entry by ID."""
         if entry_id in self._entries:
             del self._entries[entry_id]
             self._save()
-            logger.info(f"Removed knowledge entry: {entry_id}")
             return True
         return False
+    
+    def remove_by_source(self, source_id: str) -> int:
+        """Remove all entries from a source."""
+        to_remove = [e.id for e in self._entries.values() if e.source_id == source_id]
+        for entry_id in to_remove:
+            del self._entries[entry_id]
+        if to_remove:
+            self._save()
+        return len(to_remove)
     
     def get(self, entry_id: str) -> Optional[KnowledgeEntry]:
         """Get an entry by ID."""
         return self._entries.get(entry_id)
     
-    def list_all(self) -> List[KnowledgeEntry]:
-        """List all entries."""
-        return list(self._entries.values())
+    def list_all(self, limit: int = 100) -> List[KnowledgeEntry]:
+        """List entries (limited)."""
+        entries = sorted(self._entries.values(), key=lambda e: e.created_at, reverse=True)
+        return entries[:limit]
     
     def search(
         self,
@@ -274,30 +271,17 @@ class KnowledgeService:
         top_k: int = 5,
         min_score: float = 0.0,
     ) -> List[SearchResult]:
-        """Search for entries similar to the query.
-        
-        Args:
-            query: The search query
-            top_k: Maximum number of results
-            min_score: Minimum similarity score (0-1)
-            
-        Returns:
-            List of SearchResult sorted by similarity (highest first)
-        """
+        """Search for entries similar to the query."""
         if not self._entries:
             return []
         
-        # Get query embedding
         query_embedding = self._embed(query)
         if not query_embedding:
-            # Fallback to simple text matching if embeddings unavailable
             return self._fallback_search(query, top_k)
         
-        # Build embedding matrix
         entry_list = list(self._entries.values())
         entry_embeddings = np.array([e.embedding for e in entry_list])
         
-        # Filter out entries without embeddings
         valid_mask = np.array([len(e.embedding) > 0 for e in entry_list])
         if not np.any(valid_mask):
             return self._fallback_search(query, top_k)
@@ -305,16 +289,13 @@ class KnowledgeService:
         valid_entries = [e for e, valid in zip(entry_list, valid_mask) if valid]
         valid_embeddings = entry_embeddings[valid_mask]
         
-        # Compute similarities
         similarities = self._cosine_similarity(query_embedding, valid_embeddings)
         
-        # Create results
         results = []
         for entry, score in zip(valid_entries, similarities):
             if score >= min_score:
                 results.append(SearchResult(entry=entry, score=float(score)))
         
-        # Sort by score (descending) and limit
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
     
@@ -334,41 +315,141 @@ class KnowledgeService:
         return results[:top_k]
     
     def clear(self) -> int:
-        """Clear all entries.
-        
-        Returns:
-            Number of entries removed
-        """
+        """Clear all entries."""
         count = len(self._entries)
         self._entries.clear()
         self._save()
-        logger.info(f"Cleared {count} knowledge entries")
         return count
     
     def stats(self) -> Dict[str, Any]:
-        """Get statistics about the knowledge base."""
+        """Get statistics about the store."""
         entries = list(self._entries.values())
         sources = {}
         for e in entries:
-            sources[e.source] = sources.get(e.source, 0) + 1
+            key = e.source_name or e.source_id or "unknown"
+            sources[key] = sources.get(key, 0) + 1
         
         return {
-            "total_entries": len(entries),
+            "entry_count": len(entries),
             "has_embeddings": EMBEDDINGS_AVAILABLE,
             "model_name": self.model_name,
-            "storage_path": str(self.storage_path),
             "sources": sources,
         }
 
 
-# Singleton instance for the service
-_knowledge_service: Optional[KnowledgeService] = None
+class KnowledgeServiceManager:
+    """Manages multiple SkillSet stores across projects."""
+    
+    def __init__(self, base_storage_path: str = "~/.adk-playground/skillsets"):
+        self.base_path = Path(base_storage_path).expanduser()
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self._stores: Dict[str, SkillSetStore] = {}  # key: "{project_id}/{skillset_id}"
+    
+    def _store_key(self, project_id: str, skillset_id: str) -> str:
+        return f"{project_id}/{skillset_id}"
+    
+    def get_store(
+        self,
+        project_id: str,
+        skillset_id: str,
+        model_name: str = "all-MiniLM-L6-v2",
+    ) -> SkillSetStore:
+        """Get or create a store for a skillset."""
+        key = self._store_key(project_id, skillset_id)
+        
+        if key not in self._stores:
+            storage_path = self.base_path / project_id
+            self._stores[key] = SkillSetStore(
+                project_id=project_id,
+                skillset_id=skillset_id,
+                storage_path=storage_path,
+                model_name=model_name,
+            )
+        
+        return self._stores[key]
+    
+    def delete_store(self, project_id: str, skillset_id: str) -> bool:
+        """Delete a store and its data."""
+        key = self._store_key(project_id, skillset_id)
+        
+        if key in self._stores:
+            del self._stores[key]
+        
+        # Delete the index file
+        index_file = self.base_path / project_id / f"{skillset_id}.json"
+        if index_file.exists():
+            index_file.unlink()
+            return True
+        return False
+    
+    def list_stores(self, project_id: str) -> List[str]:
+        """List all skillset IDs for a project."""
+        project_path = self.base_path / project_id
+        if not project_path.exists():
+            return []
+        
+        return [f.stem for f in project_path.glob("*.json")]
+    
+    @staticmethod
+    def embeddings_available() -> bool:
+        """Check if embeddings are available."""
+        return EMBEDDINGS_AVAILABLE
 
 
-def get_knowledge_service() -> KnowledgeService:
-    """Get the singleton knowledge service instance."""
-    global _knowledge_service
-    if _knowledge_service is None:
-        _knowledge_service = KnowledgeService()
-    return _knowledge_service
+# Singleton instance
+_manager: Optional[KnowledgeServiceManager] = None
 
+
+def get_knowledge_manager() -> KnowledgeServiceManager:
+    """Get the singleton knowledge manager."""
+    global _manager
+    if _manager is None:
+        _manager = KnowledgeServiceManager()
+    return _manager
+
+
+# Helper functions for fetching content
+
+async def fetch_url_content(url: str, timeout: int = 30) -> str:
+    """Fetch text content from a URL."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+            response.raise_for_status()
+            return await response.text()
+
+
+def chunk_text(
+    text: str,
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+) -> List[str]:
+    """Split text into overlapping chunks."""
+    if len(text) <= chunk_size:
+        return [text]
+    
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        
+        # Try to break at sentence or paragraph boundary
+        if end < len(text):
+            # Look for paragraph break
+            para_break = text.rfind('\n\n', start, end)
+            if para_break > start + chunk_size // 2:
+                end = para_break + 2
+            else:
+                # Look for sentence break
+                for sep in ['. ', '! ', '? ', '\n']:
+                    sent_break = text.rfind(sep, start, end)
+                    if sent_break > start + chunk_size // 2:
+                        end = sent_break + len(sep)
+                        break
+        
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        
+        start = end - chunk_overlap
+    
+    return chunks

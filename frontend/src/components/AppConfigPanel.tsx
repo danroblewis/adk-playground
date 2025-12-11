@@ -73,11 +73,11 @@ export default function AppConfigPanel() {
     switch (type) {
       case 'ReflectAndRetryToolPlugin':
         newPlugin = {
-          type: 'ReflectAndRetryToolPlugin',
-          name: 'reflect_retry',
-          max_retries: 3,
-          throw_exception_if_retry_exceeded: false
-        };
+      type: 'ReflectAndRetryToolPlugin',
+      name: 'reflect_retry',
+      max_retries: 3,
+      throw_exception_if_retry_exceeded: false
+    };
         break;
       case 'ContextFilterPlugin':
         newPlugin = {
@@ -980,7 +980,7 @@ export default function AppConfigPanel() {
               </div>
               
               {/* Plugin-specific configuration */}
-              {plugin.type === 'ReflectAndRetryToolPlugin' && (
+                {plugin.type === 'ReflectAndRetryToolPlugin' && (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
                   <div className="form-group" style={{ flex: 0 }}>
                     <label style={{ fontSize: 12 }}>Max Retries</label>
@@ -994,15 +994,15 @@ export default function AppConfigPanel() {
                     />
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                    <input
-                      type="checkbox"
+                      <input
+                        type="checkbox"
                       checked={plugin.throw_exception_if_retry_exceeded ?? false}
-                      onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
-                    />
+                        onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
+                      />
                     Throw exception if retry exceeded
-                  </label>
+                    </label>
                 </div>
-              )}
+                )}
               
               {plugin.type === 'ContextFilterPlugin' && (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
@@ -1016,7 +1016,7 @@ export default function AppConfigPanel() {
                       onChange={(e) => updatePlugin(index, { num_invocations_to_keep: parseInt(e.target.value) || 1 })}
                       style={{ width: 70 }}
                     />
-                  </div>
+              </div>
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     Keeps only the last N conversation turns to reduce context size
                   </span>

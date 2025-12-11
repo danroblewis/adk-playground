@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code, Database } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig, CallbackConfig, CustomCallbackDefinition } from '../utils/types';
 import { generatePrompt } from '../utils/api';
@@ -389,6 +389,35 @@ Your response (5-10 words only):`;
           z-index: 999;
         }
         
+        .dropdown-search {
+          padding: 4px 4px 8px;
+          border-bottom: 1px solid var(--border-color);
+          margin-bottom: 8px;
+          position: sticky;
+          top: 0;
+          background: var(--bg-secondary);
+          z-index: 1;
+        }
+        
+        .dropdown-search input {
+          width: 100%;
+          padding: 8px 12px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+        
+        .dropdown-search input:focus {
+          outline: none;
+          border-color: var(--accent-primary);
+        }
+        
+        .dropdown-search input::placeholder {
+          color: var(--text-muted);
+        }
+        
         .dropdown-content {
           position: absolute;
           top: 100%;
@@ -761,6 +790,7 @@ Your response (5-10 words only):`;
               projectMcpServers={project.mcp_servers}
               customTools={project.custom_tools}
               agents={availableAgents}
+              skillsets={project.skillsets || []}
             />
           </Section>
         )}
@@ -856,7 +886,8 @@ function ToolsEditor({
   mcpServers,
   projectMcpServers,
   customTools,
-  agents
+  agents,
+  skillsets
 }: {
   tools: ToolConfig[];
   onAdd: (tool: ToolConfig) => void;
@@ -867,10 +898,13 @@ function ToolsEditor({
   projectMcpServers: any[];
   customTools: any[];
   agents: AgentConfig[];
+  skillsets: any[];
 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+  const [toolSearch, setToolSearch] = useState('');
   const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
   const [mcpConfigDialog, setMcpConfigDialog] = useState<{ 
     server: any; 
     enabledTools: Set<string>;
@@ -879,6 +913,22 @@ function ToolsEditor({
     error?: string;
   } | null>(null);
   const [expandedMcpTools, setExpandedMcpTools] = useState<Set<number>>(new Set());
+  
+  // Filter function for tools
+  const filterBySearch = (name: string, description?: string) => {
+    if (!toolSearch.trim()) return true;
+    const search = toolSearch.toLowerCase();
+    return name.toLowerCase().includes(search) || 
+           (description?.toLowerCase().includes(search) ?? false);
+  };
+  
+  // Filtered lists
+  const filteredBuiltinTools = builtinTools.filter(t => filterBySearch(t.name, t.description));
+  const filteredMcpServers = mcpServers.filter(s => filterBySearch(s.name, s.description));
+  const filteredProjectMcpServers = projectMcpServers.filter(s => filterBySearch(s.name, s.description));
+  const filteredCustomTools = customTools.filter(t => filterBySearch(t.name, t.description));
+  const filteredAgents = agents.filter(a => filterBySearch(a.name, a.description));
+  const filteredSkillsets = skillsets.filter(s => filterBySearch(s.name, s.description));
   
   function openDropdown() {
     if (buttonRef.current) {
@@ -908,15 +958,23 @@ function ToolsEditor({
       }
     }
     setDropdownOpen(true);
+    setToolSearch('');
+    // Focus search input after dropdown opens
+    setTimeout(() => searchInputRef.current?.focus(), 50);
+  }
+  
+  function closeDropdown() {
+    setDropdownOpen(false);
+    setToolSearch('');
   }
   
   function addBuiltinTool(name: string) {
     onAdd({ type: 'builtin', name });
-    setDropdownOpen(false);
+    closeDropdown();
   }
   
   async function openMcpConfig(server: any) {
-    setDropdownOpen(false);
+    closeDropdown();
     
     // If we already have a tool_filter with items, use those as available tools
     const existingTools = server.tool_filter || [];
@@ -1023,13 +1081,19 @@ function ToolsEditor({
   
   function addCustomTool(tool: any) {
     onAdd({ type: 'function', name: tool.name, module_path: tool.module_path });
-    setDropdownOpen(false);
+    closeDropdown();
   }
   
   function addAgentTool(agentId: string) {
     const agent = agents.find(a => a.id === agentId);
     onAdd({ type: 'agent', agent_id: agentId, name: agent?.name });
-    setDropdownOpen(false);
+    closeDropdown();
+  }
+  
+  function addSkillSetTool(skillsetId: string) {
+    const skillset = skillsets.find((s: any) => s.id === skillsetId);
+    onAdd({ type: 'skillset', skillset_id: skillsetId, name: skillset?.name });
+    closeDropdown();
   }
   
   // Get the known server config for an existing MCP tool to get all available tools
@@ -1295,6 +1359,19 @@ function ToolsEditor({
                 </div>
               )}
             </div>
+          ) : tool.type === 'skillset' ? (
+            <div key={index} className="tool-item">
+              <Database size={14} style={{ color: 'var(--accent)' }} />
+              <div className="tool-item-info">
+                <div className="tool-item-name">
+                  {tool.name || skillsets.find((s: any) => s.id === tool.skillset_id)?.name || 'SkillSet'}
+                </div>
+                <div className="tool-item-type">skillset</div>
+              </div>
+              <button className="delete-btn" onClick={() => onRemove(index)}>
+                <Trash2 size={14} />
+              </button>
+            </div>
           ) : (
             <div key={index} className="tool-item">
               <Wrench size={14} style={{ color: 'var(--accent-primary)' }} />
@@ -1316,7 +1393,7 @@ function ToolsEditor({
         <button 
           ref={buttonRef}
           className="btn btn-secondary btn-sm"
-          onClick={() => dropdownOpen ? setDropdownOpen(false) : openDropdown()}
+          onClick={() => dropdownOpen ? closeDropdown() : openDropdown()}
         >
           <Plus size={14} />
           Add Tool
@@ -1326,15 +1403,28 @@ function ToolsEditor({
           <>
             <div 
               className="dropdown-backdrop"
-              onClick={() => setDropdownOpen(false)}
+              onClick={closeDropdown}
             />
             <div 
               className="dropdown-content dropdown-fixed"
               style={dropdownStyle}
             >
+              {/* Search Input */}
+              <div className="dropdown-search">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search tools..."
+                  value={toolSearch}
+                  onChange={(e) => setToolSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Escape' && closeDropdown()}
+                />
+              </div>
+              
+              {filteredBuiltinTools.length > 0 && (
               <div className="dropdown-section">
                 <h5>Built-in Tools</h5>
-                {builtinTools.map(tool => (
+                  {filteredBuiltinTools.map(tool => (
                   <button
                     key={tool.name}
                     className="dropdown-item"
@@ -1345,12 +1435,13 @@ function ToolsEditor({
                   </button>
                 ))}
               </div>
+              )}
               
               {/* Known MCP Servers */}
-              {mcpServers.length > 0 && (
+              {filteredMcpServers.length > 0 && (
                 <div className="dropdown-section">
-                  <h5>Known MCP Servers ({mcpServers.length})</h5>
-                  {mcpServers.map(server => (
+                  <h5>Known MCP Servers ({filteredMcpServers.length})</h5>
+                  {filteredMcpServers.map(server => (
                     <button
                       key={`known-${server.name}`}
                       className="dropdown-item"
@@ -1369,10 +1460,10 @@ function ToolsEditor({
               )}
               
               {/* Project MCP Servers */}
-              {projectMcpServers.length > 0 && (
+              {filteredProjectMcpServers.length > 0 && (
                 <div className="dropdown-section">
-                  <h5>Project MCP Servers ({projectMcpServers.length})</h5>
-                  {projectMcpServers.map(server => (
+                  <h5>Project MCP Servers ({filteredProjectMcpServers.length})</h5>
+                  {filteredProjectMcpServers.map(server => (
                     <button
                       key={`project-${server.id || server.name}`}
                       className="dropdown-item"
@@ -1390,10 +1481,10 @@ function ToolsEditor({
                 </div>
               )}
               
-              {customTools.length > 0 && (
+              {filteredCustomTools.length > 0 && (
                 <div className="dropdown-section">
                   <h5>Custom Tools</h5>
-                  {customTools.map(tool => (
+                  {filteredCustomTools.map(tool => (
                     <button
                       key={tool.id}
                       className="dropdown-item"
@@ -1406,10 +1497,10 @@ function ToolsEditor({
                 </div>
               )}
               
-              {agents.length > 0 && (
+              {filteredAgents.length > 0 && (
                 <div className="dropdown-section">
                   <h5>Agents as Tools</h5>
-                  {agents.map(agent => (
+                  {filteredAgents.map(agent => (
                     <button
                       key={agent.id}
                       className="dropdown-item"
@@ -1419,6 +1510,41 @@ function ToolsEditor({
                       <div className="dropdown-item-desc">{agent.type}</div>
                     </button>
                   ))}
+                </div>
+              )}
+              
+              {/* SkillSets */}
+              {filteredSkillsets.length > 0 && (
+                <div className="dropdown-section">
+                  <h5>SkillSets ({filteredSkillsets.length})</h5>
+                  {filteredSkillsets.map((skillset: any) => (
+                    <button
+                      key={skillset.id}
+                      className="dropdown-item"
+                      onClick={() => addSkillSetTool(skillset.id)}
+                    >
+                      <div className="dropdown-item-name">
+                        {skillset.name}
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
+                          {skillset.entry_count || 0} entries
+                        </span>
+                      </div>
+                      <div className="dropdown-item-desc">{skillset.description || 'Vector knowledge base'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {/* No results message */}
+              {toolSearch.trim() && 
+                filteredBuiltinTools.length === 0 && 
+                filteredMcpServers.length === 0 && 
+                filteredProjectMcpServers.length === 0 && 
+                filteredCustomTools.length === 0 && 
+                filteredAgents.length === 0 && 
+                filteredSkillsets.length === 0 && (
+                <div className="dropdown-section" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                  No tools matching "{toolSearch}"
                 </div>
               )}
             </div>

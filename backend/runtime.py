@@ -460,12 +460,12 @@ class RuntimeManager:
             def create_memory_service(uri: str):
                 if uri.startswith("file://"):
                     try:
-                        from file_memory_service import FileMemoryService
+                    from file_memory_service import FileMemoryService
                         from pathlib import Path
-                        path = uri[7:]  # Remove "file://" prefix
+                    path = uri[7:]  # Remove "file://" prefix
                         # Expand ~ to home directory
                         path = str(Path(path).expanduser())
-                        return FileMemoryService(base_dir=path)
+                    return FileMemoryService(base_dir=path)
                     except ImportError:
                         # FileMemoryService may not be available
                         # This is expected - fallback to in-memory
@@ -488,12 +488,12 @@ class RuntimeManager:
                     # Try to import FileArtifactService - it may not be available in all google-adk installations
                     try:
                         # First try direct import
-                        from google.adk.artifacts.file_artifact_service import FileArtifactService
+                    from google.adk.artifacts.file_artifact_service import FileArtifactService
                         from pathlib import Path
-                        path = uri[7:]  # Remove "file://" prefix
+                    path = uri[7:]  # Remove "file://" prefix
                         # Expand ~ to home directory
                         path = str(Path(path).expanduser())
-                        return FileArtifactService(root_dir=path)
+                    return FileArtifactService(root_dir=path)
                     except ImportError:
                         # FileArtifactService is not available in the installed google-adk package
                         # This is expected when using the PyPI package - fallback to in-memory
@@ -512,9 +512,9 @@ class RuntimeManager:
                         return InMemoryArtifactService()
                 elif uri.startswith("gcs://"):
                     try:
-                        from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
-                        bucket = uri[6:]  # Remove "gcs://" prefix
-                        return GcsArtifactService(bucket_name=bucket)
+                    from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
+                    bucket = uri[6:]  # Remove "gcs://" prefix
+                    return GcsArtifactService(bucket_name=bucket)
                     except ImportError:
                         import sys
                         print(f"WARNING: GcsArtifactService not available, using InMemoryArtifactService for gcs:// URI", file=sys.stderr)

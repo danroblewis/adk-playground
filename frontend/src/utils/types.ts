@@ -44,13 +44,14 @@ export interface CallbackConfig {
 }
 
 export interface ToolConfig {
-  type: 'function' | 'mcp' | 'agent' | 'builtin';
+  type: 'function' | 'mcp' | 'agent' | 'builtin' | 'skillset';
   name?: string;
   description?: string;
   module_path?: string;
   server?: MCPServerConfig;
   agent_id?: string;
   skip_summarization?: boolean;
+  skillset_id?: string;  // For skillset type
 }
 
 export interface LlmAgentConfig {
@@ -193,6 +194,31 @@ export interface WatchExpressionConfig {
   transform?: string;
 }
 
+export interface SkillSetSourceConfig {
+  id: string;
+  type: 'file' | 'url' | 'text';
+  name: string;
+  path?: string;
+  text?: string;
+  added_at: number;
+}
+
+export interface SkillSetConfig {
+  id: string;
+  name: string;
+  description: string;
+  embedding_model?: string;
+  app_model_id?: string;
+  external_store_type?: 'pinecone' | 'weaviate' | 'qdrant' | 'chromadb';
+  external_store_config: Record<string, any>;
+  search_enabled: boolean;
+  preload_enabled: boolean;
+  preload_top_k: number;
+  preload_min_score: number;
+  sources: SkillSetSourceConfig[];
+  entry_count: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -202,6 +228,7 @@ export interface Project {
   custom_tools: CustomToolDefinition[];
   custom_callbacks: CustomCallbackDefinition[];
   mcp_servers: MCPServerConfig[];
+  skillsets: SkillSetConfig[];
   watches: WatchExpressionConfig[];
 }
 

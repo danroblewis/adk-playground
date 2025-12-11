@@ -296,3 +296,149 @@ export async function testMcpServer(config: {
   return data;
 }
 
+// ============================================================================
+// SkillSet API
+// ============================================================================
+
+export interface SkillSetEntry {
+  id: string;
+  text: string;
+  full_text?: string;
+  source_id: string;
+  source_name: string;
+  created_at: number;
+  has_embedding: boolean;
+}
+
+export interface SkillSetSearchResult {
+  id: string;
+  text: string;
+  score: number;
+  source_id: string;
+  source_name: string;
+  created_at: number;
+}
+
+export interface SkillSetStats {
+  entry_count: number;
+  has_embeddings: boolean;
+  model_name: string;
+  sources: Record<string, number>;
+}
+
+export async function getSkillSetEntries(
+  projectId: string,
+  skillsetId: string,
+  limit: number = 100
+): Promise<{ entries: SkillSetEntry[]; total: number }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/entries?limit=${limit}`);
+}
+
+export async function getSkillSetStats(
+  projectId: string,
+  skillsetId: string
+): Promise<SkillSetStats> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/stats`);
+}
+
+export async function addSkillSetText(
+  projectId: string,
+  skillsetId: string,
+  text: string,
+  sourceName: string = 'manual'
+): Promise<SkillSetEntry> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/text`, {
+    method: 'POST',
+    body: JSON.stringify({ text, source_name: sourceName }),
+  });
+}
+
+export async function addSkillSetUrl(
+  projectId: string,
+  skillsetId: string,
+  url: string,
+  sourceName?: string,
+  chunkSize: number = 500,
+  chunkOverlap: number = 50
+): Promise<{ source_id: string; source_name: string; chunks_added: number }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/url`, {
+    method: 'POST',
+    body: JSON.stringify({
+      url,
+      source_name: sourceName,
+      chunk_size: chunkSize,
+      chunk_overlap: chunkOverlap,
+    }),
+  });
+}
+
+export async function uploadSkillSetFile(
+  projectId: string,
+  skillsetId: string,
+  file: File,
+  chunkSize: number = 500,
+  chunkOverlap: number = 50
+): Promise<{ source_id: string; source_name: string; chunks_added: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('chunk_size', String(chunkSize));
+  formData.append('chunk_overlap', String(chunkOverlap));
+  
+  const response = await fetch(`${API_BASE}/projects/${projectId}/skillsets/${skillsetId}/file`, {
+    method: 'POST',
+    body: formData,
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Upload failed: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+export async function searchSkillSet(
+  projectId: string,
+  skillsetId: string,
+  query: string,
+  topK: number = 10,
+  minScore: number = 0.0
+): Promise<{ query: string; results: SkillSetSearchResult[]; count: number }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/search`, {
+    method: 'POST',
+    body: JSON.stringify({ query, top_k: topK, min_score: minScore }),
+  });
+}
+
+export async function deleteSkillSetEntry(
+  projectId: string,
+  skillsetId: string,
+  entryId: string
+): Promise<{ deleted: boolean }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/entries/${entryId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteSkillSetSource(
+  projectId: string,
+  skillsetId: string,
+  sourceId: string
+): Promise<{ deleted: number }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/sources/${sourceId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function clearSkillSet(
+  projectId: string,
+  skillsetId: string
+): Promise<{ cleared: number }> {
+  return fetchJSON(`/projects/${projectId}/skillsets/${skillsetId}/entries`, {
+    method: 'DELETE',
+  });
+}
+
+export async function checkEmbeddingsAvailable(): Promise<{ available: boolean }> {
+  return fetchJSON('/skillsets/embeddings-available');
+}
+

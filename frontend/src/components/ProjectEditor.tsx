@@ -9,7 +9,7 @@ import AgentsPanel from './AgentsPanel';
 import ToolsPanel from './ToolsPanel';
 import CallbacksPanel from './CallbacksPanel';
 import RunPanel from './RunPanel';
-import KnowledgePanel from './KnowledgePanel';
+import { SkillSetsPanel } from './SkillSetsPanel';
 import EvalPanel from './EvalPanel';
 import YamlPanel from './YamlPanel';
 import CodePanel from './CodePanel';
@@ -20,14 +20,14 @@ const tabs = [
   { id: 'tools' as const, label: 'Tools', icon: Wrench },
   { id: 'callbacks' as const, label: 'Callbacks', icon: Code },
   { id: 'run' as const, label: 'Run', icon: Layers },
-  { id: 'knowledge' as const, label: 'Knowledge', icon: Brain },
+  { id: 'skillsets' as const, label: 'SkillSets', icon: Brain },
   { id: 'eval' as const, label: 'Evaluate', icon: TestTube },
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
   { id: 'code' as const, label: 'Code', icon: Code },
 ];
 
-type TabId = 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'knowledge' | 'eval' | 'yaml' | 'code';
-const validTabs: TabId[] = ['app', 'agents', 'tools', 'callbacks', 'run', 'knowledge', 'eval', 'yaml', 'code'];
+type TabId = 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'skillsets' | 'eval' | 'yaml' | 'code';
+const validTabs: TabId[] = ['app', 'agents', 'tools', 'callbacks', 'run', 'skillsets', 'eval', 'yaml', 'code'];
 
 export default function ProjectEditor() {
   const { projectId, tab, itemId } = useParams<{ projectId: string; tab?: string; itemId?: string }>();
@@ -419,7 +419,7 @@ export default function ProjectEditor() {
         {activeTab === 'tools' && <ToolsPanel onSelectTool={updateItemInUrl} />}
         {activeTab === 'callbacks' && <CallbacksPanel onSelectCallback={updateItemInUrl} />}
         {activeTab === 'run' && <RunPanel />}
-        {activeTab === 'knowledge' && <KnowledgePanel />}
+        {activeTab === 'skillsets' && <SkillSetsPanel />}
         {activeTab === 'eval' && <EvalPanel />}
         {activeTab === 'yaml' && <YamlPanel />}
         {activeTab === 'code' && <CodePanel />}

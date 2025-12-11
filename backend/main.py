@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -217,19 +217,19 @@ app = FastAPI(
 
 # CORS for frontend (only in dev mode)
 if not PRODUCTION_MODE:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:5173",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:3001",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ============================================================================
@@ -2026,98 +2026,170 @@ async def health_check():
 # Knowledge Base API
 # ============================================================================
 
-from knowledge_service import get_knowledge_service, KnowledgeEntry, SearchResult
+from knowledge_service import get_knowledge_manager, KnowledgeEntry, SearchResult, chunk_text, fetch_url_content
 
 
-class AddKnowledgeRequest(BaseModel):
+# ============================================================================
+# SkillSet API Endpoints
+# ============================================================================
+
+class AddSkillSetTextRequest(BaseModel):
     text: str
-    metadata: Optional[Dict[str, Any]] = None
-    source: str = "manual"
+    source_id: str = ""
+    source_name: str = "manual"
 
 
-class AddKnowledgeBatchRequest(BaseModel):
-    texts: List[str]
-    source: str = "manual"
+class AddSkillSetURLRequest(BaseModel):
+    url: str
+    source_name: Optional[str] = None  # Defaults to URL
+    chunk_size: int = 500
+    chunk_overlap: int = 50
 
 
-class SearchKnowledgeRequest(BaseModel):
+class SearchSkillSetRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = 10
     min_score: float = 0.0
 
 
-@app.get("/api/knowledge")
-async def list_knowledge():
-    """List all knowledge entries."""
-    service = get_knowledge_service()
-    entries = service.list_all()
+@app.get("/api/projects/{project_id}/skillsets/{skillset_id}/entries")
+async def list_skillset_entries(project_id: str, skillset_id: str, limit: int = 100):
+    """List entries in a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    entries = store.list_all(limit=limit)
     return {
         "entries": [
             {
                 "id": e.id,
                 "text": e.text[:200] + ("..." if len(e.text) > 200 else ""),
                 "full_text": e.text,
-                "source": e.source,
+                "source_id": e.source_id,
+                "source_name": e.source_name,
                 "created_at": e.created_at,
-                "metadata": e.metadata,
                 "has_embedding": len(e.embedding) > 0,
             }
-            for e in sorted(entries, key=lambda x: x.created_at, reverse=True)
+            for e in entries
         ],
         "total": len(entries),
     }
 
 
-@app.get("/api/knowledge/stats")
-async def knowledge_stats():
-    """Get knowledge base statistics."""
-    service = get_knowledge_service()
-    return service.stats()
+@app.get("/api/projects/{project_id}/skillsets/{skillset_id}/stats")
+async def skillset_stats(project_id: str, skillset_id: str):
+    """Get statistics for a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    return store.stats()
 
 
-@app.post("/api/knowledge")
-async def add_knowledge(request: AddKnowledgeRequest):
-    """Add a text entry to the knowledge base."""
-    service = get_knowledge_service()
-    entry = service.add(
+@app.post("/api/projects/{project_id}/skillsets/{skillset_id}/text")
+async def add_skillset_text(project_id: str, skillset_id: str, request: AddSkillSetTextRequest):
+    """Add text entry to a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    entry = store.add(
         text=request.text,
-        metadata=request.metadata,
-        source=request.source,
+        source_id=request.source_id,
+        source_name=request.source_name,
     )
     return {
         "id": entry.id,
         "text": entry.text[:200] + ("..." if len(entry.text) > 200 else ""),
-        "source": entry.source,
+        "source_name": entry.source_name,
         "created_at": entry.created_at,
         "has_embedding": len(entry.embedding) > 0,
     }
 
 
-@app.post("/api/knowledge/batch")
-async def add_knowledge_batch(request: AddKnowledgeBatchRequest):
-    """Add multiple text entries to the knowledge base."""
-    service = get_knowledge_service()
-    entries = service.add_batch(
-        texts=request.texts,
-        source=request.source,
+@app.post("/api/projects/{project_id}/skillsets/{skillset_id}/url")
+async def add_skillset_url(project_id: str, skillset_id: str, request: AddSkillSetURLRequest):
+    """Fetch content from URL and add to skillset store."""
+    try:
+        content = await fetch_url_content(request.url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+    
+    source_name = request.source_name or request.url
+    
+    # Chunk the content
+    chunks = chunk_text(content, request.chunk_size, request.chunk_overlap)
+    
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    
+    # Generate a source_id for this URL
+    import hashlib
+    source_id = hashlib.sha256(request.url.encode()).hexdigest()[:12]
+    
+    entries = store.add_batch(
+        texts=chunks,
+        source_id=source_id,
+        source_name=source_name,
     )
+    
     return {
-        "added": len(entries),
-        "entries": [
-            {
-                "id": e.id,
-                "text": e.text[:100] + ("..." if len(e.text) > 100 else ""),
-            }
-            for e in entries
-        ],
+        "source_id": source_id,
+        "source_name": source_name,
+        "url": request.url,
+        "chunks_added": len(entries),
+        "total_chars": len(content),
     }
 
 
-@app.post("/api/knowledge/search")
-async def search_knowledge(request: SearchKnowledgeRequest):
-    """Search the knowledge base."""
-    service = get_knowledge_service()
-    results = service.search(
+@app.post("/api/projects/{project_id}/skillsets/{skillset_id}/file")
+async def add_skillset_file(
+    project_id: str,
+    skillset_id: str,
+    file: UploadFile = File(...),
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+):
+    """Upload a file and add its content to skillset store."""
+    content = await file.read()
+    
+    # Try to decode as text
+    try:
+        text_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text_content = content.decode("latin-1")
+        except:
+            raise HTTPException(status_code=400, detail="Could not decode file as text")
+    
+    source_name = file.filename or "uploaded_file"
+    
+    # Chunk the content
+    chunks = chunk_text(text_content, chunk_size, chunk_overlap)
+    
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    
+    # Generate a source_id for this file
+    import hashlib
+    source_id = hashlib.sha256(content).hexdigest()[:12]
+    
+    entries = store.add_batch(
+        texts=chunks,
+        source_id=source_id,
+        source_name=source_name,
+    )
+    
+    return {
+        "source_id": source_id,
+        "source_name": source_name,
+        "filename": file.filename,
+        "chunks_added": len(entries),
+        "total_chars": len(text_content),
+    }
+
+
+@app.post("/api/projects/{project_id}/skillsets/{skillset_id}/search")
+async def search_skillset(project_id: str, skillset_id: str, request: SearchSkillSetRequest):
+    """Search a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    results = store.search(
         query=request.query,
         top_k=request.top_k,
         min_score=request.min_score,
@@ -2129,7 +2201,8 @@ async def search_knowledge(request: SearchKnowledgeRequest):
                 "id": r.entry.id,
                 "text": r.entry.text,
                 "score": round(r.score, 4),
-                "source": r.entry.source,
+                "source_id": r.entry.source_id,
+                "source_name": r.entry.source_name,
                 "created_at": r.entry.created_at,
             }
             for r in results
@@ -2138,52 +2211,39 @@ async def search_knowledge(request: SearchKnowledgeRequest):
     }
 
 
-@app.get("/api/knowledge/{entry_id}")
-async def get_knowledge_entry(entry_id: str):
-    """Get a specific knowledge entry."""
-    service = get_knowledge_service()
-    entry = service.get(entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Entry not found")
-    return {
-        "id": entry.id,
-        "text": entry.text,
-        "source": entry.source,
-        "created_at": entry.created_at,
-        "metadata": entry.metadata,
-        "has_embedding": len(entry.embedding) > 0,
-    }
-
-
-@app.delete("/api/knowledge/{entry_id}")
-async def delete_knowledge_entry(entry_id: str):
-    """Delete a knowledge entry."""
-    service = get_knowledge_service()
-    if service.remove(entry_id):
+@app.delete("/api/projects/{project_id}/skillsets/{skillset_id}/entries/{entry_id}")
+async def delete_skillset_entry(project_id: str, skillset_id: str, entry_id: str):
+    """Delete a specific entry from a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    if store.remove(entry_id):
         return {"deleted": True, "id": entry_id}
     raise HTTPException(status_code=404, detail="Entry not found")
 
 
-@app.delete("/api/knowledge")
-async def clear_knowledge():
-    """Clear all knowledge entries."""
-    service = get_knowledge_service()
-    count = service.clear()
+@app.delete("/api/projects/{project_id}/skillsets/{skillset_id}/sources/{source_id}")
+async def delete_skillset_source(project_id: str, skillset_id: str, source_id: str):
+    """Delete all entries from a specific source."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    count = store.remove_by_source(source_id)
+    return {"deleted": count, "source_id": source_id}
+
+
+@app.delete("/api/projects/{project_id}/skillsets/{skillset_id}/entries")
+async def clear_skillset(project_id: str, skillset_id: str):
+    """Clear all entries in a skillset store."""
+    manager = get_knowledge_manager()
+    store = manager.get_store(project_id, skillset_id)
+    count = store.clear()
     return {"cleared": count}
 
 
-@app.post("/api/knowledge/upload")
-async def upload_knowledge_file(
-    file: Any = None,  # Will use Form for file upload
-):
-    """Upload a file to the knowledge base.
-    
-    Supports: .txt, .md, .json, .csv
-    Text is chunked and indexed.
-    """
-    from fastapi import UploadFile, File
-    # This is a placeholder - we'll implement proper file upload
-    return {"error": "File upload not yet implemented. Use POST /api/knowledge to add text."}
+@app.get("/api/skillsets/embeddings-available")
+async def check_embeddings_available():
+    """Check if embeddings are available."""
+    manager = get_knowledge_manager()
+    return {"available": manager.embeddings_available()}
 
 
 # ============================================================================

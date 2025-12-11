@@ -299,14 +299,14 @@ class ProjectManager:
                 module_dir = callbacks_dir
             else:
                 # Create subdirectories for nested modules
-                module_dir = callbacks_dir
+            module_dir = callbacks_dir
                 for part in module_parts:
-                    module_dir = module_dir / part
-                    module_dir.mkdir(parents=True, exist_ok=True)
-                    # Create __init__.py
-                    init_file = module_dir / "__init__.py"
-                    if not init_file.exists():
-                        init_file.write_text("")
+                module_dir = module_dir / part
+                module_dir.mkdir(parents=True, exist_ok=True)
+                # Create __init__.py
+                init_file = module_dir / "__init__.py"
+                if not init_file.exists():
+                    init_file.write_text("")
             
             # For each callback, determine the filename from the module_path
             # If module_path is "callbacks.custom", save as "callbacks/custom.py"
@@ -327,18 +327,18 @@ class ProjectManager:
             # Create a file for each unique file_key
             for file_key, callbacks_in_file in callback_files.items():
                 file_path = module_dir / f"{file_key}.py"
-                
-                code_lines = [
-                    '"""Auto-generated custom callbacks module."""',
-                    "",
-                    "from google.adk.agents.callback_context import CallbackContext",
+            
+            code_lines = [
+                '"""Auto-generated custom callbacks module."""',
+                "",
+                "from google.adk.agents.callback_context import CallbackContext",
                     "from google.adk.models.llm_response import LlmResponse",
-                    "from typing import Optional",
-                    "",
-                ]
-                
+                "from typing import Optional",
+                "",
+            ]
+            
                 for callback in callbacks_in_file:
-                    code_lines.append(f"# Callback: {callback.name}")
+                code_lines.append(f"# Callback: {callback.name}")
                     # Handle multi-line descriptions properly - each line must be a comment
                     if callback.description:
                         desc_lines = callback.description.split('\n')
@@ -348,8 +348,8 @@ class ProjectManager:
                     else:
                         code_lines.append('# Description: (no description)')
                     code_lines.append(f"# State keys used: {', '.join(callback.state_keys_used) if callback.state_keys_used else 'none'}")
-                    code_lines.append("")
-                    code_lines.append(callback.code)
-                    code_lines.append("")
-                
-                file_path.write_text("\n".join(code_lines))
+                code_lines.append("")
+                code_lines.append(callback.code)
+                code_lines.append("")
+            
+            file_path.write_text("\n".join(code_lines))

@@ -92,7 +92,13 @@ class BuiltinToolConfig(BaseModel):
     name: str  # e.g., "google_search", "exit_loop", "load_memory"
 
 
-ToolConfig = Union[FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig]
+class SkillSetToolConfig(BaseModel):
+    """Configuration for a SkillSet as a tool."""
+    type: Literal["skillset"] = "skillset"
+    skillset_id: str  # Reference to project.skillsets[].id
+
+
+ToolConfig = Union[FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig, SkillSetToolConfig]
 
 
 # ============================================================================
@@ -315,6 +321,43 @@ class WatchExpression(BaseModel):
     transform: Optional[str] = None
 
 
+class SkillSetSourceConfig(BaseModel):
+    """Configuration for a source in a SkillSet."""
+    id: str
+    type: Literal["file", "url", "text"] = "text"
+    name: str  # Display name
+    path: Optional[str] = None  # File path or URL
+    text: Optional[str] = None  # Direct text content
+    added_at: float = 0.0
+
+
+class SkillSetConfig(BaseModel):
+    """Configuration for a SkillSet (vector database toolset)."""
+    id: str
+    name: str
+    description: str = ""
+    
+    # Model configuration for embeddings
+    embedding_model: Optional[str] = None  # None = use app default
+    app_model_id: Optional[str] = None  # Reference to app model
+    
+    # External vector store (placeholder for future)
+    external_store_type: Optional[Literal["pinecone", "weaviate", "qdrant", "chromadb"]] = None
+    external_store_config: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Tool settings
+    search_enabled: bool = True
+    preload_enabled: bool = True
+    preload_top_k: int = 3
+    preload_min_score: float = 0.4
+    
+    # Sources
+    sources: List[SkillSetSourceConfig] = Field(default_factory=list)
+    
+    # Entry count (for display)
+    entry_count: int = 0
+
+
 class Project(BaseModel):
     """A complete ADK Playground project."""
     id: str
@@ -333,6 +376,9 @@ class Project(BaseModel):
     
     # Known MCP servers for quick selection
     mcp_servers: List[MCPServerConfig] = Field(default_factory=list)
+    
+    # SkillSets (vector database toolsets)
+    skillsets: List[SkillSetConfig] = Field(default_factory=list)
     
     # Tool watches (persisted for the Run2 panel)
     watches: List[WatchExpression] = Field(default_factory=list)
