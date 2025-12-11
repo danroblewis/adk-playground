@@ -9,8 +9,10 @@ venv/
 ENV/
 env/
 *.egg-info/
-dist/
+# Python dist (but not adk_playground/frontend/dist which is needed for packaging)
+/dist/
 build/
+!adk_playground/frontend/dist/
 .pytest_cache/
 .coverage
 htmlcov/
