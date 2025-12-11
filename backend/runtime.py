@@ -267,6 +267,114 @@ class RuntimeManager:
         self.projects_dir = Path(projects_dir)
         self.sessions: Dict[str, RunSession] = {}
         self._running: Dict[str, bool] = {}
+        self._temp_dirs: Dict[str, Path] = {}  # session_id -> temp_dir for cleanup
+    
+    def _prepare_project_files(self, project: Project, session_id: str) -> Path:
+        """Create temp directory with callback and tool files from project.
+        
+        This allows the runtime to be self-contained - the Project object's
+        custom_callbacks[].code and custom_tools[].code fields contain everything
+        needed to run, without requiring files to be pre-created on disk.
+        
+        Args:
+            project: The Project containing custom_callbacks and custom_tools
+            session_id: Used to track temp dir for cleanup
+            
+        Returns:
+            Path to the temp directory (added to sys.path)
+        """
+        import tempfile
+        from typing import Dict as DictType
+        
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"adk_{project.id}_{session_id}_"))
+        self._temp_dirs[session_id] = temp_dir
+        
+        # Write callbacks from project.custom_callbacks
+        if project.custom_callbacks:
+            callbacks_dir = temp_dir / "callbacks"
+            callbacks_dir.mkdir(parents=True, exist_ok=True)
+            (callbacks_dir / "__init__.py").write_text("")
+            
+            # Group callbacks by module_path to write to appropriate files
+            # module_path is like "callbacks.custom" -> write to callbacks/custom.py
+            files_content: DictType[str, list] = {}
+            for callback in project.custom_callbacks:
+                if not callback.code:
+                    continue
+                    
+                # Parse module_path to get filename
+                # e.g., "callbacks.custom" -> "custom.py"
+                parts = callback.module_path.split(".")
+                if len(parts) >= 2:
+                    filename = parts[-1]  # e.g., "custom"
+                else:
+                    filename = "custom"
+                
+                if filename not in files_content:
+                    files_content[filename] = []
+                files_content[filename].append(callback.code)
+            
+            # Write each file
+            for filename, code_blocks in files_content.items():
+                file_path = callbacks_dir / f"{filename}.py"
+                # Combine code blocks with header
+                header = '"""Auto-generated callbacks module."""\n\n'
+                content = header + "\n\n".join(code_blocks)
+                file_path.write_text(content)
+        
+        # Write tools from project.custom_tools
+        if project.custom_tools:
+            tools_dir = temp_dir / "tools"
+            tools_dir.mkdir(parents=True, exist_ok=True)
+            (tools_dir / "__init__.py").write_text("")
+            
+            # Group tools by module_path
+            files_content: DictType[str, list] = {}
+            for tool in project.custom_tools:
+                if not tool.code:
+                    continue
+                
+                # Parse module_path to get filename
+                # e.g., "tools.math" -> "math.py"
+                parts = tool.module_path.split(".")
+                if len(parts) >= 2:
+                    filename = parts[-1]
+                else:
+                    filename = "custom"
+                
+                if filename not in files_content:
+                    files_content[filename] = []
+                files_content[filename].append(tool.code)
+            
+            # Write each file
+            for filename, code_blocks in files_content.items():
+                file_path = tools_dir / f"{filename}.py"
+                header = '"""Auto-generated tools module."""\n\n'
+                content = header + "\n\n".join(code_blocks)
+                file_path.write_text(content)
+        
+        # Add temp_dir to sys.path so imports work
+        if str(temp_dir) not in sys.path:
+            sys.path.insert(0, str(temp_dir))
+        
+        logger.info(f"Prepared project files in temp dir: {temp_dir}")
+        return temp_dir
+    
+    def _cleanup_temp_dir(self, session_id: str) -> None:
+        """Clean up temp directory for a session."""
+        if session_id in self._temp_dirs:
+            temp_dir = self._temp_dirs[session_id]
+            # Remove from sys.path
+            if str(temp_dir) in sys.path:
+                sys.path.remove(str(temp_dir))
+            # Clean up temp files
+            import shutil
+            try:
+                shutil.rmtree(temp_dir)
+                logger.debug(f"Cleaned up temp dir: {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp dir {temp_dir}: {e}")
+            del self._temp_dirs[session_id]
     
     async def run_agent(
         self,
@@ -310,6 +418,11 @@ class RuntimeManager:
         self._running[session_id] = True
         
         try:
+            # Prepare project files (callbacks, tools) from Project object
+            # This creates a temp directory with Python files generated from
+            # project.custom_callbacks[].code and project.custom_tools[].code
+            temp_project_dir = self._prepare_project_files(project, session_id)
+            
             # Set environment variables from project config
             import os
             env_vars = project.app.env_vars or {}
@@ -432,8 +545,11 @@ class RuntimeManager:
                         session.started_at = adk_session.events[0].timestamp if adk_session.events else time.time()
                     self.sessions[session_id] = session
             
-            # Build agents from config
-            agents = self._build_agents(project)
+            # Create tracking plugin BEFORE building agents so callbacks can be wrapped
+            tracking = TrackingPlugin(session, event_callback)
+            
+            # Build agents from config - NOW with tracking plugin so callbacks can be wrapped
+            agents = self._build_agents(project, tracking_plugin=tracking)
             
             # Determine which agent to run
             target_agent_id = agent_id or project.app.root_agent_id
@@ -443,9 +559,6 @@ class RuntimeManager:
                 raise ValueError(f"Agent '{target_agent_id}' not found. Available agents: {available}")
             
             root_agent = agents[target_agent_id]
-            
-            # Create tracking plugin
-            tracking = TrackingPlugin(session, event_callback)
             
             # Build the app
             from google.adk.plugins import BasePlugin
@@ -604,6 +717,8 @@ class RuntimeManager:
             )
         finally:
             self._running[session_id] = False
+            # Clean up temp directory
+            self._cleanup_temp_dir(session_id)
     
     def stop_run(self, session_id: str):
         """Stop a running session."""
@@ -926,38 +1041,83 @@ class RuntimeManager:
             }
             
             # Load and wrap callbacks
-            # Add project callbacks directory to path (similar to tools)
-            callbacks_dir = self.projects_dir / project.id / "callbacks"
-            if callbacks_dir.exists() and str(callbacks_dir) not in sys.path:
-                sys.path.insert(0, str(callbacks_dir))
+            # Callbacks are loaded via importlib from sys.path which includes:
+            # 1. Temp directory created by _prepare_project_files() (from project.custom_callbacks[].code)
+            # 2. Legacy: project directory on disk (for backwards compatibility)
+            project_dir = self.projects_dir / project.id
+            if project_dir.exists() and str(project_dir) not in sys.path:
+                sys.path.insert(0, str(project_dir))
             
             callbacks_config = {}
             for config_attr_name, adk_attr_name in callback_mapping.items():
-                if hasattr(config, config_attr_name) and getattr(config, config_attr_name):
+                if hasattr(config, config_attr_name):
                     callbacks = getattr(config, config_attr_name)
+                    logger.info(f"Checking {config_attr_name} on agent {config.name}: {callbacks} (type: {type(callbacks)})")
                     if callbacks:
+                        logger.info(f"Processing {len(callbacks)} callback(s) for {config_attr_name} on agent {config.name}")
                         loaded_callbacks = []
                         for callback_config in callbacks:
+                            logger.info(f"Loading callback from config: {callback_config}")
                             try:
                                 # Load callback from module_path
-                                # Module path format: "module.submodule" where the function name is in callback.name
-                                # e.g., "callbacks.custom" -> import callbacks.custom, then get function by callback.name
-                                module_path = callback_config.module_path
+                                # Module path format can be:
+                                # 1. "module.submodule.function_name" (full path from code/YAML)
+                                # 2. "module.submodule" (just module, function name from callback definition)
+                                full_path = callback_config.module_path
                                 
-                                # Find the callback definition to get its name
+                                # Check if it's a full path (contains function name)
+                                # Try to find a callback definition that matches
                                 callback_def = None
+                                module_path = full_path
+                                func_name = None
+                                
+                                # First, try to match by full path (for backwards compatibility)
                                 for cb in project.custom_callbacks:
-                                    if cb.module_path == module_path:
+                                    if cb.module_path == full_path:
                                         callback_def = cb
+                                        module_path = cb.module_path
+                                        func_name = cb.name
                                         break
                                 
+                                # If not found, try parsing as full path (module.function)
                                 if not callback_def:
-                                    raise ValueError(f"Callback definition not found for module_path: {module_path}")
+                                    parts = full_path.rsplit('.', 1)
+                                    if len(parts) == 2:
+                                        possible_module_path, possible_func_name = parts
+                                        # Try to find callback with matching module_path and function name
+                                        for cb in project.custom_callbacks:
+                                            if cb.module_path == possible_module_path and cb.name == possible_func_name:
+                                                callback_def = cb
+                                                module_path = possible_module_path
+                                                func_name = possible_func_name
+                                                break
                                 
-                                func_name = callback_def.name
+                                if not callback_def:
+                                    raise ValueError(f"Callback definition not found for module_path: {full_path}")
+                                
+                                if not func_name:
+                                    func_name = callback_def.name
                                 
                                 # Import the module (e.g., "callbacks.custom")
+                                # Force reload by removing from cache first to ensure we get latest code from disk
                                 logger.info(f"Loading callback {func_name} from module {module_path}")
+                                
+                                # Remove module and any submodules from cache to force fresh import
+                                # This ensures we get the latest code from disk, not cached bytecode
+                                modules_to_remove = [m for m in list(sys.modules.keys()) 
+                                                    if m == module_path or m.startswith(module_path + ".")]
+                                
+                                # Also remove parent package if it exists (e.g., "callbacks" for "callbacks.custom")
+                                if "." in module_path:
+                                    parent_package = module_path.rsplit(".", 1)[0]
+                                    if parent_package in sys.modules:
+                                        modules_to_remove.append(parent_package)
+                                
+                                for mod_name in modules_to_remove:
+                                    del sys.modules[mod_name]
+                                    logger.debug(f"Removed {mod_name} from sys.modules cache to force reload")
+                                
+                                # Now import fresh from disk
                                 module = importlib.import_module(module_path)
                                 
                                 # Get the function from the module
@@ -969,102 +1129,151 @@ class RuntimeManager:
                                 
                                 # Wrap callback to emit tracking events if tracking plugin is provided
                                 if tracking_plugin:
-                                    # Capture values in closure correctly
+                                    # Capture ALL loop variables in closure correctly
+                                    # Python closures capture by reference, not value, so we must
+                                    # create local copies of any variables used inside the closure
                                     captured_module_path = module_path
                                     captured_agent_name = config.name
-                                    callback_type = config_attr_name.replace('_callbacks', '')
+                                    captured_func_name = func_name
+                                    captured_callback_func = callback_func
+                                    captured_callback_type = config_attr_name.replace('_callbacks', '')
+                                    
+                                    # Import functools for preserving function signatures
+                                    import functools
                                     
                                     # Create wrapper that preserves the original function's signature
                                     if inspect.iscoroutinefunction(callback_func):
-                                        async def wrapped_callback(*args, **kwargs):
+                                        @functools.wraps(callback_func)
+                                        async def wrapped_callback(*args, 
+                                                                    _func=captured_callback_func,
+                                                                    _name=captured_func_name,
+                                                                    _type=captured_callback_type,
+                                                                    _module=captured_module_path,
+                                                                    _agent=captured_agent_name,
+                                                                    **kwargs):
                                             # Emit callback_start event
                                             await tracking_plugin._emit(RunEvent(
                                                 timestamp=time.time(),
                                                 event_type="callback_start",
-                                                agent_name=captured_agent_name,
+                                                agent_name=_agent,
                                                 data={
-                                                    "callback_name": func_name,
-                                                    "callback_type": callback_type,
-                                                    "module_path": captured_module_path,
+                                                    "callback_name": _name,
+                                                    "callback_type": _type,
+                                                    "module_path": _module,
                                                 },
                                             ))
                                             
                                             try:
-                                                result = await callback_func(*args, **kwargs)
+                                                result = await _func(*args, **kwargs)
                                                 
                                                 # Emit callback_end event
                                                 await tracking_plugin._emit(RunEvent(
                                                     timestamp=time.time(),
                                                     event_type="callback_end",
-                                                    agent_name=captured_agent_name,
+                                                    agent_name=_agent,
                                                     data={
-                                                        "callback_name": func_name,
-                                                        "callback_type": callback_type,
-                                                        "module_path": captured_module_path,
+                                                        "callback_name": _name,
+                                                        "callback_type": _type,
+                                                        "module_path": _module,
                                                     },
                                                 ))
                                                 
                                                 return result
                                             except Exception as e:
-                                                # Emit callback_end event with error
+                                                # Emit callback_end event with detailed error information
+                                                import traceback
+                                                error_data = {
+                                                    "callback_name": _name,
+                                                    "callback_type": _type,
+                                                    "module_path": _module,
+                                                    "error": str(e),
+                                                    "error_type": type(e).__name__,
+                                                }
+                                                # Add stack trace if available
+                                                try:
+                                                    stack_trace = traceback.format_exc()
+                                                    if stack_trace:
+                                                        error_data["stack_trace"] = stack_trace
+                                                except Exception:
+                                                    pass  # If we can't get stack trace, continue without it
+                                                
                                                 await tracking_plugin._emit(RunEvent(
                                                     timestamp=time.time(),
                                                     event_type="callback_end",
-                                                    agent_name=captured_agent_name,
-                                                    data={
-                                                        "callback_name": func_name,
-                                                        "callback_type": callback_type,
-                                                        "module_path": captured_module_path,
-                                                        "error": str(e),
-                                                    },
+                                                    agent_name=_agent,
+                                                    data=error_data,
                                                 ))
                                                 raise
                                         
                                         loaded_callbacks.append(wrapped_callback)
                                     else:
                                         # Sync callback - wrap in async wrapper for tracking
-                                        async def wrapped_sync_callback(*args, **kwargs):
+                                        # ADK can handle both sync and async callbacks, but we need to wrap
+                                        # sync callbacks in async to emit tracking events
+                                        # We preserve the original function's signature using functools.wraps
+                                        # even though we're converting sync to async
+                                        @functools.wraps(callback_func)
+                                        async def wrapped_sync_callback(*args,
+                                                                         _func=captured_callback_func,
+                                                                         _name=captured_func_name,
+                                                                         _type=captured_callback_type,
+                                                                         _module=captured_module_path,
+                                                                         _agent=captured_agent_name,
+                                                                         **kwargs):
                                             # Emit callback_start event
                                             await tracking_plugin._emit(RunEvent(
                                                 timestamp=time.time(),
                                                 event_type="callback_start",
-                                                agent_name=captured_agent_name,
+                                                agent_name=_agent,
                                                 data={
-                                                    "callback_name": func_name,
-                                                    "callback_type": callback_type,
-                                                    "module_path": captured_module_path,
+                                                    "callback_name": _name,
+                                                    "callback_type": _type,
+                                                    "module_path": _module,
                                                 },
                                             ))
                                             
                                             try:
-                                                # Call sync callback
-                                                result = callback_func(*args, **kwargs)
+                                                # Call sync callback synchronously
+                                                # ADK will call this with callback_context=callback_context
+                                                # so kwargs will contain callback_context
+                                                result = _func(*args, **kwargs)
                                                 
                                                 # Emit callback_end event
                                                 await tracking_plugin._emit(RunEvent(
                                                     timestamp=time.time(),
                                                     event_type="callback_end",
-                                                    agent_name=captured_agent_name,
+                                                    agent_name=_agent,
                                                     data={
-                                                        "callback_name": func_name,
-                                                        "callback_type": callback_type,
-                                                        "module_path": captured_module_path,
+                                                        "callback_name": _name,
+                                                        "callback_type": _type,
+                                                        "module_path": _module,
                                                     },
                                                 ))
                                                 
                                                 return result
                                             except Exception as e:
-                                                # Emit callback_end event with error
+                                                # Emit callback_end event with detailed error information
+                                                import traceback
+                                                error_data = {
+                                                    "callback_name": _name,
+                                                    "callback_type": _type,
+                                                    "module_path": _module,
+                                                    "error": str(e),
+                                                    "error_type": type(e).__name__,
+                                                }
+                                                # Add stack trace if available
+                                                try:
+                                                    stack_trace = traceback.format_exc()
+                                                    if stack_trace:
+                                                        error_data["stack_trace"] = stack_trace
+                                                except Exception:
+                                                    pass  # If we can't get stack trace, continue without it
+                                                
                                                 await tracking_plugin._emit(RunEvent(
                                                     timestamp=time.time(),
                                                     event_type="callback_end",
-                                                    agent_name=captured_agent_name,
-                                                    data={
-                                                        "callback_name": func_name,
-                                                        "callback_type": callback_type,
-                                                        "module_path": captured_module_path,
-                                                        "error": str(e),
-                                                    },
+                                                    agent_name=_agent,
+                                                    data=error_data,
                                                 ))
                                                 raise
                                         
@@ -1100,7 +1309,9 @@ class RuntimeManager:
             # Add callbacks if we have them
             for attr_name, callbacks in callbacks_config.items():
                 agent_kwargs[attr_name] = callbacks
+                logger.info(f"Added {attr_name} to agent {config.name}: {type(callbacks).__name__}")
             
+            logger.info(f"Creating Agent with kwargs: {list(agent_kwargs.keys())}")
             return Agent(**agent_kwargs)
         
         elif isinstance(config, SequentialAgentConfig):
@@ -1187,8 +1398,13 @@ class RuntimeManager:
         return None
     
     def _load_function_tool(self, config: FunctionToolConfig, project: Project):
-        """Load a custom function tool."""
-        # Add project tools directory to path
+        """Load a custom function tool.
+        
+        Tools are loaded via importlib from sys.path which includes:
+        1. Temp directory created by _prepare_project_files() (from project.custom_tools[].code)
+        2. Legacy: project tools directory on disk (for backwards compatibility)
+        """
+        # Legacy fallback: add project tools directory to path if it exists on disk
         tools_dir = self.projects_dir / project.id / "tools"
         if tools_dir.exists() and str(tools_dir) not in sys.path:
             sys.path.insert(0, str(tools_dir))

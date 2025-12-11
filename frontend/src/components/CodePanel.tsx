@@ -122,10 +122,23 @@ function generateAgentCode(agent: AgentConfig, project: Project, agentVarNames: 
     for (const [configKey, adkKey] of Object.entries(callbackMapping)) {
       const callbacks = (llmAgent[configKey as keyof LlmAgentConfig] as CallbackConfig[]) || [];
       if (callbacks.length > 0) {
-        const callbackPaths = callbacks.map(c => `"${c.module_path}"`).join(', ');
+        // Find callback definitions to get function names
+        const callbackPaths = callbacks.map(c => {
+          // Find the callback definition to get the function name
+          const callbackDef = project.custom_callbacks.find(cb => cb.module_path === c.module_path);
+          if (callbackDef) {
+            // Full path: module_path.function_name
+            return `"${c.module_path}.${callbackDef.name}"`;
+          }
+          // Fallback to just module_path if definition not found
+          return `"${c.module_path}"`;
+        }).join(', ');
+        
         // ADK accepts single callback or list
         if (callbacks.length === 1) {
-          params.push(`${adkKey}="${callbacks[0].module_path}"`);
+          const callbackDef = project.custom_callbacks.find(cb => cb.module_path === callbacks[0].module_path);
+          const fullPath = callbackDef ? `${callbacks[0].module_path}.${callbackDef.name}` : callbacks[0].module_path;
+          params.push(`${adkKey}="${fullPath}"`);
         } else {
           params.push(`${adkKey}=[${callbackPaths}]`);
         }

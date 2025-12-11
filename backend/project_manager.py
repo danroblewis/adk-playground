@@ -178,8 +178,35 @@ class ProjectManager:
         project = self.get_project(project_id)
         if not project:
             return None
+        
+        # Convert project to dict for YAML serialization
+        data = project.model_dump(mode="json")
+        
+        # Fix callback module_paths to include function names
+        # ADK expects full paths like "module.path.function_name"
+        for agent in data.get("agents", []):
+            if agent.get("type") == "LlmAgent":
+                callback_types = [
+                    "before_agent_callbacks", "after_agent_callbacks",
+                    "before_model_callbacks", "after_model_callbacks",
+                    "before_tool_callbacks", "after_tool_callbacks"
+                ]
+                for callback_type in callback_types:
+                    callbacks = agent.get(callback_type, [])
+                    for callback in callbacks:
+                        module_path = callback.get("module_path", "")
+                        # Find the callback definition to get the function name
+                        callback_def = None
+                        for cb in project.custom_callbacks:
+                            if cb.module_path == module_path:
+                                callback_def = cb
+                                break
+                        if callback_def:
+                            # Update module_path to include function name
+                            callback["module_path"] = f"{module_path}.{callback_def.name}"
+        
         return yaml.safe_dump(
-            project.model_dump(mode="json"),
+            data,
             default_flow_style=False,
             sort_keys=False
         )
@@ -189,6 +216,39 @@ class ProjectManager:
         try:
             data = yaml.safe_load(yaml_content)
             data["id"] = project_id  # Preserve the ID
+            
+            # Parse callback module_paths that include function names
+            # Convert "module.path.function_name" back to just "module.path" for internal storage
+            for agent in data.get("agents", []):
+                if agent.get("type") == "LlmAgent":
+                    callback_types = [
+                        "before_agent_callbacks", "after_agent_callbacks",
+                        "before_model_callbacks", "after_model_callbacks",
+                        "before_tool_callbacks", "after_tool_callbacks"
+                    ]
+                    for callback_type in callback_types:
+                        callbacks = agent.get(callback_type, [])
+                        for callback in callbacks:
+                            full_path = callback.get("module_path", "")
+                            # If it contains a dot, try to parse as module.function
+                            if '.' in full_path:
+                                parts = full_path.rsplit('.', 1)
+                                if len(parts) == 2:
+                                    # Check if the last part matches a callback function name
+                                    possible_module_path, possible_func_name = parts
+                                    # Try to find matching callback definition
+                                    callback_found = False
+                                    for cb_def in data.get("custom_callbacks", []):
+                                        if (cb_def.get("module_path") == possible_module_path and 
+                                            cb_def.get("name") == possible_func_name):
+                                            # This is a full path, extract just the module part
+                                            callback["module_path"] = possible_module_path
+                                            callback_found = True
+                                            break
+                                    # If not found, keep as-is (might be a different format)
+                                    if not callback_found:
+                                        callback["module_path"] = full_path
+            
             project = Project.model_validate(data)
             self.save_project(project)
             return project

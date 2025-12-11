@@ -1543,7 +1543,7 @@ def short_circuit_callback(callback_context: CallbackContext) -> Optional[types.
     # For agent callbacks
     return types.Content(
         role="assistant",
-        parts=[types.Part.from_text("Custom response without executing agent")]
+        parts=[types.Part.from_text(text="Custom response without executing agent")]
     )
     
     # For model callbacks, return LlmResponse instead
@@ -1559,7 +1559,7 @@ def add_response_callback(callback_context: CallbackContext) -> Optional[types.C
     
     return types.Content(
         role="assistant",
-        parts=[types.Part.from_text("Additional information")]
+        parts=[types.Part.from_text(text="Additional information")]
     )
 ```
 

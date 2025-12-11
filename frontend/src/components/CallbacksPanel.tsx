@@ -15,67 +15,164 @@ function isValidName(name: string): boolean {
   return /^[a-zA-Z0-9_]+$/.test(name);
 }
 
-const DEFAULT_CALLBACK_CODE = `def my_callback(callback_context: CallbackContext) -> Optional[LlmResponse]:
+// Template functions for different callback types
+function getCallbackTemplate(type: string): string {
+  switch (type) {
+    case 'before_agent':
+    case 'after_agent':
+      return `from google.adk.agents.callback_context import CallbackContext
+from typing import Optional
+from google.genai import types
+
+def my_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """Description of what this callback does.
     
     Args:
-        callback_context: The callback context containing agent, model, tool, and state information.
+        callback_context: The callback context containing agent and state information.
             MUST be named 'callback_context' (enforced by ADK).
     
     Returns:
-        Optional[LlmResponse]: If you return an LlmResponse, it will:
-            - For before_* callbacks: Short-circuit execution and return this response to the user
-            - For after_* callbacks: Add this response as an additional agent response
-            - Return None to proceed normally
+        Optional[types.Content]: Return a Content object to short-circuit (before_*) or add response (after_*), or None to proceed normally.
     """
     # ============================================================
     # State Management
     # ============================================================
     # Read state: callback_context.state.get('key', default_value)
-    # Read state: callback_context.state['key']
     # Write state: callback_context.state['key'] = value
     # State changes are automatically tracked in state_delta
     
     # ============================================================
-    # Context Information (available depending on callback type)
+    # Short-circuiting Execution (before_agent only)
     # ============================================================
-    # Agent info: callback_context.agent_name, callback_context.agent_id
-    # Invocation info: callback_context.invocation_id
-    # Model info: callback_context.model_name (for model callbacks)
-    # Tool info: callback_context.tool_name, callback_context.tool_args (for tool callbacks)
-    
-    # ============================================================
-    # Artifacts (async methods)
-    # ============================================================
-    # Load artifact: artifact = await callback_context.load_artifact(filename, version=None)
-    # Save artifact: version = await callback_context.save_artifact(filename, artifact, custom_metadata=None)
-    # Example:
-    #   from google.genai import types
-    #   artifact = types.Part.from_text(text="some content")
-    #   version = await callback_context.save_artifact("report.txt", artifact)
-    
-    # ============================================================
-    # Short-circuiting Execution (before_* callbacks only)
-    # ============================================================
-    # Return LlmResponse to skip the agent/model/tool execution:
-    #   from google.adk.models.llm_request import LlmResponse
-    #   from google.genai import types
-    #   return LlmResponse(
-    #       contents=[types.Content(role="assistant", parts=[types.Part.from_text("Custom response")])]
+    # Return Content to skip agent execution:
+    #   return types.Content(
+    #       role="assistant",
+    #       parts=[types.Part.from_text(text="Custom response")]
     #   )
     
-    # ============================================================
-    # Adding Additional Responses (after_* callbacks only)
-    # ============================================================
-    # Return LlmResponse to add an additional response after execution:
-    #   from google.adk.models.llm_request import LlmResponse
-    #   from google.genai import types
-    #   return LlmResponse(
-    #       contents=[types.Content(role="assistant", parts=[types.Part.from_text("Additional info")])]
-    #   )
-    
-    pass
+    return None
 `;
+
+    case 'before_model':
+      return `from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_request import LlmRequest, LlmResponse
+from typing import Optional
+
+def my_callback(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]:
+    """Description of what this callback does.
+    
+    Args:
+        callback_context: The callback context (MUST be named 'callback_context').
+        llm_request: The LLM request about to be made.
+    
+    Returns:
+        Optional[LlmResponse]: Return LlmResponse to short-circuit, or None to proceed.
+    """
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Read state: callback_context.state.get('key', default_value)
+    # Write state: callback_context.state['key'] = value
+    
+    # ============================================================
+    # Short-circuiting Execution
+    # ============================================================
+    # Return LlmResponse to skip model call:
+    #   from google.genai import types
+    #   return LlmResponse(
+    #       contents=[types.Content(role="assistant", parts=[types.Part.from_text(text="Custom response")])]
+    #   )
+    
+    return None
+`;
+
+    case 'after_model':
+      return `from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_request import LlmResponse
+from typing import Optional
+
+def my_callback(*, callback_context: CallbackContext, llm_response: LlmResponse) -> Optional[LlmResponse]:
+    """Description of what this callback does.
+    
+    Args:
+        callback_context: The callback context (MUST be named 'callback_context').
+        llm_response: The LLM response that was received.
+    
+    Returns:
+        Optional[LlmResponse]: Return modified LlmResponse or None to keep original.
+    """
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Read state: callback_context.state.get('key', default_value)
+    # Write state: callback_context.state['key'] = value
+    
+    # ============================================================
+    # Accessing Response
+    # ============================================================
+    # Access response content: llm_response.content
+    # Access usage metadata: llm_response.usage_metadata
+    
+    return None
+`;
+
+    case 'before_tool':
+      return `from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.tool_context import ToolContext
+from typing import Dict, Any, Optional
+
+def my_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext) -> Optional[Dict]:
+    """Description of what this callback does.
+    
+    Args:
+        tool: The tool about to be called.
+        tool_args: The arguments passed to the tool.
+        tool_context: The tool context.
+    
+    Returns:
+        Optional[Dict]: Return modified args or None to use original.
+    """
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Access state via tool_context: tool_context.state.get('key')
+    # Modify tool_args to change what gets passed to the tool
+    
+    return None
+`;
+
+    case 'after_tool':
+      return `from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.tool_context import ToolContext
+from typing import Dict, Any, Optional
+
+def my_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]:
+    """Description of what this callback does.
+    
+    Args:
+        tool: The tool that was called.
+        tool_args: The arguments that were passed.
+        tool_context: The tool context.
+        result: The result from the tool.
+    
+    Returns:
+        Optional[Dict]: Return modified result or None to keep original.
+    """
+    # ============================================================
+    # State Management
+    # ============================================================
+    # Access state via tool_context: tool_context.state.get('key')
+    # Modify result to change what gets returned
+    
+    return None
+`;
+
+    default:
+      return getCallbackTemplate('before_agent');
+  }
+}
+
+const DEFAULT_CALLBACK_CODE = getCallbackTemplate('before_agent');
 
 interface CallbacksPanelProps {
   onSelectCallback?: (id: string | null) => void;
@@ -115,7 +212,7 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
       name: 'new_callback',
       description: '',
       module_path: 'callbacks.custom',
-      code: DEFAULT_CALLBACK_CODE,
+      code: getCallbackTemplate('before_agent'),
       state_keys_used: []
     };
     addCustomCallback(callback);
@@ -504,8 +601,8 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
                   <button 
                     className="btn btn-secondary btn-sm"
                     onClick={handleGenerateCallback}
-                    disabled={isGeneratingCode || !selectedCallback.name || !selectedCallback.description}
-                    title={!selectedCallback.name || !selectedCallback.description ? 'Add a name and description first' : 'Generate code using AI'}
+                    disabled={isGeneratingCode || !selectedCallback.name}
+                    title={!selectedCallback.name ? 'Add a name first' : 'Generate code using AI'}
                   >
                     {isGeneratingCode ? (
                       <>

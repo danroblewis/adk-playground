@@ -348,7 +348,30 @@ function EventDetail({ event }: { event: RunEvent }) {
               <div><strong>Module Path:</strong> {event.data?.module_path || 'unknown'}</div>
               {event.data?.error && (
                 <div style={{ color: '#ef4444', marginTop: '8px' }}>
-                  <strong>Error:</strong> {event.data.error}
+                  <div><strong>Error:</strong> {event.data.error}</div>
+                  {event.data?.error_type && (
+                    <div style={{ marginTop: '4px', fontSize: '0.9em', opacity: 0.8 }}>
+                      <strong>Type:</strong> {event.data.error_type}
+                    </div>
+                  )}
+                  {event.data?.stack_trace && (
+                    <div style={{ marginTop: '8px' }}>
+                      <strong>Stack Trace:</strong>
+                      <pre style={{ 
+                        marginTop: '4px', 
+                        padding: '8px', 
+                        backgroundColor: '#1a1a1a', 
+                        borderRadius: '4px',
+                        fontSize: '0.85em',
+                        overflow: 'auto',
+                        maxHeight: '300px',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}>
+                        {event.data.stack_trace}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
