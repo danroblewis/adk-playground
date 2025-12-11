@@ -188,7 +188,13 @@ class SkillSet(BaseToolset):
         It searches the knowledge base and injects relevant information
         into the system instructions.
         """
+        logger.info(
+            f"[SkillSet] process_llm_request called for {self.skillset_id} "
+            f"(preload_enabled={self.preload_enabled})"
+        )
+        
         if not self.preload_enabled:
+            logger.info(f"[SkillSet] Preloading disabled for {self.skillset_id}")
             return
         
         # Get the last user message as the query
@@ -204,8 +210,10 @@ class SkillSet(BaseToolset):
                     break
         
         if not query:
-            logger.debug("No user query found for preloading")
+            logger.warning(f"[SkillSet] No user query found for preloading in {self.skillset_id}")
             return
+        
+        logger.info(f"[SkillSet] Preloading query: {query[:100]}...")
         
         try:
             store = self.manager.get_store(
@@ -220,7 +228,11 @@ class SkillSet(BaseToolset):
             )
             
             if not results:
-                logger.debug(f"No relevant knowledge found for: {query[:50]}...")
+                logger.warning(
+                    f"[SkillSet] No relevant knowledge found in {self.skillset_id} "
+                    f"for query: {query[:100]}... "
+                    f"(top_k={self.preload_top_k}, min_score={self.preload_min_score})"
+                )
                 return
             
             # Format knowledge for injection

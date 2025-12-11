@@ -21,7 +21,7 @@ from models import (
     Project, RunSession, RunEvent, AgentConfig, LlmAgentConfig,
     SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig,
     ToolConfig, FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig,
-    ModelConfig,
+    SkillSetToolConfig, ModelConfig,
 )
 
 
@@ -1393,6 +1393,11 @@ class RuntimeManager:
                 if toolset:
                     tools.append(toolset)
             
+            elif isinstance(tool_config, SkillSetToolConfig):
+                toolset = self._build_skillset_toolset(tool_config, project)
+                if toolset:
+                    tools.append(toolset)
+            
             elif isinstance(tool_config, AgentToolConfig):
                 # Will be handled after all agents are built
                 pass
@@ -1530,5 +1535,63 @@ class RuntimeManager:
             import traceback
             print(f"[MCP] Error building toolset for '{server_config.name}': {e}")
             print(traceback.format_exc())
+            return None
+    
+    def _build_skillset_toolset(self, tool_config: SkillSetToolConfig, project: Project):
+        """Build a SkillSet toolset from config."""
+        try:
+            from .skillset import SkillSet
+            from .knowledge_service import KnowledgeServiceManager
+            
+            # Find the skillset config in the project
+            skillset_config = next(
+                (s for s in project.skillsets if s.id == tool_config.skillset_id),
+                None
+            )
+            if not skillset_config:
+                logger.error(f"SkillSet not found: {tool_config.skillset_id}")
+                return None
+            
+            # Get the embedding model
+            model_name = skillset_config.embedding_model or "text-embedding-004"
+            if skillset_config.app_model_id:
+                app_model = next(
+                    (m for m in project.app.models if m.id == skillset_config.app_model_id),
+                    None
+                )
+                if app_model:
+                    model_name = app_model.model_name
+            
+            # Create the knowledge service manager
+            manager = KnowledgeServiceManager(self.projects_dir)
+            
+            logger.info(
+                f"[SkillSet] Creating toolset: {skillset_config.name} "
+                f"(id={tool_config.skillset_id}, model={model_name})"
+            )
+            
+            # Create the SkillSet toolset
+            skillset = SkillSet(
+                skillset_id=tool_config.skillset_id,
+                project_id=project.id,
+                manager=manager,
+                model_name=model_name,
+                search_enabled=skillset_config.search_enabled,
+                preload_enabled=skillset_config.preload_enabled,
+                preload_top_k=skillset_config.preload_top_k,
+                preload_min_score=skillset_config.preload_min_score,
+            )
+            
+            logger.info(
+                f"[SkillSet] Toolset created: {skillset_config.name} "
+                f"(search={skillset_config.search_enabled}, "
+                f"preload={skillset_config.preload_enabled})"
+            )
+            return skillset
+            
+        except Exception as e:
+            import traceback
+            logger.error(f"[SkillSet] Error building toolset: {e}")
+            logger.error(traceback.format_exc())
             return None
 
