@@ -1540,8 +1540,8 @@ class RuntimeManager:
     def _build_skillset_toolset(self, tool_config: SkillSetToolConfig, project: Project):
         """Build a SkillSet toolset from config."""
         try:
-            from .skillset import SkillSet
-            from .knowledge_service import KnowledgeServiceManager
+            from skillset import SkillSet
+            from knowledge_service import KnowledgeServiceManager
             
             # Find the skillset config in the project
             skillset_config = next(

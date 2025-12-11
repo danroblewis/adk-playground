@@ -188,52 +188,79 @@ class SkillSet(BaseToolset):
         It searches the knowledge base and injects relevant information
         into the system instructions.
         """
-        logger.info(
-            f"[SkillSet] process_llm_request called for {self.skillset_id} "
-            f"(preload_enabled={self.preload_enabled})"
-        )
+        import traceback
+        
+        # Set state variable to track that we were called
+        print(f"\n{'='*60}")
+        print(f"[SkillSet] process_llm_request CALLED!")
+        print(f"[SkillSet] skillset_id={self.skillset_id}")
+        print(f"[SkillSet] project_id={self.project_id}")
+        print(f"[SkillSet] preload_enabled={self.preload_enabled}")
+        print(f"[SkillSet] model_name={self.model_name}")
+        print(f"{'='*60}\n")
+        
+        # Track in state
+        try:
+            tool_context.state[f"_skillset_{self.skillset_id}_called"] = True
+        except Exception as e:
+            print(f"[SkillSet] Could not set state: {e}")
         
         if not self.preload_enabled:
-            logger.info(f"[SkillSet] Preloading disabled for {self.skillset_id}")
+            print(f"[SkillSet] Preloading DISABLED for {self.skillset_id}")
+            tool_context.state[f"_skillset_{self.skillset_id}_status"] = "disabled"
             return
         
         # Get the last user message as the query
         query = None
-        for content in reversed(llm_request.contents):
+        print(f"[SkillSet] Searching for user query in {len(llm_request.contents)} contents...")
+        for i, content in enumerate(reversed(llm_request.contents)):
+            print(f"[SkillSet]   Content {i}: role={content.role}, parts={len(content.parts)}")
             if content.role == "user":
                 # Extract text from the content
                 for part in content.parts:
                     if hasattr(part, "text") and part.text:
                         query = part.text
+                        print(f"[SkillSet]   Found query: {query[:100]}...")
                         break
                 if query:
                     break
         
         if not query:
-            logger.warning(f"[SkillSet] No user query found for preloading in {self.skillset_id}")
+            print(f"[SkillSet] NO USER QUERY FOUND!")
+            tool_context.state[f"_skillset_{self.skillset_id}_status"] = "no_query"
             return
         
-        logger.info(f"[SkillSet] Preloading query: {query[:100]}...")
+        tool_context.state[f"_skillset_{self.skillset_id}_query"] = query[:200]
+        print(f"[SkillSet] Query: {query[:200]}")
         
         try:
+            print(f"[SkillSet] Getting store...")
             store = self.manager.get_store(
                 self.project_id,
                 self.skillset_id,
                 self.model_name,
             )
+            
+            print(f"[SkillSet] Store stats: {store.stats()}")
+            
+            print(f"[SkillSet] Searching with top_k={self.preload_top_k}, min_score={self.preload_min_score}...")
             results = store.search(
                 query=query,
                 top_k=self.preload_top_k,
                 min_score=self.preload_min_score,
             )
             
+            print(f"[SkillSet] Search returned {len(results)} results")
+            tool_context.state[f"_skillset_{self.skillset_id}_results"] = len(results)
+            
             if not results:
-                logger.warning(
-                    f"[SkillSet] No relevant knowledge found in {self.skillset_id} "
-                    f"for query: {query[:100]}... "
-                    f"(top_k={self.preload_top_k}, min_score={self.preload_min_score})"
-                )
+                print(f"[SkillSet] NO RESULTS FOUND (try lowering min_score)")
+                tool_context.state[f"_skillset_{self.skillset_id}_status"] = "no_results"
                 return
+            
+            # Log each result
+            for i, r in enumerate(results):
+                print(f"[SkillSet]   Result {i}: score={r.score:.3f}, text={r.entry.text[:100]}...")
             
             # Format knowledge for injection
             knowledge_text = "\n\n".join([
@@ -249,20 +276,29 @@ class SkillSet(BaseToolset):
             )
             
             # Append to system instructions
+            print(f"[SkillSet] Current system_instructions: {llm_request.system_instructions}")
+            
             if llm_request.system_instructions:
                 llm_request.system_instructions.append(
                     types.Part.from_text(text=preload_instruction)
                 )
+                print(f"[SkillSet] APPENDED to existing instructions")
             else:
                 llm_request.system_instructions = [
                     types.Part.from_text(text=preload_instruction)
                 ]
+                print(f"[SkillSet] CREATED new instructions list")
             
-            logger.info(
-                f"Preloaded {len(results)} knowledge entries "
-                f"from {self.skillset_id}"
-            )
+            print(f"[SkillSet] Final system_instructions count: {len(llm_request.system_instructions)}")
+            tool_context.state[f"_skillset_{self.skillset_id}_status"] = f"injected_{len(results)}"
+            tool_context.state[f"_skillset_{self.skillset_id}_preview"] = knowledge_text[:500]
+            
+            print(f"[SkillSet] SUCCESS! Preloaded {len(results)} entries")
+            print(f"{'='*60}\n")
             
         except Exception as e:
-            logger.error(f"Knowledge preloading failed: {e}")
+            print(f"[SkillSet] ERROR: {e}")
+            print(traceback.format_exc())
+            tool_context.state[f"_skillset_{self.skillset_id}_error"] = str(e)
+            tool_context.state[f"_skillset_{self.skillset_id}_status"] = "error"
 
