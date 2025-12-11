@@ -26,7 +26,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types
 
-from .knowledge_service import KnowledgeServiceManager
+from knowledge_service import KnowledgeServiceManager
 
 logger = logging.getLogger(__name__)
 
