@@ -299,10 +299,10 @@ class ProjectManager:
                 module_dir = callbacks_dir
             else:
                 # Create subdirectories for nested modules
-            module_dir = callbacks_dir
+                module_dir = callbacks_dir
                 for part in module_parts:
-                module_dir = module_dir / part
-                module_dir.mkdir(parents=True, exist_ok=True)
+                    module_dir = module_dir / part
+                    module_dir.mkdir(parents=True, exist_ok=True)
                 # Create __init__.py
                 init_file = module_dir / "__init__.py"
                 if not init_file.exists():
@@ -337,16 +337,16 @@ class ProjectManager:
                 "",
             ]
             
-                for callback in callbacks_in_file:
+            for callback in callbacks_in_file:
                 code_lines.append(f"# Callback: {callback.name}")
-                    # Handle multi-line descriptions properly - each line must be a comment
-                    if callback.description:
-                        desc_lines = callback.description.split('\n')
-                        for desc_line in desc_lines:
-                            # Ensure each line is properly commented
-                            code_lines.append(f'# Description: {desc_line}')
-                    else:
-                        code_lines.append('# Description: (no description)')
+                # Handle multi-line descriptions properly - each line must be a comment
+                if callback.description:
+                    desc_lines = callback.description.split('\n')
+                    for desc_line in desc_lines:
+                        # Ensure each line is properly commented
+                        code_lines.append(f'# Description: {desc_line}')
+                else:
+                    code_lines.append('# Description: (no description)')
                     code_lines.append(f"# State keys used: {', '.join(callback.state_keys_used) if callback.state_keys_used else 'none'}")
                 code_lines.append("")
                 code_lines.append(callback.code)
