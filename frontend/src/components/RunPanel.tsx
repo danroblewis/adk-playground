@@ -1511,18 +1511,20 @@ export default function RunPanel() {
     });
   }, [runEvents, timeRange, eventTypeFilter, searchQuery, hideCompleteResponses]);
   
-  // Compute cumulative token counts from model_response events
+  // Compute cumulative token counts from model_response events up to selected event
   const tokenCounts = useMemo(() => {
     let input = 0;
     let output = 0;
-    runEvents.forEach(event => {
+    const endIndex = selectedEventIndex !== null ? selectedEventIndex + 1 : runEvents.length;
+    for (let i = 0; i < endIndex; i++) {
+      const event = runEvents[i];
       if (event.event_type === 'model_response' && event.data?.token_counts) {
         input += event.data.token_counts.input || 0;
         output += event.data.token_counts.output || 0;
       }
-    });
+    }
     return { input, output, total: input + output };
-  }, [runEvents]);
+  }, [runEvents, selectedEventIndex]);
   
   const selectedEvent = selectedEventIndex !== null ? runEvents[selectedEventIndex] : null;
   
