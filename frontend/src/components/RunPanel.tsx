@@ -1511,6 +1511,19 @@ export default function RunPanel() {
     });
   }, [runEvents, timeRange, eventTypeFilter, searchQuery, hideCompleteResponses]);
   
+  // Compute cumulative token counts from model_response events
+  const tokenCounts = useMemo(() => {
+    let input = 0;
+    let output = 0;
+    runEvents.forEach(event => {
+      if (event.event_type === 'model_response' && event.data?.tokens) {
+        input += event.data.tokens.input || 0;
+        output += event.data.tokens.output || 0;
+      }
+    });
+    return { input, output, total: input + output };
+  }, [runEvents]);
+  
   const selectedEvent = selectedEventIndex !== null ? runEvents[selectedEventIndex] : null;
   
   // Load available sessions when project changes
@@ -3182,6 +3195,32 @@ export default function RunPanel() {
           color: #e4e4e7;
           font-weight: 600;
         }
+        
+        .token-stats {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(168, 85, 247, 0.1));
+          padding: 4px 10px;
+          border-radius: 6px;
+          border: 1px solid rgba(139, 92, 246, 0.3);
+        }
+        
+        .token-value {
+          display: flex;
+          gap: 8px;
+          font-family: var(--font-mono);
+        }
+        
+        .token-in {
+          color: #34d399;
+        }
+        
+        .token-out {
+          color: #f472b6;
+        }
+        
+        .token-total {
+          color: #a78bfa;
+          font-weight: 700;
+        }
       `}</style>
       
       {/* Input Area */}
@@ -3467,6 +3506,16 @@ export default function RunPanel() {
             <span>Duration:</span>
             <span className="stat-value">
               {((runEvents[runEvents.length - 1].timestamp - runEvents[0].timestamp) * 1000).toFixed(0)}ms
+            </span>
+          </div>
+        )}
+        {tokenCounts.total > 0 && (
+          <div className="stat-item token-stats">
+            <span>Tokens:</span>
+            <span className="stat-value token-value">
+              <span className="token-in" title="Input tokens">{tokenCounts.input.toLocaleString()}↑</span>
+              <span className="token-out" title="Output tokens">{tokenCounts.output.toLocaleString()}↓</span>
+              <span className="token-total" title="Total tokens">= {tokenCounts.total.toLocaleString()}</span>
             </span>
           </div>
         )}
