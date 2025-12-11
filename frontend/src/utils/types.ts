@@ -102,10 +102,16 @@ export interface ParallelAgentConfig {
 export type AgentConfig = LlmAgentConfig | SequentialAgentConfig | LoopAgentConfig | ParallelAgentConfig;
 
 export interface PluginConfig {
-  type: string;
+  type: 'ReflectAndRetryToolPlugin' | 'ContextFilterPlugin' | 'LoggingPlugin' | 
+        'GlobalInstructionPlugin' | 'SaveFilesAsArtifactsPlugin' | 'MultimodalToolResultsPlugin';
   name: string;
+  // ReflectAndRetryToolPlugin
   max_retries?: number;
   throw_exception_if_retry_exceeded?: boolean;
+  // ContextFilterPlugin
+  num_invocations_to_keep?: number;
+  // GlobalInstructionPlugin
+  global_instruction?: string;
 }
 
 export interface CompactionConfig {

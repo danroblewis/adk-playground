@@ -182,11 +182,25 @@ AgentConfig = Union[LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, Para
 
 class PluginConfig(BaseModel):
     """Configuration for a plugin."""
-    type: str
+    type: Literal[
+        "ReflectAndRetryToolPlugin",
+        "ContextFilterPlugin",
+        "LoggingPlugin",
+        "GlobalInstructionPlugin",
+        "SaveFilesAsArtifactsPlugin",
+        "MultimodalToolResultsPlugin"
+    ]
     name: str = ""
-    # ReflectAndRetryToolPlugin
+    
+    # ReflectAndRetryToolPlugin options
     max_retries: Optional[int] = None
     throw_exception_if_retry_exceeded: Optional[bool] = None
+    
+    # ContextFilterPlugin options
+    num_invocations_to_keep: Optional[int] = None
+    
+    # GlobalInstructionPlugin options
+    global_instruction: Optional[str] = None
 
 
 # ============================================================================

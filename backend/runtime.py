@@ -599,6 +599,25 @@ class RuntimeManager:
                         max_retries=plugin_config.max_retries or 3,
                         throw_exception_if_retry_exceeded=plugin_config.throw_exception_if_retry_exceeded or False,
                     ))
+                elif plugin_config.type == "ContextFilterPlugin":
+                    from google.adk.plugins import ContextFilterPlugin
+                    plugins.append(ContextFilterPlugin(
+                        num_invocations_to_keep=plugin_config.num_invocations_to_keep,
+                    ))
+                elif plugin_config.type == "LoggingPlugin":
+                    from google.adk.plugins import LoggingPlugin
+                    plugins.append(LoggingPlugin())
+                elif plugin_config.type == "GlobalInstructionPlugin":
+                    from google.adk.plugins import GlobalInstructionPlugin
+                    plugins.append(GlobalInstructionPlugin(
+                        global_instruction=plugin_config.global_instruction or "",
+                    ))
+                elif plugin_config.type == "SaveFilesAsArtifactsPlugin":
+                    from google.adk.plugins import SaveFilesAsArtifactsPlugin
+                    plugins.append(SaveFilesAsArtifactsPlugin())
+                elif plugin_config.type == "MultimodalToolResultsPlugin":
+                    from google.adk.plugins import MultimodalToolResultsPlugin
+                    plugins.append(MultimodalToolResultsPlugin())
             
             app = App(
                 name=project.app.name,

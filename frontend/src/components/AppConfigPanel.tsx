@@ -68,13 +68,57 @@ export default function AppConfigPanel() {
     updateApp({ state_keys: app.state_keys.filter((_, i) => i !== index) });
   }
   
-  function addPlugin() {
-    const newPlugin: PluginConfig = {
-      type: 'ReflectAndRetryToolPlugin',
-      name: 'reflect_retry',
-      max_retries: 3,
-      throw_exception_if_retry_exceeded: false
-    };
+  function addPlugin(type: PluginConfig['type'] = 'ReflectAndRetryToolPlugin') {
+    let newPlugin: PluginConfig;
+    switch (type) {
+      case 'ReflectAndRetryToolPlugin':
+        newPlugin = {
+          type: 'ReflectAndRetryToolPlugin',
+          name: 'reflect_retry',
+          max_retries: 3,
+          throw_exception_if_retry_exceeded: false
+        };
+        break;
+      case 'ContextFilterPlugin':
+        newPlugin = {
+          type: 'ContextFilterPlugin',
+          name: 'context_filter',
+          num_invocations_to_keep: 5
+        };
+        break;
+      case 'LoggingPlugin':
+        newPlugin = {
+          type: 'LoggingPlugin',
+          name: 'logging'
+        };
+        break;
+      case 'GlobalInstructionPlugin':
+        newPlugin = {
+          type: 'GlobalInstructionPlugin',
+          name: 'global_instruction',
+          global_instruction: ''
+        };
+        break;
+      case 'SaveFilesAsArtifactsPlugin':
+        newPlugin = {
+          type: 'SaveFilesAsArtifactsPlugin',
+          name: 'save_files'
+        };
+        break;
+      case 'MultimodalToolResultsPlugin':
+        newPlugin = {
+          type: 'MultimodalToolResultsPlugin',
+          name: 'multimodal_tools'
+        };
+        break;
+      default:
+        newPlugin = {
+          type: 'ReflectAndRetryToolPlugin',
+          name: 'reflect_retry',
+          max_retries: 3,
+          throw_exception_if_retry_exceeded: false
+        };
+    }
     updateApp({ plugins: [...app.plugins, newPlugin] });
   }
   
@@ -887,48 +931,139 @@ export default function AppConfigPanel() {
             <RefreshCw size={20} />
             Plugins
           </h2>
-          <button className="btn btn-secondary btn-sm" onClick={addPlugin}>
-            <Plus size={14} />
-            Add Plugin
-          </button>
+          <div className="plugin-add-dropdown">
+            <select 
+              className="btn btn-secondary btn-sm"
+              value=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  addPlugin(e.target.value as PluginConfig['type']);
+                  e.target.value = '';
+                }
+              }}
+              style={{ paddingRight: 8 }}
+            >
+              <option value="">+ Add Plugin...</option>
+              <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
+              <option value="ContextFilterPlugin">Context Filter</option>
+              <option value="LoggingPlugin">Logging</option>
+              <option value="GlobalInstructionPlugin">Global Instruction</option>
+              <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
+              <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
+            </select>
+          </div>
         </div>
         
         {app.plugins.length === 0 ? (
           <p className="empty-message">
-            No plugins configured. Add plugins like ReflectAndRetryToolPlugin for error handling.
+            No plugins configured. Add plugins to extend agent functionality.
           </p>
         ) : (
           app.plugins.map((plugin, index) => (
-            <div key={index} className="list-item">
-              <div className="list-item-content">
+            <div key={index} className="list-item" style={{ flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 12 }}>
                 <select
                   value={plugin.type}
-                  onChange={(e) => updatePlugin(index, { type: e.target.value })}
+                  onChange={(e) => updatePlugin(index, { type: e.target.value as PluginConfig['type'] })}
+                  style={{ flex: 1 }}
                 >
                   <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
+                  <option value="ContextFilterPlugin">Context Filter</option>
+                  <option value="LoggingPlugin">Logging</option>
+                  <option value="GlobalInstructionPlugin">Global Instruction</option>
+                  <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
+                  <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
                 </select>
-                {plugin.type === 'ReflectAndRetryToolPlugin' && (
-                  <>
+                <button className="delete-item" onClick={() => removePlugin(index)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              
+              {/* Plugin-specific configuration */}
+              {plugin.type === 'ReflectAndRetryToolPlugin' && (
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
+                  <div className="form-group" style={{ flex: 0 }}>
+                    <label style={{ fontSize: 12 }}>Max Retries</label>
                     <input
                       type="number"
-                      value={plugin.max_retries || 3}
-                      onChange={(e) => updatePlugin(index, { max_retries: parseInt(e.target.value) })}
-                      placeholder="Max retries"
+                      min="0"
+                      max="10"
+                      value={plugin.max_retries ?? 3}
+                      onChange={(e) => updatePlugin(index, { max_retries: parseInt(e.target.value) || 0 })}
+                      style={{ width: 70 }}
                     />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={plugin.throw_exception_if_retry_exceeded || false}
-                        onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
-                      />
-                      Throw on exceed
-                    </label>
-                  </>
-                )}
-              </div>
-              <button className="delete-item" onClick={() => removePlugin(index)}>
-                <Trash2 size={16} />
-              </button>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={plugin.throw_exception_if_retry_exceeded ?? false}
+                      onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
+                    />
+                    Throw exception if retry exceeded
+                  </label>
+                </div>
+              )}
+              
+              {plugin.type === 'ContextFilterPlugin' && (
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
+                  <div className="form-group" style={{ flex: 0 }}>
+                    <label style={{ fontSize: 12 }}>Invocations to Keep</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={plugin.num_invocations_to_keep ?? 5}
+                      onChange={(e) => updatePlugin(index, { num_invocations_to_keep: parseInt(e.target.value) || 1 })}
+                      style={{ width: 70 }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Keeps only the last N conversation turns to reduce context size
+                  </span>
+                </div>
+              )}
+              
+              {plugin.type === 'LoggingPlugin' && (
+                <div style={{ paddingLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Logs all agent events (messages, tool calls, responses) to the console
+                  </span>
+                </div>
+              )}
+              
+              {plugin.type === 'GlobalInstructionPlugin' && (
+                <div style={{ width: '100%', paddingLeft: 8 }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: 12 }}>Global Instruction</label>
+                    <textarea
+                      value={plugin.global_instruction ?? ''}
+                      onChange={(e) => updatePlugin(index, { global_instruction: e.target.value })}
+                      placeholder="Instructions that apply to all agents in the app..."
+                      rows={3}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    This instruction is prepended to every agent's system prompt
+                  </span>
+                </div>
+              )}
+              
+              {plugin.type === 'SaveFilesAsArtifactsPlugin' && (
+                <div style={{ paddingLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Automatically saves files uploaded in user messages as artifacts for later retrieval
+                  </span>
+                </div>
+              )}
+              
+              {plugin.type === 'MultimodalToolResultsPlugin' && (
+                <div style={{ paddingLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    Allows tools to return multimodal content (images, files) directly to the LLM
+                  </span>
+                </div>
+              )}
             </div>
           ))
         )}
