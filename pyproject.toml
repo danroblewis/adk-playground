@@ -37,6 +37,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "adk_playground" = ["frontend/dist/**/*"]
+"adk_playground.frontend" = ["dist/**/*"]
 
 [tool.black]
 line-length = 80
