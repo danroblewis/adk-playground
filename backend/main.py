@@ -2052,11 +2052,33 @@ class SearchSkillSetRequest(BaseModel):
     min_score: float = 0.0
 
 
+def get_skillset_model(project_id: str, skillset_id: str) -> str:
+    """Get the embedding model name for a skillset."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        return "text-embedding-004"  # Default Gemini embedding model
+    
+    skillset = next((s for s in project.skillsets if s.id == skillset_id), None)
+    if not skillset:
+        return "text-embedding-004"
+    
+    # Use configured embedding model, or app model, or default
+    if skillset.embedding_model:
+        return skillset.embedding_model
+    elif skillset.app_model_id:
+        app_model = next((m for m in project.app.models if m.id == skillset.app_model_id), None)
+        if app_model:
+            return app_model.model_name
+    
+    return "text-embedding-004"
+
+
 @app.get("/api/projects/{project_id}/skillsets/{skillset_id}/entries")
 async def list_skillset_entries(project_id: str, skillset_id: str, limit: int = 100):
     """List entries in a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     entries = store.list_all(limit=limit)
     return {
         "entries": [
@@ -2079,7 +2101,8 @@ async def list_skillset_entries(project_id: str, skillset_id: str, limit: int = 
 async def skillset_stats(project_id: str, skillset_id: str):
     """Get statistics for a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     return store.stats()
 
 
@@ -2087,7 +2110,8 @@ async def skillset_stats(project_id: str, skillset_id: str):
 async def add_skillset_text(project_id: str, skillset_id: str, request: AddSkillSetTextRequest):
     """Add text entry to a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     entry = store.add(
         text=request.text,
         source_id=request.source_id,
@@ -2116,7 +2140,8 @@ async def add_skillset_url(project_id: str, skillset_id: str, request: AddSkillS
     chunks = chunk_text(content, request.chunk_size, request.chunk_overlap)
     
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     
     # Generate a source_id for this URL
     import hashlib
@@ -2163,7 +2188,8 @@ async def add_skillset_file(
     chunks = chunk_text(text_content, chunk_size, chunk_overlap)
     
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     
     # Generate a source_id for this file
     import hashlib
@@ -2188,7 +2214,8 @@ async def add_skillset_file(
 async def search_skillset(project_id: str, skillset_id: str, request: SearchSkillSetRequest):
     """Search a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     results = store.search(
         query=request.query,
         top_k=request.top_k,
@@ -2215,7 +2242,8 @@ async def search_skillset(project_id: str, skillset_id: str, request: SearchSkil
 async def delete_skillset_entry(project_id: str, skillset_id: str, entry_id: str):
     """Delete a specific entry from a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     if store.remove(entry_id):
         return {"deleted": True, "id": entry_id}
     raise HTTPException(status_code=404, detail="Entry not found")
@@ -2225,7 +2253,8 @@ async def delete_skillset_entry(project_id: str, skillset_id: str, entry_id: str
 async def delete_skillset_source(project_id: str, skillset_id: str, source_id: str):
     """Delete all entries from a specific source."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     count = store.remove_by_source(source_id)
     return {"deleted": count, "source_id": source_id}
 
@@ -2234,7 +2263,8 @@ async def delete_skillset_source(project_id: str, skillset_id: str, source_id: s
 async def clear_skillset(project_id: str, skillset_id: str):
     """Clear all entries in a skillset store."""
     manager = get_knowledge_manager()
-    store = manager.get_store(project_id, skillset_id)
+    model_name = get_skillset_model(project_id, skillset_id)
+    store = manager.get_store(project_id, skillset_id, model_name)
     count = store.clear()
     return {"cleared": count}
 

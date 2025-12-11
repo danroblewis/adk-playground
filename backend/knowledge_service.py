@@ -21,16 +21,14 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Try to import sentence_transformers for embeddings
+# Try to import google.genai for embeddings
 try:
-    from sentence_transformers import SentenceTransformer
+    from google.genai import Client
+    from google.genai.types import EmbedContentConfig
     EMBEDDINGS_AVAILABLE = True
 except ImportError:
     EMBEDDINGS_AVAILABLE = False
-    logger.warning(
-        "sentence-transformers not installed. "
-        "Run: pip install sentence-transformers"
-    )
+    logger.warning("google-genai not installed for embeddings")
 
 
 @dataclass
@@ -86,49 +84,76 @@ class SkillSetStore:
         project_id: str,
         skillset_id: str,
         storage_path: Path,
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "text-embedding-004",
+        output_dimensionality: Optional[int] = None,
     ):
         self.project_id = project_id
         self.skillset_id = skillset_id
         self.storage_path = storage_path
         self.model_name = model_name
+        self.output_dimensionality = output_dimensionality
         
         self._entries: Dict[str, KnowledgeEntry] = {}
-        self._model: Optional[SentenceTransformer] = None
-        self._embedding_dim: int = 384
+        self._client: Optional[Client] = None
+        self._embedding_dim: int = output_dimensionality or 768  # Default Gemini embedding size
         
         # Load existing entries
         self._load()
     
-    def _get_model(self) -> Optional[SentenceTransformer]:
-        """Lazy-load the embedding model."""
+    def _get_client(self) -> Optional[Client]:
+        """Lazy-load the Google GenAI client."""
         if not EMBEDDINGS_AVAILABLE:
             return None
-        if self._model is None:
-            logger.info(f"Loading embedding model: {self.model_name}")
-            self._model = SentenceTransformer(self.model_name)
-            self._embedding_dim = self._model.get_sentence_embedding_dimension()
-        return self._model
+        if self._client is None:
+            logger.info(f"Initializing GenAI client for embeddings: {self.model_name}")
+            self._client = Client()
+        return self._client
     
     def _generate_id(self, text: str) -> str:
         """Generate a unique ID for text content."""
         return hashlib.sha256(text.encode()).hexdigest()[:16]
     
     def _embed(self, text: str) -> List[float]:
-        """Generate embedding for text."""
-        model = self._get_model()
-        if model is None:
+        """Generate embedding for text using LLM API."""
+        client = self._get_client()
+        if client is None:
             return []
-        embedding = model.encode(text, convert_to_numpy=True)
-        return embedding.tolist()
+        try:
+            config = EmbedContentConfig()
+            if self.output_dimensionality:
+                config.output_dimensionality = self.output_dimensionality
+            
+            response = client.models.embed_content(
+                model=self.model_name,
+                contents=[text],
+                config=config,
+            )
+            if response.embeddings:
+                return list(response.embeddings[0].values)
+            return []
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            return []
     
     def _embed_batch(self, texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
-        model = self._get_model()
-        if model is None:
+        """Generate embeddings for multiple texts using LLM API."""
+        client = self._get_client()
+        if client is None:
             return [[] for _ in texts]
-        embeddings = model.encode(texts, convert_to_numpy=True)
-        return embeddings.tolist()
+        try:
+            config = EmbedContentConfig()
+            if self.output_dimensionality:
+                config.output_dimensionality = self.output_dimensionality
+            
+            response = client.models.embed_content(
+                model=self.model_name,
+                contents=texts,
+                config=config,
+            )
+            return [list(e.values) for e in response.embeddings]
+        except Exception as e:
+            logger.error(f"Batch embedding failed: {e}")
+            return [[] for _ in texts]
     
     def _cosine_similarity(
         self, 
@@ -352,7 +377,7 @@ class KnowledgeServiceManager:
         self,
         project_id: str,
         skillset_id: str,
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "text-embedding-004",
     ) -> SkillSetStore:
         """Get or create a store for a skillset."""
         key = self._store_key(project_id, skillset_id)

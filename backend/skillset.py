@@ -1,1 +1,256 @@
-# Agent Development Kit (ADK)\n\nAgent Development Kit (ADK)\n\n## ADK Python Repository\n\nAgent Development Kit (ADK)\n\nAn open-source, code-first Python toolkit for building, evaluating, and deploying sophisticated AI agents with flexibility and control.\n\nAgent Development Kit (ADK) is a flexible and modular framework for developing and deploying AI agents. While optimized for Gemini and the Google ecosystem, ADK is model-agnostic, deployment-agnostic, and is built for compatibility with other frameworks. ADK was designed to make agent development feel more like software development, to make it easier for developers to create, deploy, and orchestrate agentic architectures that range from simple tasks to complex workflows.\n\n\n✨ Key Features\n\nRich Tool Ecosystem\n: Utilize pre-built tools, custom functions,\n  OpenAPI specs, or integrate existing tools to give agents diverse\n  capabilities, all for tight integration with the Google ecosystem.\n\nCode-First Development\n: Define agent logic, tools, and orchestration\n  directly in Python for ultimate flexibility, testability, and versioning.\n\nModular Multi-Agent Systems\n: Design scalable applications by composing\n  multiple specialized agents into flexible hierarchies.\n\nDeploy Anywhere\n: Easily containerize and deploy agents on Cloud Run or\n  scale seamlessly with Vertex AI Agent Engine.\n\n🤖 Agent2Agent (A2A) Protocol and ADK Integration\n\nFor remote agent-to-agent communication, ADK integrates with the A2A protocol. See this  example for how they can work together.\n\n\n🚀 Installation\n\n\nStable Release (Recommended)\n\n\nYou can install the latest stable version of ADK using pip:\n\n\npip install google-adk\n\n\n\nThe release cadence is weekly.\n\n\nThis version is recommended for most users as it represents the most recent official release.\n\n\nDevelopment Version\n\n\nBug fixes and new features are merged into the main branch on GitHub first. If you need access to changes that haven't been included in an official PyPI release yet, you can install directly from the main branch:\n\n\npip install git+https://github.com/google/adk-python.git@main\n\n\n\nNote: The development version is built directly from the latest code commits. While it includes the newest fixes and features, it may also contain experimental changes or bugs not present in the stable release. Use it primarily for testing upcoming changes or accessing critical fixes before they are officially released.\n\n\n📚 Documentation\n\n\nExplore the full documentation for detailed guides on building, evaluating, and\ndeploying agents:\n\n\n\n\nDocumentation\n\n\n\n\n🏁 Feature Highlight\n\n\nDefine a single agent:\n\n\nfrom google.adk.agents import Agent\nfrom google.adk.tools import google_search\n\nroot_agent = Agent(\n    name=\"search_assistant\",\n    model=\"gemini-2.5-flash\", # Or your preferred Gemini model\n    instruction=\"You are a helpful assistant. Answer user questions using Google Search when needed.\",\n    description=\"An assistant that can search the web.\",\n    tools=[google_search]\n)\n\n\n\nDefine a multi-agent system:\n\n\nDefine a multi-agent system with coordinator agent, greeter agent, and task execution agent. Then ADK engine and the model will guide the agents works together to accomplish the task.\n\n\nfrom google.adk.agents import LlmAgent, BaseAgent\n\n# Define individual agents\ngreeter = LlmAgent(name=\"greeter\", model=\"gemini-2.5-flash\", ...)\ntask_executor = LlmAgent(name=\"task_executor\", model=\"gemini-2.5-flash\", ...)\n\n# Create parent agent and assign children via sub_agents\ncoordinator = LlmAgent(\n    name=\"Coordinator\",\n    model=\"gemini-2.5-flash\",\n    description=\"I coordinate greetings and tasks.\",\n    sub_agents=[ # Assign sub_agents here\n        greeter,\n        task_executor\n    ]\n)\n\n\n\nDevelopment UI\n\n\nA built-in development UI to help you test, evaluate, debug, and showcase your agent(s).\n\n\n\n\nEvaluate Agents\n\n\nadk eval \\\n    samples_for_testing/hello_world \\\n    samples_for_testing/hello_world/hello_world_eval_set_001.evalset.json\n\n\n\n🤝 Contributing\n\n\nWe welcome contributions from the community! Whether it's bug reports, feature requests, documentation improvements, or code contributions, please see our\n- \nGeneral contribution guideline and flow\n.\n- Then if you want to contribute code, please read \nCode Contributing Guidelines\n to get started.\n\n\n📄 License\n\n\nThis project is licensed under the Apache 2.0 License - see the LICENSE file for details.\n\n\n\n\nHappy Agent Building!\n\n**Source:** [adk-python repository](https://github.com/google/adk-python)\n\n## Documentation\n- [Custom agents](https://github.com/google/adk-docs/blob/main/docs/agents/custom-agents.md)\n- [Agents](https://github.com/google/adk-docs/blob/main/docs/agents/index.md)\n- [LLM Agent](https://github.com/google/adk-docs/blob/main/docs/agents/llm-agents.md)\n- [Using Different Models with ADK](https://github.com/google/adk-docs/blob/main/docs/agents/models.md)\n- [Multi-Agent Systems in ADK](https://github.com/google/adk-docs/blob/main/docs/agents/multi-agents.md)\n- [Workflow Agents](https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/index.md)\n- [Loop agents](https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/loop-agents.md)\n- [Parallel agents](https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/parallel-agents.md)\n- [Sequential agents](https://github.com/google/adk-docs/blob/main/docs/agents/workflow-agents/sequential-agents.md)\n- [API Reference](https://github.com/google/adk-docs/blob/main/docs/api-reference/index.md)\n- [Artifacts](https://github.com/google/adk-docs/blob/main/docs/artifacts/index.md)\n- [Design Patterns and Best Practices for Callbacks](https://github.com/google/adk-docs/blob/main/docs/callbacks/design-patterns-and-best-practices.md)\n- [Callbacks: Observe, Customize, and Control Agent Behavior](https://github.com/google/adk-docs/blob/main/docs/callbacks/index.md)\n- [Types of Callbacks](https://github.com/google/adk-docs/blob/main/docs/callbacks/types-of-callbacks.md)\n- [Community Resources](https://github.com/google/adk-docs/blob/main/docs/community.md)\n- [Context](https://github.com/google/adk-docs/blob/main/docs/context/index.md)\n- [1. [`google/adk-python`](https://github.com/google/adk-python)](https://github.com/google/adk-docs/blob/main/docs/contributing-guide.md)\n- [Deploy to Vertex AI Agent Engine](https://github.com/google/adk-docs/blob/main/docs/deploy/agent-engine.md)\n- [Deploy to Cloud Run](https://github.com/google/adk-docs/blob/main/docs/deploy/cloud-run.md)\n- [Deploy to GKE](https://github.com/google/adk-docs/blob/main/docs/deploy/gke.md)\n- [Deploying Your Agent](https://github.com/google/adk-docs/blob/main/docs/deploy/index.md)\n- [Why Evaluate Agents](https://github.com/google/adk-docs/blob/main/docs/evaluate/index.md)\n- [Events](https://github.com/google/adk-docs/blob/main/docs/events/index.md)\n- [Agent Development Kit (ADK)](https://github.com/google/adk-docs/blob/main/docs/get-started/about.md)\n- [Get Started](https://github.com/google/adk-docs/blob/main/docs/get-started/index.md)\n- [Installing ADK](https://github.com/google/adk-docs/blob/main/docs/get-started/installation.md)\n- [Quickstart](https://github.com/google/adk-docs/blob/main/docs/get-started/quickstart.md)\n- [Streaming Quickstarts](https://github.com/google/adk-docs/blob/main/docs/get-started/streaming/index.md)\n- [Quickstart (Streaming / Java) {#adk-streaming-quickstart-java}](https://github.com/google/adk-docs/blob/main/docs/get-started/streaming/quickstart-streaming-java.md)\n- [Quickstart (Streaming / Python) {#adk-streaming-quickstart}](https://github.com/google/adk-docs/blob/main/docs/get-started/streaming/quickstart-streaming.md)\n- [Testing your Agents](https://github.com/google/adk-docs/blob/main/docs/get-started/testing.md)\n- [What is Agent Development Kit?](https://github.com/google/adk-docs/blob/main/docs/index.md)\n- [Model Context Protocol (MCP)](https://github.com/google/adk-docs/blob/main/docs/mcp/index.md)\n- [Agent Observability with Arize AX](https://github.com/google/adk-docs/blob/main/docs/observability/arize-ax.md)\n- [Agent Observability with Phoenix](https://github.com/google/adk-docs/blob/main/docs/observability/phoenix.md)\n- [Runtime](https://github.com/google/adk-docs/blob/main/docs/runtime/index.md)\n- [Runtime Configuration](https://github.com/google/adk-docs/blob/main/docs/runtime/runconfig.md)\n- [Safety & Security for AI Agents](https://github.com/google/adk-docs/blob/main/docs/safety/index.md)\n- [Introduction to Conversational Context: Session, State, and Memory](https://github.com/google/adk-docs/blob/main/docs/sessions/index.md)\n- [Memory: Long-Term Knowledge with `MemoryService`](https://github.com/google/adk-docs/blob/main/docs/sessions/memory.md)\n- [Session: Tracking Individual Conversations](https://github.com/google/adk-docs/blob/main/docs/sessions/session.md)\n- [State: The Session's Scratchpad](https://github.com/google/adk-docs/blob/main/docs/sessions/state.md)\n- [Configurating streaming behaviour](https://github.com/google/adk-docs/blob/main/docs/streaming/configuration.md)\n- [Custom Audio Streaming app (WebSocket) {#custom-streaming-websocket}](https://github.com/google/adk-docs/blob/main/docs/streaming/custom-streaming-ws.md)\n- [Custom Audio Streaming app (SSE) {#custom-streaming}](https://github.com/google/adk-docs/blob/main/docs/streaming/custom-streaming.md)\n- [ADK Bidi-streaming development guide: Part 1 - Introduction](https://github.com/google/adk-docs/blob/main/docs/streaming/dev-guide/part1.md)\n- [Bidi-streaming(live) in ADK](https://github.com/google/adk-docs/blob/main/docs/streaming/index.md)\n- [Streaming Tools](https://github.com/google/adk-docs/blob/main/docs/streaming/streaming-tools.md)\n- [Authenticating with Tools](https://github.com/google/adk-docs/blob/main/docs/tools/authentication.md)\n- [Built-in tools](https://github.com/google/adk-docs/blob/main/docs/tools/built-in-tools.md)\n- [Function tools](https://github.com/google/adk-docs/blob/main/docs/tools/function-tools.md)\n- [Google Cloud Tools](https://github.com/google/adk-docs/blob/main/docs/tools/google-cloud-tools.md)\n- [Tools](https://github.com/google/adk-docs/blob/main/docs/tools/index.md)\n- [Model Context Protocol Tools](https://github.com/google/adk-docs/blob/main/docs/tools/mcp-tools.md)\n- [OpenAPI Integration](https://github.com/google/adk-docs/blob/main/docs/tools/openapi-tools.md)\n- [Third Party Tools](https://github.com/google/adk-docs/blob/main/docs/tools/third-party-tools.md)\n- [Build Your First Intelligent Agent Team: A Progressive Weather Bot with ADK](https://github.com/google/adk-docs/blob/main/docs/tutorials/agent-team.md)\n- [ADK Tutorials!](https://github.com/google/adk-docs/blob/main/docs/tutorials/index.md)\n- [Python API Reference](https://github.com/google/adk-docs/blob/main/docs/api-reference/python/)
+# Copyright 2025 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""SkillSet - A vector database toolset for ADK agents."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Optional
+
+from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.base_toolset import BaseToolset
+from google.adk.tools.tool_context import ToolContext
+from google.adk.models.llm_request import LlmRequest
+from google.genai import types
+
+from .knowledge_service import KnowledgeServiceManager
+
+logger = logging.getLogger(__name__)
+
+
+class SearchSkillSetTool(BaseTool):
+    """Tool for searching a SkillSet."""
+    
+    def __init__(
+        self,
+        skillset_id: str,
+        project_id: str,
+        manager: KnowledgeServiceManager,
+        model_name: str,
+        top_k: int = 10,
+        min_score: float = 0.4,
+    ):
+        super().__init__(
+            name=f"search_{skillset_id}",
+            description=(
+                f"Search the {skillset_id} knowledge base. "
+                "Use this to find relevant information based on a query."
+            ),
+        )
+        self.skillset_id = skillset_id
+        self.project_id = project_id
+        self.manager = manager
+        self.model_name = model_name
+        self.top_k = top_k
+        self.min_score = min_score
+    
+    def _get_declaration(self) -> Optional[types.FunctionDeclaration]:
+        """Get the function declaration for this tool."""
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "query": types.Schema(
+                        type=types.Type.STRING,
+                        description="The search query string",
+                    ),
+                },
+                required=["query"],
+            ),
+        )
+    
+    async def run_async(
+        self, *, args: dict[str, Any], tool_context: ToolContext
+    ) -> str:
+        """Execute the search."""
+        query = args.get("query", "")
+        if not query:
+            return "Error: No query provided"
+        
+        try:
+            store = self.manager.get_store(
+                self.project_id,
+                self.skillset_id,
+                self.model_name,
+            )
+            results = store.search(
+                query=query,
+                top_k=self.top_k,
+                min_score=self.min_score,
+            )
+            
+            if not results:
+                return f"No relevant information found for query: {query}"
+            
+            # Format results
+            formatted = [
+                f"[Score: {r.score:.2f}] {r.entry.text}"
+                for r in results
+            ]
+            return "\n\n".join(formatted)
+            
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return f"Error searching knowledge base: {e}"
+
+
+class SkillSet(BaseToolset):
+    """A vector database toolset for ADK agents.
+    
+    Provides both explicit search tools and automatic knowledge preloading
+    into agent instructions.
+    """
+    
+    def __init__(
+        self,
+        *,
+        skillset_id: str,
+        project_id: str,
+        manager: KnowledgeServiceManager,
+        model_name: str = "text-embedding-004",
+        search_enabled: bool = True,
+        preload_enabled: bool = True,
+        search_top_k: int = 10,
+        search_min_score: float = 0.4,
+        preload_top_k: int = 3,
+        preload_min_score: float = 0.5,
+        **kwargs,
+    ):
+        """Initialize the SkillSet toolset.
+        
+        Args:
+            skillset_id: The ID of the SkillSet
+            project_id: The project ID
+            manager: The KnowledgeServiceManager
+            model_name: The embedding model name
+            search_enabled: Whether to include the search tool
+            preload_enabled: Whether to preload knowledge into instructions
+            search_top_k: Number of results for explicit search
+            search_min_score: Minimum score for explicit search
+            preload_top_k: Number of results for preloading
+            preload_min_score: Minimum score for preloading
+            **kwargs: Additional arguments for BaseToolset
+        """
+        super().__init__(**kwargs)
+        self.skillset_id = skillset_id
+        self.project_id = project_id
+        self.manager = manager
+        self.model_name = model_name
+        self.search_enabled = search_enabled
+        self.preload_enabled = preload_enabled
+        self.search_top_k = search_top_k
+        self.search_min_score = search_min_score
+        self.preload_top_k = preload_top_k
+        self.preload_min_score = preload_min_score
+        
+        # Create search tool if enabled
+        self._search_tool: Optional[SearchSkillSetTool] = None
+        if search_enabled:
+            self._search_tool = SearchSkillSetTool(
+                skillset_id=skillset_id,
+                project_id=project_id,
+                manager=manager,
+                model_name=model_name,
+                top_k=search_top_k,
+                min_score=search_min_score,
+            )
+    
+    async def get_tools(
+        self,
+        readonly_context: Optional[ReadonlyContext] = None,
+    ) -> list[BaseTool]:
+        """Return the search tool if enabled."""
+        if self._search_tool:
+            return [self._search_tool]
+        return []
+    
+    async def process_llm_request(
+        self, *, tool_context: ToolContext, llm_request: LlmRequest
+    ) -> None:
+        """Preload relevant knowledge into agent instructions.
+        
+        This method is called before the LLM request is sent.
+        It searches the knowledge base and injects relevant information
+        into the system instructions.
+        """
+        if not self.preload_enabled:
+            return
+        
+        # Get the last user message as the query
+        query = None
+        for content in reversed(llm_request.contents):
+            if content.role == "user":
+                # Extract text from the content
+                for part in content.parts:
+                    if hasattr(part, "text") and part.text:
+                        query = part.text
+                        break
+                if query:
+                    break
+        
+        if not query:
+            logger.debug("No user query found for preloading")
+            return
+        
+        try:
+            store = self.manager.get_store(
+                self.project_id,
+                self.skillset_id,
+                self.model_name,
+            )
+            results = store.search(
+                query=query,
+                top_k=self.preload_top_k,
+                min_score=self.preload_min_score,
+            )
+            
+            if not results:
+                logger.debug(f"No relevant knowledge found for: {query[:50]}...")
+                return
+            
+            # Format knowledge for injection
+            knowledge_text = "\n\n".join([
+                f"--- Relevant Knowledge (Score: {r.score:.2f}) ---\n{r.entry.text}"
+                for r in results
+            ])
+            
+            preload_instruction = (
+                f"\n\n# Knowledge Base Context\n\n"
+                f"The following information from the {self.skillset_id} "
+                f"knowledge base may be relevant to the user's query:\n\n"
+                f"{knowledge_text}\n"
+            )
+            
+            # Append to system instructions
+            if llm_request.system_instructions:
+                llm_request.system_instructions.append(
+                    types.Part.from_text(text=preload_instruction)
+                )
+            else:
+                llm_request.system_instructions = [
+                    types.Part.from_text(text=preload_instruction)
+                ]
+            
+            logger.info(
+                f"Preloaded {len(results)} knowledge entries "
+                f"from {self.skillset_id}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Knowledge preloading failed: {e}")
+

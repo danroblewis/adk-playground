@@ -618,6 +618,40 @@ export function SkillSetsPanel() {
                 placeholder="Description (optional)"
                 rows={1}
               />
+              
+              {/* Model Selection */}
+              <div className="skillset-model">
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginRight: '8px' }}>
+                  Embedding Model:
+                </label>
+                <select
+                  style={{
+                    flex: 1,
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    color: 'var(--text-primary)',
+                  }}
+                  value={selected.embedding_model || 'text-embedding-004'}
+                  onChange={e => updateSkillSet(selected.id, { embedding_model: e.target.value })}
+                >
+                  <optgroup label="Google Gemini">
+                    <option value="text-embedding-004">text-embedding-004 (768d)</option>
+                    <option value="text-embedding-005">text-embedding-005</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="text-embedding-3-small">text-embedding-3-small (1536d)</option>
+                    <option value="text-embedding-3-large">text-embedding-3-large (3072d)</option>
+                  </optgroup>
+                  <optgroup label="Cohere">
+                    <option value="embed-english-v3.0">embed-english-v3.0 (1024d)</option>
+                    <option value="embed-multilingual-v3.0">embed-multilingual-v3.0 (1024d)</option>
+                  </optgroup>
+                </select>
+              </div>
+              
               <div className="skillset-stats">
                 <span className="skillset-stat">
                   <strong>{stats?.entry_count || 0}</strong> entries
