@@ -2023,6 +2023,170 @@ async def health_check():
 
 
 # ============================================================================
+# Knowledge Base API
+# ============================================================================
+
+from knowledge_service import get_knowledge_service, KnowledgeEntry, SearchResult
+
+
+class AddKnowledgeRequest(BaseModel):
+    text: str
+    metadata: Optional[Dict[str, Any]] = None
+    source: str = "manual"
+
+
+class AddKnowledgeBatchRequest(BaseModel):
+    texts: List[str]
+    source: str = "manual"
+
+
+class SearchKnowledgeRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    min_score: float = 0.0
+
+
+@app.get("/api/knowledge")
+async def list_knowledge():
+    """List all knowledge entries."""
+    service = get_knowledge_service()
+    entries = service.list_all()
+    return {
+        "entries": [
+            {
+                "id": e.id,
+                "text": e.text[:200] + ("..." if len(e.text) > 200 else ""),
+                "full_text": e.text,
+                "source": e.source,
+                "created_at": e.created_at,
+                "metadata": e.metadata,
+                "has_embedding": len(e.embedding) > 0,
+            }
+            for e in sorted(entries, key=lambda x: x.created_at, reverse=True)
+        ],
+        "total": len(entries),
+    }
+
+
+@app.get("/api/knowledge/stats")
+async def knowledge_stats():
+    """Get knowledge base statistics."""
+    service = get_knowledge_service()
+    return service.stats()
+
+
+@app.post("/api/knowledge")
+async def add_knowledge(request: AddKnowledgeRequest):
+    """Add a text entry to the knowledge base."""
+    service = get_knowledge_service()
+    entry = service.add(
+        text=request.text,
+        metadata=request.metadata,
+        source=request.source,
+    )
+    return {
+        "id": entry.id,
+        "text": entry.text[:200] + ("..." if len(entry.text) > 200 else ""),
+        "source": entry.source,
+        "created_at": entry.created_at,
+        "has_embedding": len(entry.embedding) > 0,
+    }
+
+
+@app.post("/api/knowledge/batch")
+async def add_knowledge_batch(request: AddKnowledgeBatchRequest):
+    """Add multiple text entries to the knowledge base."""
+    service = get_knowledge_service()
+    entries = service.add_batch(
+        texts=request.texts,
+        source=request.source,
+    )
+    return {
+        "added": len(entries),
+        "entries": [
+            {
+                "id": e.id,
+                "text": e.text[:100] + ("..." if len(e.text) > 100 else ""),
+            }
+            for e in entries
+        ],
+    }
+
+
+@app.post("/api/knowledge/search")
+async def search_knowledge(request: SearchKnowledgeRequest):
+    """Search the knowledge base."""
+    service = get_knowledge_service()
+    results = service.search(
+        query=request.query,
+        top_k=request.top_k,
+        min_score=request.min_score,
+    )
+    return {
+        "query": request.query,
+        "results": [
+            {
+                "id": r.entry.id,
+                "text": r.entry.text,
+                "score": round(r.score, 4),
+                "source": r.entry.source,
+                "created_at": r.entry.created_at,
+            }
+            for r in results
+        ],
+        "count": len(results),
+    }
+
+
+@app.get("/api/knowledge/{entry_id}")
+async def get_knowledge_entry(entry_id: str):
+    """Get a specific knowledge entry."""
+    service = get_knowledge_service()
+    entry = service.get(entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {
+        "id": entry.id,
+        "text": entry.text,
+        "source": entry.source,
+        "created_at": entry.created_at,
+        "metadata": entry.metadata,
+        "has_embedding": len(entry.embedding) > 0,
+    }
+
+
+@app.delete("/api/knowledge/{entry_id}")
+async def delete_knowledge_entry(entry_id: str):
+    """Delete a knowledge entry."""
+    service = get_knowledge_service()
+    if service.remove(entry_id):
+        return {"deleted": True, "id": entry_id}
+    raise HTTPException(status_code=404, detail="Entry not found")
+
+
+@app.delete("/api/knowledge")
+async def clear_knowledge():
+    """Clear all knowledge entries."""
+    service = get_knowledge_service()
+    count = service.clear()
+    return {"cleared": count}
+
+
+@app.post("/api/knowledge/upload")
+async def upload_knowledge_file(
+    file: Any = None,  # Will use Form for file upload
+):
+    """Upload a file to the knowledge base.
+    
+    Supports: .txt, .md, .json, .csv
+    Text is chunked and indexed.
+    """
+    from fastapi import UploadFile, File
+    # This is a placeholder - we'll implement proper file upload
+    return {"error": "File upload not yet implemented. Use POST /api/knowledge to add text."}
+
+
+# ============================================================================
 # Static Files (for production)
 # ============================================================================
 

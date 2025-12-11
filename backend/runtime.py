@@ -1411,8 +1411,16 @@ class RuntimeManager:
             elif name == "load_memory":
                 from google.adk.tools import load_memory
                 return load_memory
+            elif name == "skillset":
+                # Return the shared SkillSet instance
+                from skillset import SkillSet
+                return SkillSet(
+                    preload_enabled=True,
+                    search_enabled=True,
+                )
             # Add more as needed
-        except ImportError:
+        except ImportError as e:
+            logger.warning(f"Failed to import builtin tool {name}: {e}")
             pass
         return None
     

@@ -59,8 +59,8 @@ interface Store {
   clearWatchHistories: () => void;
   
   // UI state
-  activeTab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'eval' | 'yaml' | 'code';
-  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'eval' | 'yaml' | 'code') => void;
+  activeTab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'knowledge' | 'eval' | 'yaml' | 'code';
+  setActiveTab: (tab: 'app' | 'agents' | 'tools' | 'callbacks' | 'run' | 'knowledge' | 'eval' | 'yaml' | 'code') => void;
   
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;

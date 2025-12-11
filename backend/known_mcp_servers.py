@@ -221,5 +221,6 @@ BUILTIN_TOOLS = [
     {"name": "preload_memory", "description": "Preload memory into context"},
     {"name": "transfer_to_agent", "description": "Transfer control to another agent"},
     {"name": "url_context", "description": "Fetch and include URL content"},
+    {"name": "skillset", "description": "SkillSet: Search knowledge base and preload relevant context"},
 ]
 
