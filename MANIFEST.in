@@ -11,4 +11,6 @@ include file_session_service.py
 include file_memory_service.py
 # Include built frontend for production mode
 recursive-include frontend/dist *
+# Copy frontend/dist to adk_playground/frontend/dist for package structure
+recursive-include adk_playground/frontend/dist *
 
