@@ -14,7 +14,7 @@ import YamlPanel from './YamlPanel';
 import CodePanel from './CodePanel';
 
 const tabs = [
-  { id: 'app' as const, label: 'App Config', icon: Settings },
+  { id: 'app' as const, label: 'App', icon: Settings },
   { id: 'agents' as const, label: 'Agents', icon: Bot },
   { id: 'tools' as const, label: 'Tools', icon: Wrench },
   { id: 'callbacks' as const, label: 'Callbacks', icon: Code },

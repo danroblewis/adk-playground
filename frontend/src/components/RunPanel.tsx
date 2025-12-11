@@ -474,6 +474,8 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
         }
         .markdown-content {
           line-height: 1.6;
+          font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 14px;
         }
         .markdown-content h1,
         .markdown-content h2,
@@ -517,6 +519,48 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           padding-left: 1em;
           margin: 1em 0;
           color: var(--text-secondary);
+        }
+        .markdown-content strong {
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .markdown-content em {
+          font-style: italic;
+          color: var(--text-secondary);
+        }
+        .markdown-content a {
+          color: var(--accent-primary);
+          text-decoration: underline;
+        }
+        .markdown-content a:hover {
+          opacity: 0.8;
+        }
+        .markdown-content li {
+          margin: 0.25em 0;
+        }
+        .markdown-content hr {
+          border: none;
+          border-top: 1px solid var(--border-color);
+          margin: 1em 0;
+        }
+        .markdown-content table {
+          border-collapse: collapse;
+          width: 100%;
+          margin: 1em 0;
+        }
+        .markdown-content th,
+        .markdown-content td {
+          border: 1px solid var(--border-color);
+          padding: 8px 12px;
+          text-align: left;
+        }
+        .markdown-content th {
+          background: var(--bg-tertiary);
+          font-weight: 600;
+        }
+        .markdown-content img {
+          max-width: 100%;
+          height: auto;
         }
       `}</style>
     </div>
@@ -1322,7 +1366,7 @@ export default function RunPanel() {
   const [selectedEventIndex, setSelectedEventIndex] = useState<number | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change']));
+  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end']));
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
@@ -3230,6 +3274,24 @@ export default function RunPanel() {
             </button>
           ))}
           <button
+            className={`filter-chip ${eventTypeFilter.has('callback_start') && eventTypeFilter.has('callback_end') ? 'active' : ''}`}
+            onClick={() => {
+              const next = new Set(eventTypeFilter);
+              const hasCallbacks = next.has('callback_start') && next.has('callback_end');
+              if (hasCallbacks) {
+                next.delete('callback_start');
+                next.delete('callback_end');
+              } else {
+                next.add('callback_start');
+                next.add('callback_end');
+              }
+              setEventTypeFilter(next);
+            }}
+            title="Show/hide callback events"
+          >
+            callback
+          </button>
+          <button
             className={`filter-chip ${hideCompleteResponses ? 'active' : ''}`}
             onClick={() => setHideCompleteResponses(!hideCompleteResponses)}
             title="Hide LLM_RESP (complete) events"
@@ -3391,6 +3453,10 @@ export default function RunPanel() {
         <div className="stat-item">
           <span>Model Calls:</span>
           <span className="stat-value">{runEvents.filter(e => e.event_type === 'model_call').length}</span>
+        </div>
+        <div className="stat-item">
+          <span>Callbacks:</span>
+          <span className="stat-value">{runEvents.filter(e => e.event_type === 'callback_start').length}</span>
         </div>
         <div className="stat-item">
           <span>State Changes:</span>
