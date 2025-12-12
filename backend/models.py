@@ -261,10 +261,13 @@ class AppConfig(BaseModel):
     # Root agent
     root_agent_id: Optional[str] = None
     
-    # Services (default to filesystem-based with standard paths)
-    session_service_uri: str = "file://~/.adk-playground/sessions"
-    memory_service_uri: str = "file://~/.adk-playground/memory"
-    artifact_service_uri: str = "file://~/.adk-playground/artifacts"
+    # Services - use URI scheme to select implementation:
+    # Session: memory://, sqlite://{path}, postgresql://{conn}, mysql://{conn}, agentengine://{project}/{location}/{engine_id}
+    # Memory: memory://, rag://{corpus}, agentengine://{project}/{location}/{engine_id}
+    # Artifact: memory://, file://{path}, gs://{bucket}
+    session_service_uri: str = "sqlite://./sessions.db"
+    memory_service_uri: str = "memory://"
+    artifact_service_uri: str = "file://./artifacts"
     
     # Configuration
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
