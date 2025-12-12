@@ -442,3 +442,33 @@ export async function checkEmbeddingsAvailable(): Promise<{ available: boolean }
   return fetchJSON('/skillsets/embeddings-available');
 }
 
+// ============================================================================
+// Generic API object for simpler CRUD operations
+// ============================================================================
+
+export const api = {
+  async get<T = any>(url: string): Promise<T> {
+    return fetchJSON<T>(url);
+  },
+  
+  async post<T = any>(url: string, body?: any): Promise<T> {
+    return fetchJSON<T>(url, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  },
+  
+  async put<T = any>(url: string, body?: any): Promise<T> {
+    return fetchJSON<T>(url, {
+      method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  },
+  
+  async delete<T = any>(url: string): Promise<T> {
+    return fetchJSON<T>(url, {
+      method: 'DELETE',
+    });
+  },
+};
+
