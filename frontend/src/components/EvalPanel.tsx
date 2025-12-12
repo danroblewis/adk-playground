@@ -1105,7 +1105,7 @@ export default function EvalPanel() {
               </p>
               
               <div className="form-section">
-                <label>User Message</label>
+                <label>User Query</label>
                 <textarea
                   value={quickEvalMessage}
                   onChange={(e) => setQuickEvalMessage(e.target.value)}
@@ -1358,6 +1358,23 @@ function EvalCaseEditor({
             </div>
             
             <div className="form-section">
+              <h4>session_input <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(initial state)</span></h4>
+              <textarea
+                value={JSON.stringify(localCase.initial_state, null, 2)}
+                onChange={(e) => {
+                  try {
+                    saveCase({ initial_state: JSON.parse(e.target.value) });
+                  } catch {}
+                }}
+                placeholder='{"user_id": "test_user"}'
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 40 }}
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Pre-populate session state before the test runs.
+              </p>
+            </div>
+            
+            <div className="form-section">
               <h4>
                 <MessageSquare size={14} />
                 Conversation Turns
@@ -1378,7 +1395,7 @@ function EvalCaseEditor({
                   </div>
                   
                   <div className="form-section">
-                    <label>User Message</label>
+                    <label>User Query</label>
                     <textarea
                       value={inv.user_message}
                       onChange={(e) => updateInvocation(idx, { user_message: e.target.value })}
@@ -1579,22 +1596,6 @@ function EvalCaseEditor({
               </p>
             </div>
             
-            <div className="form-section">
-              <h4>session_input <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(initial state)</span></h4>
-              <textarea
-                value={JSON.stringify(localCase.initial_state, null, 2)}
-                onChange={(e) => {
-                  try {
-                    saveCase({ initial_state: JSON.parse(e.target.value) });
-                  } catch {}
-                }}
-                placeholder='{"user_id": "test_user"}'
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Pre-populate session state before the test runs.
-              </p>
-            </div>
             
             <div className="form-section">
               <h4>tags</h4>
