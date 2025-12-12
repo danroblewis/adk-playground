@@ -1486,7 +1486,25 @@ function EvalCaseEditor({
                 <Editor
                   height="100%"
                   defaultLanguage="json"
-                  value={JSON.stringify(localCase.initial_state, null, 2)}
+                  value={(() => {
+                    // Pre-populate with app state_keys if initial_state is empty
+                    const isEmpty = !localCase.initial_state || Object.keys(localCase.initial_state).length === 0;
+                    if (isEmpty && project?.app_config?.state_keys?.length > 0) {
+                      const prePopulated: Record<string, any> = {};
+                      project.app_config.state_keys.forEach(sk => {
+                        if (sk.default_value !== undefined) {
+                          prePopulated[sk.name] = sk.default_value;
+                        } else {
+                          prePopulated[sk.name] = sk.type === 'string' ? '' : 
+                                                  sk.type === 'number' ? 0 : 
+                                                  sk.type === 'boolean' ? false :
+                                                  sk.type === 'array' ? [] : {};
+                        }
+                      });
+                      return JSON.stringify(prePopulated, null, 2);
+                    }
+                    return JSON.stringify(localCase.initial_state, null, 2);
+                  })()}
                   onChange={(value) => {
                     try {
                       if (value) saveCase({ initial_state: JSON.parse(value) });
@@ -1507,29 +1525,6 @@ function EvalCaseEditor({
                   }}
                 />
               </div>
-              {project?.app_config?.state_keys && project.app_config.state_keys.length > 0 && (
-                <div style={{ marginTop: 6 }}>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => {
-                      const initialState: Record<string, any> = {};
-                      project.app_config.state_keys.forEach(sk => {
-                        if (sk.default_value !== undefined) {
-                          initialState[sk.name] = sk.default_value;
-                        } else {
-                          initialState[sk.name] = sk.type === 'string' ? '' : 
-                                                  sk.type === 'number' ? 0 : 
-                                                  sk.type === 'boolean' ? false :
-                                                  sk.type === 'array' ? [] : {};
-                        }
-                      });
-                      saveCase({ initial_state: initialState });
-                    }}
-                  >
-                    Populate from App state_keys
-                  </button>
-                </div>
-              )}
             </div>
             
             <div className="form-section">
