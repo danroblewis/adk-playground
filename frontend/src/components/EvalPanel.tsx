@@ -686,13 +686,13 @@ export default function EvalPanel() {
         }
         
         .form-section {
-          margin-bottom: 20px;
+          margin-bottom: 12px;
         }
         
         .form-section h4 {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 600;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
           color: var(--text-secondary);
           display: flex;
           align-items: center;
@@ -776,6 +776,62 @@ export default function EvalPanel() {
         
         .invocation-row textarea {
           min-height: 60px;
+        }
+        
+        .tool-call-compact {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 8px;
+          background: var(--bg-secondary);
+          border-radius: var(--radius-sm);
+          margin-bottom: 4px;
+        }
+        
+        .tool-name-input {
+          width: 120px;
+          font-family: var(--font-mono);
+          font-size: 12px;
+          padding: 4px 8px;
+        }
+        
+        .tool-args-input {
+          flex: 1;
+          font-family: var(--font-mono);
+          font-size: 11px;
+          padding: 4px 8px;
+          min-width: 80px;
+        }
+        
+        .pillbox-toggle {
+          display: flex;
+          border-radius: 12px;
+          overflow: hidden;
+          border: 1px solid var(--border-color);
+        }
+        
+        .pillbox-toggle .pill {
+          padding: 3px 8px;
+          font-size: 10px;
+          border: none;
+          background: var(--bg-tertiary);
+          color: var(--text-muted);
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        
+        .pillbox-toggle .pill:first-child {
+          border-right: 1px solid var(--border-color);
+        }
+        
+        .pillbox-toggle .pill.active {
+          background: var(--accent-primary);
+          color: var(--bg-primary);
+          font-weight: 600;
+        }
+        
+        .pillbox-toggle .pill:hover:not(.active) {
+          background: var(--bg-secondary);
         }
         
         .tool-call-row {
@@ -1296,7 +1352,7 @@ function EvalCaseEditor({
       ...invocations[invIdx],
       expected_tool_calls: [
         ...invocations[invIdx].expected_tool_calls,
-        { name: '', args: {}, args_match_mode: 'exact' as const },
+        { name: '', args: {}, args_match_mode: 'subset' as const },
       ],
     };
     saveCase({ invocations });
@@ -1446,86 +1502,53 @@ function EvalCaseEditor({
                       </div>
                     </div>
                   
-                  <div className="form-section">
-                    <label>
-                      <Wrench size={12} style={{ marginRight: 4 }} />
-                      Expected Tool Calls
-                    </label>
-                    
                     {inv.expected_tool_calls.map((tc, tcIdx) => (
-                      <div key={tcIdx} className="tool-call-entry" style={{ marginBottom: 12, padding: 8, background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}>
-                        <div className="tool-call-row" style={{ display: 'flex', gap: 8, marginBottom: tc.args_match_mode !== 'ignore' ? 8 : 0 }}>
-                          <input
-                            type="text"
-                            value={tc.name}
-                            onChange={(e) => updateToolCall(idx, tcIdx, { name: e.target.value })}
-                            placeholder="Tool name"
-                            style={{ flex: 2 }}
-                          />
-                          <select
-                            value={tc.args_match_mode}
-                            onChange={(e) => updateToolCall(idx, tcIdx, { 
-                              args_match_mode: e.target.value as 'exact' | 'subset' | 'ignore' 
-                            })}
-                            style={{ flex: 1 }}
-                          >
-                            <option value="ignore">Name only</option>
-                            <option value="exact">Exact args</option>
-                            <option value="subset">Args subset</option>
-                          </select>
-                          <button
-                            className="btn btn-danger btn-sm"
-                            onClick={() => removeToolCall(idx, tcIdx)}
-                          >
-                            <Trash2 size={12} />
-                          </button>
+                      <div key={tcIdx} className="tool-call-compact">
+                        <input
+                          type="text"
+                          value={tc.name}
+                          onChange={(e) => updateToolCall(idx, tcIdx, { name: e.target.value })}
+                          placeholder="tool_name"
+                          className="tool-name-input"
+                        />
+                        <div className="pillbox-toggle">
+                          <button 
+                            className={`pill ${tc.args_match_mode === 'subset' ? 'active' : ''}`}
+                            onClick={() => updateToolCall(idx, tcIdx, { args_match_mode: 'subset' })}
+                          >Partial</button>
+                          <button 
+                            className={`pill ${tc.args_match_mode === 'exact' ? 'active' : ''}`}
+                            onClick={() => updateToolCall(idx, tcIdx, { args_match_mode: 'exact' })}
+                          >Exact</button>
                         </div>
-                        {tc.args_match_mode !== 'ignore' && (
-                          <div style={{ marginTop: 4 }}>
-                            <label style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
-                              {tc.args_match_mode === 'exact' 
-                                ? 'Expected args (must match exactly):' 
-                                : 'Expected args (these must be present):'}
-                            </label>
-                            <textarea
-                              value={JSON.stringify(tc.args || {}, null, 2)}
-                              onChange={(e) => {
-                                try {
-                                  const args = JSON.parse(e.target.value);
-                                  updateToolCall(idx, tcIdx, { args });
-                                } catch {
-                                  // Invalid JSON, don't update yet
-                                }
-                              }}
-                              onBlur={(e) => {
-                                try {
-                                  const args = JSON.parse(e.target.value);
-                                  updateToolCall(idx, tcIdx, { args });
-                                } catch {
-                                  // Reset to valid JSON on blur if invalid
-                                  e.target.value = JSON.stringify(tc.args || {}, null, 2);
-                                }
-                              }}
-                              placeholder='{"key": "value"}'
-                              style={{ 
-                                width: '100%', 
-                                minHeight: 60, 
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: 12
-                              }}
-                            />
-                          </div>
-                        )}
+                        <input
+                          type="text"
+                          value={JSON.stringify(tc.args || {})}
+                          onChange={(e) => {
+                            try {
+                              updateToolCall(idx, tcIdx, { args: JSON.parse(e.target.value) });
+                            } catch {}
+                          }}
+                          placeholder="{}"
+                          className="tool-args-input"
+                        />
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={() => removeToolCall(idx, tcIdx)}
+                          style={{ padding: '4px 6px' }}
+                        >
+                          <Trash2 size={10} />
+                        </button>
                       </div>
                     ))}
                     
                     <button
                       className="btn btn-secondary btn-sm"
                       onClick={() => addToolCall(idx)}
+                      style={{ marginTop: 4 }}
                     >
-                      <Plus size={12} /> Add Tool Call
+                      <Plus size={12} /> Assert Tool Call
                     </button>
-                  </div>
                   </div>
                 </div>
               ))}
