@@ -1224,31 +1224,69 @@ function EvalCaseEditor({
                     </label>
                     
                     {inv.expected_tool_calls.map((tc, tcIdx) => (
-                      <div key={tcIdx} className="tool-call-row">
-                        <input
-                          type="text"
-                          value={tc.name}
-                          onChange={(e) => updateToolCall(idx, tcIdx, { name: e.target.value })}
-                          placeholder="Tool name"
-                          style={{ flex: 2 }}
-                        />
-                        <select
-                          value={tc.args_match_mode}
-                          onChange={(e) => updateToolCall(idx, tcIdx, { 
-                            args_match_mode: e.target.value as 'exact' | 'subset' | 'ignore' 
-                          })}
-                          style={{ flex: 1 }}
-                        >
-                          <option value="ignore">Name only</option>
-                          <option value="exact">Exact args</option>
-                          <option value="subset">Args subset</option>
-                        </select>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => removeToolCall(idx, tcIdx)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                      <div key={tcIdx} className="tool-call-entry" style={{ marginBottom: 12, padding: 8, background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}>
+                        <div className="tool-call-row" style={{ display: 'flex', gap: 8, marginBottom: tc.args_match_mode !== 'ignore' ? 8 : 0 }}>
+                          <input
+                            type="text"
+                            value={tc.name}
+                            onChange={(e) => updateToolCall(idx, tcIdx, { name: e.target.value })}
+                            placeholder="Tool name"
+                            style={{ flex: 2 }}
+                          />
+                          <select
+                            value={tc.args_match_mode}
+                            onChange={(e) => updateToolCall(idx, tcIdx, { 
+                              args_match_mode: e.target.value as 'exact' | 'subset' | 'ignore' 
+                            })}
+                            style={{ flex: 1 }}
+                          >
+                            <option value="ignore">Name only</option>
+                            <option value="exact">Exact args</option>
+                            <option value="subset">Args subset</option>
+                          </select>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => removeToolCall(idx, tcIdx)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        {tc.args_match_mode !== 'ignore' && (
+                          <div style={{ marginTop: 4 }}>
+                            <label style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
+                              {tc.args_match_mode === 'exact' 
+                                ? 'Expected args (must match exactly):' 
+                                : 'Expected args (these must be present):'}
+                            </label>
+                            <textarea
+                              value={JSON.stringify(tc.args || {}, null, 2)}
+                              onChange={(e) => {
+                                try {
+                                  const args = JSON.parse(e.target.value);
+                                  updateToolCall(idx, tcIdx, { args });
+                                } catch {
+                                  // Invalid JSON, don't update yet
+                                }
+                              }}
+                              onBlur={(e) => {
+                                try {
+                                  const args = JSON.parse(e.target.value);
+                                  updateToolCall(idx, tcIdx, { args });
+                                } catch {
+                                  // Reset to valid JSON on blur if invalid
+                                  e.target.value = JSON.stringify(tc.args || {}, null, 2);
+                                }
+                              }}
+                              placeholder='{"key": "value"}'
+                              style={{ 
+                                width: '100%', 
+                                minHeight: 60, 
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 12
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                     
