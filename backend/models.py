@@ -385,6 +385,9 @@ class Project(BaseModel):
     
     # Tool watches (persisted for the Run2 panel)
     watches: List[WatchExpression] = Field(default_factory=list)
+    
+    # Evaluation sets
+    eval_sets: List["EvalSet"] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -414,11 +417,181 @@ class RunSession(BaseModel):
 
 
 # ============================================================================
-# Evaluation Models
+# Evaluation Models (ADK-Compatible)
 # ============================================================================
 
+class ToolTrajectoryMatchType(str, Enum):
+    """Match type for tool trajectory evaluation."""
+    EXACT = "exact"  # Perfect match, same order, no extra tools
+    IN_ORDER = "in_order"  # Expected tools appear in order, extras allowed between
+    ANY_ORDER = "any_order"  # Expected tools all present, any order, extras allowed
+
+
+class ExpectedToolCall(BaseModel):
+    """An expected tool call with optional argument matching."""
+    name: str
+    args: Optional[Dict[str, Any]] = None  # If None, only match tool name
+    args_match_mode: Literal["exact", "subset", "ignore"] = "exact"
+    # exact: args must match exactly
+    # subset: expected args must be subset of actual args
+    # ignore: only match tool name, ignore args
+
+
+class EvalInvocation(BaseModel):
+    """A single invocation (turn) in a conversation for evaluation.
+    
+    This mirrors ADK's Invocation structure but is simplified for the playground.
+    """
+    id: str = ""
+    user_message: str  # The user's input message
+    expected_response: Optional[str] = None  # Expected final response (for fuzzy matching)
+    expected_tool_calls: List[ExpectedToolCall] = Field(default_factory=list)
+    # Note: final response and tool calls from actual run are captured at runtime
+
+
+class EvalCase(BaseModel):
+    """An evaluation case - a complete conversation to test.
+    
+    Compatible with ADK's EvalCase but simplified for the playground.
+    Each eval case represents a multi-turn conversation.
+    """
+    id: str
+    name: str
+    description: str = ""
+    
+    # The conversation to test (list of invocations/turns)
+    invocations: List[EvalInvocation] = Field(default_factory=list)
+    
+    # Initial session state before running the test
+    initial_state: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Expected final session state after all invocations
+    expected_final_state: Optional[Dict[str, Any]] = None
+    
+    # Evaluation thresholds
+    response_match_threshold: float = 0.7  # ROUGE-1 F1 threshold for response matching
+    trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Tags for organization
+    tags: List[str] = Field(default_factory=list)
+
+
+class EvalSet(BaseModel):
+    """A set of evaluation cases (test suite).
+    
+    Compatible with ADK's EvalSet structure.
+    """
+    id: str
+    name: str
+    description: str = ""
+    
+    # The evaluation cases in this set
+    eval_cases: List[EvalCase] = Field(default_factory=list)
+    
+    # Default thresholds (can be overridden per case)
+    default_response_threshold: float = 0.7
+    default_trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Timestamps
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
+class InvocationResult(BaseModel):
+    """Result of a single invocation evaluation."""
+    invocation_id: str
+    user_message: str
+    
+    # Actual values from running the agent
+    actual_response: Optional[str] = None
+    actual_tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    
+    # Expected values
+    expected_response: Optional[str] = None
+    expected_tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    
+    # Scores
+    response_score: Optional[float] = None  # ROUGE-1 F1 score (0.0 to 1.0)
+    trajectory_score: float = 0.0  # 1.0 if match, 0.0 if not (based on match type)
+    
+    # Pass/fail status
+    response_passed: Optional[bool] = None  # None if no expected response
+    trajectory_passed: Optional[bool] = None  # None if no expected tool calls
+    
+    # Error if any
+    error: Optional[str] = None
+
+
+class EvalCaseResult(BaseModel):
+    """Result of running a single evaluation case."""
+    eval_case_id: str
+    eval_case_name: str
+    session_id: str  # The ADK session used for this test
+    
+    # Overall scores (averages across invocations)
+    overall_response_score: Optional[float] = None
+    overall_trajectory_score: Optional[float] = None
+    
+    # Thresholds used
+    response_threshold: float = 0.7
+    trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Pass/fail
+    response_passed: bool = True  # True if all response scores >= threshold
+    trajectory_passed: bool = True  # True if all trajectory matches pass
+    overall_passed: bool = True
+    
+    # Per-invocation results
+    invocation_results: List[InvocationResult] = Field(default_factory=list)
+    
+    # State comparison
+    final_state: Dict[str, Any] = Field(default_factory=dict)
+    expected_final_state: Optional[Dict[str, Any]] = None
+    state_matched: Optional[bool] = None
+    
+    # Timing
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    duration_ms: float = 0.0
+    
+    # Error if the entire case failed
+    error: Optional[str] = None
+
+
+class EvalSetResult(BaseModel):
+    """Results from running an entire evaluation set."""
+    id: str
+    eval_set_id: str
+    eval_set_name: str
+    project_id: str
+    
+    # Timestamps
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    duration_ms: float = 0.0
+    
+    # Individual case results
+    case_results: List[EvalCaseResult] = Field(default_factory=list)
+    
+    # Summary statistics
+    total_cases: int = 0
+    passed_cases: int = 0
+    failed_cases: int = 0
+    error_cases: int = 0
+    
+    # Coverage metrics
+    response_pass_rate: Optional[float] = None  # % of cases where response matched
+    trajectory_pass_rate: Optional[float] = None  # % of cases where trajectory matched
+    overall_pass_rate: float = 0.0  # % of cases that fully passed
+    
+    # Average scores
+    avg_response_score: Optional[float] = None
+    avg_trajectory_score: Optional[float] = None
+
+
+# Legacy models for backwards compatibility
 class EvalTestCase(BaseModel):
-    """A single test case for evaluation."""
+    """Legacy test case model - maps to simplified EvalCase."""
     id: str
     name: str
     description: str = ""
@@ -429,7 +602,7 @@ class EvalTestCase(BaseModel):
 
 
 class EvalTestGroup(BaseModel):
-    """A group of test cases."""
+    """Legacy group model - use EvalSet instead."""
     id: str
     name: str
     description: str = ""
@@ -438,7 +611,7 @@ class EvalTestGroup(BaseModel):
 
 
 class EvalResult(BaseModel):
-    """Result of running an evaluation."""
+    """Legacy result model - use EvalCaseResult instead."""
     test_id: str
     passed: bool
     session_id: str
@@ -447,11 +620,11 @@ class EvalResult(BaseModel):
 
 
 class EvalRunResult(BaseModel):
-    """Results from running a group of evaluations."""
+    """Legacy run result - use EvalSetResult instead."""
     id: str
     project_id: str
     started_at: float
     ended_at: Optional[float] = None
     results: List[EvalResult] = Field(default_factory=list)
-    summary: Dict[str, int] = Field(default_factory=dict)  # passed, failed, total
+    summary: Dict[str, int] = Field(default_factory=dict)
 

@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,8 @@ from models import (
     Project, AppConfig, AgentConfig, LlmAgentConfig, SequentialAgentConfig,
     LoopAgentConfig, ParallelAgentConfig, CustomToolDefinition, MCPServerConfig,
     EvalTestGroup, EvalResult, RunEvent,
+    EvalSet, EvalCase, EvalInvocation, ExpectedToolCall,
+    EvalSetResult, EvalCaseResult, InvocationResult, ToolTrajectoryMatchType,
 )
 from project_manager import ProjectManager
 from runtime import RuntimeManager
@@ -2274,6 +2277,493 @@ async def check_embeddings_available():
     """Check if embeddings are available."""
     manager = get_knowledge_manager()
     return {"available": manager.embeddings_available()}
+
+
+# ============================================================================
+# Evaluation API Endpoints
+# ============================================================================
+
+from evaluation_service import create_evaluation_service, ResponseEvaluator, TrajectoryEvaluator
+
+
+# Create evaluation service
+eval_service = None
+
+def get_eval_service():
+    """Get or create the evaluation service."""
+    global eval_service
+    if eval_service is None:
+        eval_service = create_evaluation_service(runtime_manager)
+    return eval_service
+
+
+class CreateEvalSetRequest(BaseModel):
+    """Request to create an evaluation set."""
+    name: str
+    description: str = ""
+    default_response_threshold: float = 0.7
+    default_trajectory_match_type: str = "in_order"
+
+
+class CreateEvalCaseRequest(BaseModel):
+    """Request to create an evaluation case."""
+    name: str
+    description: str = ""
+    invocations: List[Dict[str, Any]] = []
+    initial_state: Dict[str, Any] = {}
+    expected_final_state: Optional[Dict[str, Any]] = None
+    response_match_threshold: float = 0.7
+    trajectory_match_type: str = "in_order"
+    tags: List[str] = []
+
+
+class RunEvalSetRequest(BaseModel):
+    """Request to run an evaluation set."""
+    agent_id: Optional[str] = None  # Optional specific agent to test
+
+
+class RunEvalCaseRequest(BaseModel):
+    """Request to run a single evaluation case."""
+    agent_id: Optional[str] = None
+
+
+class QuickEvalRequest(BaseModel):
+    """Request to run a quick evaluation (single message)."""
+    user_message: str
+    expected_response: Optional[str] = None
+    expected_tool_calls: List[Dict[str, Any]] = []
+    response_threshold: float = 0.7
+    trajectory_match_type: str = "in_order"
+    agent_id: Optional[str] = None
+
+
+@app.get("/api/projects/{project_id}/eval-sets")
+async def list_eval_sets(project_id: str):
+    """List all evaluation sets in a project."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {
+        "eval_sets": [es.model_dump(mode="json") for es in project.eval_sets]
+    }
+
+
+@app.post("/api/projects/{project_id}/eval-sets")
+async def create_eval_set(project_id: str, request: CreateEvalSetRequest):
+    """Create a new evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    import time
+    
+    # Parse trajectory match type
+    try:
+        match_type = ToolTrajectoryMatchType(request.default_trajectory_match_type)
+    except ValueError:
+        match_type = ToolTrajectoryMatchType.IN_ORDER
+    
+    eval_set = EvalSet(
+        id=str(uuid.uuid4())[:8],
+        name=request.name,
+        description=request.description,
+        default_response_threshold=request.default_response_threshold,
+        default_trajectory_match_type=match_type,
+        created_at=time.time(),
+        updated_at=time.time(),
+    )
+    
+    project.eval_sets.append(eval_set)
+    project_manager.save_project(project)
+    
+    return {"eval_set": eval_set.model_dump(mode="json")}
+
+
+@app.get("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def get_eval_set(project_id: str, eval_set_id: str):
+    """Get an evaluation set by ID."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    return {"eval_set": eval_set.model_dump(mode="json")}
+
+
+@app.put("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def update_eval_set(project_id: str, eval_set_id: str, data: dict):
+    """Update an evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    import time
+    
+    for i, es in enumerate(project.eval_sets):
+        if es.id == eval_set_id:
+            # Parse trajectory match type if provided
+            if "default_trajectory_match_type" in data:
+                try:
+                    data["default_trajectory_match_type"] = ToolTrajectoryMatchType(
+                        data["default_trajectory_match_type"]
+                    )
+                except ValueError:
+                    data["default_trajectory_match_type"] = ToolTrajectoryMatchType.IN_ORDER
+            
+            # Update fields
+            updated_data = es.model_dump()
+            updated_data.update(data)
+            updated_data["updated_at"] = time.time()
+            
+            project.eval_sets[i] = EvalSet.model_validate(updated_data)
+            project_manager.save_project(project)
+            
+            return {"eval_set": project.eval_sets[i].model_dump(mode="json")}
+    
+    raise HTTPException(status_code=404, detail="Eval set not found")
+
+
+@app.delete("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def delete_eval_set(project_id: str, eval_set_id: str):
+    """Delete an evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    original_len = len(project.eval_sets)
+    project.eval_sets = [es for es in project.eval_sets if es.id != eval_set_id]
+    
+    if len(project.eval_sets) == original_len:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    project_manager.save_project(project)
+    return {"success": True}
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases")
+async def create_eval_case(project_id: str, eval_set_id: str, request: CreateEvalCaseRequest):
+    """Create a new evaluation case in an eval set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    # Parse trajectory match type
+    try:
+        match_type = ToolTrajectoryMatchType(request.trajectory_match_type)
+    except ValueError:
+        match_type = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Parse invocations
+    invocations = []
+    for inv_data in request.invocations:
+        expected_tool_calls = []
+        for tc in inv_data.get("expected_tool_calls", []):
+            expected_tool_calls.append(ExpectedToolCall(
+                name=tc.get("name", ""),
+                args=tc.get("args"),
+                args_match_mode=tc.get("args_match_mode", "exact"),
+            ))
+        
+        invocations.append(EvalInvocation(
+            id=inv_data.get("id", str(uuid.uuid4())[:8]),
+            user_message=inv_data.get("user_message", ""),
+            expected_response=inv_data.get("expected_response"),
+            expected_tool_calls=expected_tool_calls,
+        ))
+    
+    eval_case = EvalCase(
+        id=str(uuid.uuid4())[:8],
+        name=request.name,
+        description=request.description,
+        invocations=invocations,
+        initial_state=request.initial_state,
+        expected_final_state=request.expected_final_state,
+        response_match_threshold=request.response_match_threshold,
+        trajectory_match_type=match_type,
+        tags=request.tags,
+    )
+    
+    eval_set.eval_cases.append(eval_case)
+    eval_set.updated_at = time.time()
+    project_manager.save_project(project)
+    
+    return {"eval_case": eval_case.model_dump(mode="json")}
+
+
+@app.put("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}")
+async def update_eval_case(project_id: str, eval_set_id: str, case_id: str, data: dict):
+    """Update an evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    for i, case in enumerate(eval_set.eval_cases):
+        if case.id == case_id:
+            # Parse trajectory match type if provided
+            if "trajectory_match_type" in data:
+                try:
+                    data["trajectory_match_type"] = ToolTrajectoryMatchType(
+                        data["trajectory_match_type"]
+                    )
+                except ValueError:
+                    data["trajectory_match_type"] = ToolTrajectoryMatchType.IN_ORDER
+            
+            # Parse invocations if provided
+            if "invocations" in data:
+                invocations = []
+                for inv_data in data["invocations"]:
+                    expected_tool_calls = []
+                    for tc in inv_data.get("expected_tool_calls", []):
+                        expected_tool_calls.append(ExpectedToolCall(
+                            name=tc.get("name", ""),
+                            args=tc.get("args"),
+                            args_match_mode=tc.get("args_match_mode", "exact"),
+                        ))
+                    
+                    invocations.append(EvalInvocation(
+                        id=inv_data.get("id", str(uuid.uuid4())[:8]),
+                        user_message=inv_data.get("user_message", ""),
+                        expected_response=inv_data.get("expected_response"),
+                        expected_tool_calls=expected_tool_calls,
+                    ))
+                data["invocations"] = invocations
+            
+            # Update fields
+            updated_data = case.model_dump()
+            updated_data.update(data)
+            
+            eval_set.eval_cases[i] = EvalCase.model_validate(updated_data)
+            eval_set.updated_at = time.time()
+            project_manager.save_project(project)
+            
+            return {"eval_case": eval_set.eval_cases[i].model_dump(mode="json")}
+    
+    raise HTTPException(status_code=404, detail="Eval case not found")
+
+
+@app.delete("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}")
+async def delete_eval_case(project_id: str, eval_set_id: str, case_id: str):
+    """Delete an evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    original_len = len(eval_set.eval_cases)
+    eval_set.eval_cases = [c for c in eval_set.eval_cases if c.id != case_id]
+    
+    if len(eval_set.eval_cases) == original_len:
+        raise HTTPException(status_code=404, detail="Eval case not found")
+    
+    eval_set.updated_at = time.time()
+    project_manager.save_project(project)
+    return {"success": True}
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/run")
+async def run_eval_set(project_id: str, eval_set_id: str, request: RunEvalSetRequest):
+    """Run all evaluation cases in an eval set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    try:
+        service = get_eval_service()
+        result = await service.run_eval_set(
+            project=project,
+            eval_set=eval_set,
+            agent_id=request.agent_id,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}/run")
+async def run_eval_case(
+    project_id: str,
+    eval_set_id: str,
+    case_id: str,
+    request: RunEvalCaseRequest
+):
+    """Run a single evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    eval_case = next((c for c in eval_set.eval_cases if c.id == case_id), None)
+    if not eval_case:
+        raise HTTPException(status_code=404, detail="Eval case not found")
+    
+    try:
+        service = get_eval_service()
+        result = await service.run_eval_case(
+            project=project,
+            eval_case=eval_case,
+            agent_id=request.agent_id,
+            default_response_threshold=eval_set.default_response_threshold,
+            default_trajectory_match_type=eval_set.default_trajectory_match_type,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/projects/{project_id}/quick-eval")
+async def quick_eval(project_id: str, request: QuickEvalRequest):
+    """Run a quick evaluation with a single message.
+    
+    This is useful for testing without creating a full eval set.
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        # Parse trajectory match type
+        try:
+            match_type = ToolTrajectoryMatchType(request.trajectory_match_type)
+        except ValueError:
+            match_type = ToolTrajectoryMatchType.IN_ORDER
+        
+        # Create a temporary eval case
+        expected_tool_calls = []
+        for tc in request.expected_tool_calls:
+            expected_tool_calls.append(ExpectedToolCall(
+                name=tc.get("name", ""),
+                args=tc.get("args"),
+                args_match_mode=tc.get("args_match_mode", "exact"),
+            ))
+        
+        invocation = EvalInvocation(
+            id="quick_eval",
+            user_message=request.user_message,
+            expected_response=request.expected_response,
+            expected_tool_calls=expected_tool_calls,
+        )
+        
+        eval_case = EvalCase(
+            id="quick_eval_case",
+            name="Quick Evaluation",
+            invocations=[invocation],
+            response_match_threshold=request.response_threshold,
+            trajectory_match_type=match_type,
+        )
+        
+        service = get_eval_service()
+        result = await service.run_eval_case(
+            project=project,
+            eval_case=eval_case,
+            agent_id=request.agent_id,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/eval/compare-text")
+async def compare_text(data: dict):
+    """Compare two text strings using ROUGE-1 scoring.
+    
+    Useful for testing the fuzzy matching without running an agent.
+    """
+    reference = data.get("reference", "")
+    candidate = data.get("candidate", "")
+    threshold = data.get("threshold", 0.7)
+    
+    evaluator = ResponseEvaluator(threshold=threshold)
+    score, passed = evaluator.evaluate(candidate, reference)
+    
+    return {
+        "score": score,
+        "passed": passed,
+        "threshold": threshold,
+        "reference": reference,
+        "candidate": candidate,
+    }
+
+
+@app.post("/api/eval/compare-tools")
+async def compare_tools(data: dict):
+    """Compare tool call trajectories.
+    
+    Useful for testing trajectory matching without running an agent.
+    """
+    actual = data.get("actual", [])  # [{"name": ..., "args": ...}, ...]
+    expected = data.get("expected", [])  # [{"name": ..., "args": ..., "args_match_mode": ...}, ...]
+    match_type = data.get("match_type", "in_order")
+    
+    try:
+        mt = ToolTrajectoryMatchType(match_type)
+    except ValueError:
+        mt = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Parse expected tool calls
+    expected_calls = []
+    for tc in expected:
+        expected_calls.append(ExpectedToolCall(
+            name=tc.get("name", ""),
+            args=tc.get("args"),
+            args_match_mode=tc.get("args_match_mode", "exact"),
+        ))
+    
+    evaluator = TrajectoryEvaluator(match_type=mt)
+    score, passed = evaluator.evaluate(actual, expected_calls)
+    
+    return {
+        "score": score,
+        "passed": passed,
+        "match_type": match_type,
+        "actual": actual,
+        "expected": expected,
+    }
 
 
 # ============================================================================
