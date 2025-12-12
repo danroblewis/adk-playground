@@ -728,6 +728,8 @@ export default function EvalPanel() {
         }
         
         .invocation-card {
+          display: flex;
+          gap: 12px;
           background: var(--bg-tertiary);
           border: 1px solid var(--border-color);
           border-radius: var(--radius-md);
@@ -735,17 +737,45 @@ export default function EvalPanel() {
           margin-bottom: 12px;
         }
         
-        .invocation-header {
+        .invocation-number {
           display: flex;
+          flex-direction: column;
           align-items: center;
           gap: 8px;
-          margin-bottom: 12px;
+          padding-top: 4px;
         }
         
-        .invocation-header h5 {
+        .invocation-number span {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--text-muted);
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--bg-secondary);
+          border-radius: 50%;
+        }
+        
+        .invocation-content {
           flex: 1;
-          font-size: 13px;
-          font-weight: 600;
+          min-width: 0;
+        }
+        
+        .invocation-row {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 8px;
+        }
+        
+        .invocation-row > .form-section {
+          flex: 1;
+          margin-bottom: 0;
+        }
+        
+        .invocation-row textarea {
+          min-height: 60px;
         }
         
         .tool-call-row {
@@ -1382,35 +1412,39 @@ function EvalCaseEditor({
               
               {localCase.invocations.map((inv, idx) => (
                 <div key={inv.id} className="invocation-card">
-                  <div className="invocation-header">
-                    <h5>Turn {idx + 1}</h5>
+                  <div className="invocation-number">
+                    <span>{idx + 1}</span>
                     {localCase.invocations.length > 1 && (
                       <button
                         className="btn btn-danger btn-sm"
                         onClick={() => removeInvocation(idx)}
+                        style={{ padding: 4 }}
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={10} />
                       </button>
                     )}
                   </div>
                   
-                  <div className="form-section">
-                    <label>User Query</label>
-                    <textarea
-                      value={inv.user_message}
-                      onChange={(e) => updateInvocation(idx, { user_message: e.target.value })}
-                      placeholder="The message to send to the agent..."
-                    />
-                  </div>
-                  
-                  <div className="form-section">
-                    <label>Expected Response (fuzzy match via ROUGE-1)</label>
-                    <textarea
-                      value={inv.expected_response || ''}
-                      onChange={(e) => updateInvocation(idx, { expected_response: e.target.value || undefined })}
-                      placeholder="Expected text in the response (partial match)..."
-                    />
-                  </div>
+                  <div className="invocation-content">
+                    <div className="invocation-row">
+                      <div className="form-section">
+                        <label>User Query</label>
+                        <textarea
+                          value={inv.user_message}
+                          onChange={(e) => updateInvocation(idx, { user_message: e.target.value })}
+                          placeholder="The message to send to the agent..."
+                        />
+                      </div>
+                      
+                      <div className="form-section">
+                        <label>Expected Response <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(ROUGE-1)</span></label>
+                        <textarea
+                          value={inv.expected_response || ''}
+                          onChange={(e) => updateInvocation(idx, { expected_response: e.target.value || undefined })}
+                          placeholder="Expected text (partial match)..."
+                        />
+                      </div>
+                    </div>
                   
                   <div className="form-section">
                     <label>
@@ -1491,6 +1525,7 @@ function EvalCaseEditor({
                     >
                       <Plus size={12} /> Add Tool Call
                     </button>
+                  </div>
                   </div>
                 </div>
               ))}
