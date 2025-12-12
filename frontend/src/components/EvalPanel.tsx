@@ -103,6 +103,12 @@ interface EvalConfig {
   num_runs: number;
 }
 
+// LLM Judge metrics that can be enabled per test case
+interface EnabledMetric {
+  metric: EvalMetricType;
+  threshold: number;
+}
+
 interface EvalCase {
   id: string;
   name: string;
@@ -111,6 +117,7 @@ interface EvalCase {
   initial_state: Record<string, any>;
   expected_final_state?: Record<string, any>;
   rubrics: Rubric[];
+  enabled_metrics: EnabledMetric[];
   tags: string[];
   target_agent?: string;  // Optional: test a specific sub-agent instead of root_agent
 }
@@ -282,6 +289,7 @@ export default function EvalPanel() {
           }],
           initial_state: {},
           rubrics: [],
+          enabled_metrics: [],
           tags: [],
         }
       );
@@ -1429,7 +1437,7 @@ function EvalCaseEditor({
           onClick={() => setActiveTab('rubrics')}
         >
           <Target size={14} style={{ marginRight: 6 }} />
-          Rubrics
+          LLM Judge
         </div>
         <div 
           className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
@@ -1692,14 +1700,72 @@ function EvalCaseEditor({
         
         {activeTab === 'rubrics' && (
           <>
-            {/* Rubrics */}
+            {/* LLM Judge Metrics */}
             <div className="form-section">
-              <h4>
-                <Target size={14} style={{ marginRight: 6 }} />
-                rubrics <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(LLM-judged)</span>
-              </h4>
+              <h4>LLM Judge Metrics</h4>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                Enable metrics and set pass thresholds. Scores must be ≥ threshold to pass.
+              </p>
+              
+              {[
+                { metric: 'safety_v1', label: 'Safety', desc: 'harmless response', range: '0-1', default: 0.8 },
+                { metric: 'hallucinations_v1', label: 'Hallucinations', desc: 'no false claims', range: '0-1', default: 0.8 },
+                { metric: 'response_evaluation_score', label: 'Coherence', desc: 'quality score', range: '1-5', default: 3.5 },
+                { metric: 'final_response_match_v2', label: 'Semantic Match', desc: 'vs expected', range: '0-1', default: 0.7 },
+              ].map(({ metric, label, desc, range, default: defaultVal }) => {
+                const enabled = (localCase.enabled_metrics || []).find(em => em.metric === metric);
+                const threshold = enabled?.threshold ?? defaultVal;
+                
+                return (
+                  <div key={metric} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '4px 0' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!enabled}
+                      onChange={(e) => {
+                        const metrics = [...(localCase.enabled_metrics || [])];
+                        if (e.target.checked) {
+                          metrics.push({ metric: metric as EvalMetricType, threshold: defaultVal });
+                        } else {
+                          const idx = metrics.findIndex(m => m.metric === metric);
+                          if (idx !== -1) metrics.splice(idx, 1);
+                        }
+                        saveCase({ enabled_metrics: metrics });
+                      }}
+                      style={{ margin: 0 }}
+                    />
+                    <span style={{ width: 100, fontSize: 12, fontWeight: 500 }}>{label}</span>
+                    <span style={{ flex: 1, fontSize: 11, color: 'var(--text-muted)' }}>{desc}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>≥</span>
+                    <input
+                      type="number"
+                      min={metric === 'response_evaluation_score' ? 1 : 0}
+                      max={metric === 'response_evaluation_score' ? 5 : 1}
+                      step={0.1}
+                      value={threshold}
+                      disabled={!enabled}
+                      onChange={(e) => {
+                        const metrics = [...(localCase.enabled_metrics || [])];
+                        const idx = metrics.findIndex(m => m.metric === metric);
+                        if (idx !== -1) {
+                          metrics[idx] = { ...metrics[idx], threshold: parseFloat(e.target.value) || 0 };
+                          saveCase({ enabled_metrics: metrics });
+                        }
+                      }}
+                      style={{ width: 50, textAlign: 'center', opacity: enabled ? 1 : 0.4 }}
+                    />
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 30 }}>({range})</span>
+                  </div>
+                );
+              })}
+            </div>
+            
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '16px 0' }} />
+            
+            {/* Custom Rubrics */}
+            <div className="form-section">
+              <h4>Custom Rubrics</h4>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Custom criteria evaluated by an LLM judge. Use natural language to describe what the agent should do.
+                Natural language criteria evaluated by an LLM judge. Returns pass/fail per rubric.
               </p>
               {localCase.rubrics.map((rubric, idx) => (
                 <div key={idx} className="tool-call-row" style={{ marginBottom: 8 }}>
@@ -1729,7 +1795,6 @@ function EvalCaseEditor({
                 <Plus size={12} /> Add Rubric
               </button>
             </div>
-
           </>
         )}
         

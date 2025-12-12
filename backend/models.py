@@ -480,6 +480,12 @@ class EvalInvocation(BaseModel):
     rubrics: List[Rubric] = Field(default_factory=list)
 
 
+class EnabledMetric(BaseModel):
+    """An LLM-judged metric enabled for a test case with its pass threshold."""
+    metric: str  # e.g., 'safety_v1', 'hallucinations_v1', etc.
+    threshold: float  # Score must be >= this to pass
+
+
 class EvalCase(BaseModel):
     """An evaluation case - a complete conversation to test."""
     id: str
@@ -489,6 +495,7 @@ class EvalCase(BaseModel):
     initial_state: Dict[str, Any] = Field(default_factory=dict)
     expected_final_state: Optional[Dict[str, Any]] = None
     rubrics: List[Rubric] = Field(default_factory=list)
+    enabled_metrics: List[EnabledMetric] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     target_agent: Optional[str] = None  # Optional: test a specific sub-agent instead of root_agent
 
