@@ -1332,8 +1332,8 @@ function EvalCaseEditor({
           className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
         >
-          <Settings size={14} style={{ marginRight: 6 }} />
-          Settings
+          <Target size={14} style={{ marginRight: 6 }} />
+          Assertions
         </div>
         <div 
           className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
@@ -1490,37 +1490,15 @@ function EvalCaseEditor({
         
         {activeTab === 'settings' && (
           <>
+            {/* State Assertions */}
             <div className="form-section">
-              <h4>Target Agent</h4>
-              <select
-                value={localCase.target_agent || ''}
-                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
-              >
-                <option value="">root_agent (default)</option>
-                {project?.agents?.map(agent => (
-                  <option key={agent.name} value={agent.name}>{agent.name}</option>
-                ))}
-              </select>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Choose which agent to test. Default is the root_agent. Select a specific agent for unit-testing sub-agents.
+              <h4>
+                <CheckCircle size={14} style={{ marginRight: 6 }} />
+                final_session_state <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(optional)</span>
+              </h4>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                Assert that session state contains these key-value pairs after all turns complete.
               </p>
-            </div>
-            
-            <div className="form-section">
-              <h4>Initial Session State (JSON)</h4>
-              <textarea
-                value={JSON.stringify(localCase.initial_state, null, 2)}
-                onChange={(e) => {
-                  try {
-                    saveCase({ initial_state: JSON.parse(e.target.value) });
-                  } catch {}
-                }}
-                placeholder='{"key": "value"}'
-              />
-            </div>
-            
-            <div className="form-section">
-              <h4>Expected Final State (JSON, optional)</h4>
               <textarea
                 value={localCase.expected_final_state ? JSON.stringify(localCase.expected_final_state, null, 2) : ''}
                 onChange={(e) => {
@@ -1532,17 +1510,19 @@ function EvalCaseEditor({
                     } catch {}
                   }
                 }}
-                placeholder='{"key": "expected_value"}'
+                placeholder='{"user_preference": "dark_mode", "items_in_cart": 3}'
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
               />
             </div>
             
+            {/* Rubrics */}
             <div className="form-section">
               <h4>
                 <Target size={14} style={{ marginRight: 6 }} />
-                Custom Rubrics
+                rubrics <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(LLM-judged)</span>
               </h4>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Define custom criteria that the response must satisfy. Each rubric is evaluated by an LLM judge.
+                Custom criteria evaluated by an LLM judge. Use natural language to describe what the agent should do.
               </p>
               {localCase.rubrics.map((rubric, idx) => (
                 <div key={idx} className="tool-call-row" style={{ marginBottom: 8 }}>
@@ -1554,7 +1534,7 @@ function EvalCaseEditor({
                       rubrics[idx] = { rubric: e.target.value };
                       saveCase({ rubrics });
                     }}
-                    placeholder="e.g., Does the response include a specific price?"
+                    placeholder="e.g., The response mentions the return policy"
                     style={{ flex: 1 }}
                   />
                   <button
@@ -1572,9 +1552,52 @@ function EvalCaseEditor({
                 <Plus size={12} /> Add Rubric
               </button>
             </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
+            
+            {/* Test Setup */}
+            <div className="form-section">
+              <h4 style={{ color: 'var(--text-muted)' }}>
+                <Settings size={14} style={{ marginRight: 6 }} />
+                Test Setup
+              </h4>
+            </div>
             
             <div className="form-section">
-              <h4>Tags</h4>
+              <h4>target_agent</h4>
+              <select
+                value={localCase.target_agent || ''}
+                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
+              >
+                <option value="">root_agent (default)</option>
+                {project?.agents?.map(agent => (
+                  <option key={agent.name} value={agent.name}>{agent.name}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Which agent to run. Use sub-agents for unit testing.
+              </p>
+            </div>
+            
+            <div className="form-section">
+              <h4>session_input <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(initial state)</span></h4>
+              <textarea
+                value={JSON.stringify(localCase.initial_state, null, 2)}
+                onChange={(e) => {
+                  try {
+                    saveCase({ initial_state: JSON.parse(e.target.value) });
+                  } catch {}
+                }}
+                placeholder='{"user_id": "test_user"}'
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Pre-populate session state before the test runs.
+              </p>
+            </div>
+            
+            <div className="form-section">
+              <h4>tags</h4>
               <input
                 type="text"
                 value={localCase.tags.join(', ')}
