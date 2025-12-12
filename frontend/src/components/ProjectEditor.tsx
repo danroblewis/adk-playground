@@ -113,7 +113,9 @@ export default function ProjectEditor() {
     
     setSaving(true);
     try {
-      await apiUpdateProject(project.id, project);
+      // Don't send eval_sets - they're managed separately by EvalPanel
+      const { eval_sets, ...projectWithoutEvalSets } = project;
+      await apiUpdateProject(project.id, projectWithoutEvalSets);
       lastSavedProjectRef.current = JSON.stringify(project);
       setHasUnsavedChanges(false);
     } catch (error) {
@@ -237,7 +239,9 @@ export default function ProjectEditor() {
         // Auto-save after 500ms of no changes (debounce)
         saveTimeoutRef.current = setTimeout(async () => {
           try {
-            await apiUpdateProject(project.id, project);
+            // Don't send eval_sets - they're managed separately by EvalPanel
+            const { eval_sets, ...projectWithoutEvalSets } = project;
+            await apiUpdateProject(project.id, projectWithoutEvalSets);
             lastSavedProjectRef.current = JSON.stringify(project);
             setHasUnsavedChanges(false);
           } catch (error) {

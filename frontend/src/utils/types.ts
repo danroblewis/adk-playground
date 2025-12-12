@@ -230,6 +230,7 @@ export interface Project {
   mcp_servers: MCPServerConfig[];
   skillsets: SkillSetConfig[];
   watches: WatchExpressionConfig[];
+  eval_sets?: any[];  // Managed separately by EvalPanel
 }
 
 export interface RunEvent {

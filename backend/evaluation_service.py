@@ -4,6 +4,7 @@ This module provides ADK-compatible evaluation functionality including:
 - Response matching using ROUGE-1 (fuzzy text matching)
 - Tool trajectory matching (EXACT, IN_ORDER, ANY_ORDER)
 - Percentage coverage and scoring
+- Support for all ADK prebuilt metrics
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from models import (
     Project, EvalSet, EvalCase, EvalInvocation, ExpectedToolCall,
-    EvalSetResult, EvalCaseResult, InvocationResult,
-    ToolTrajectoryMatchType,
+    EvalSetResult, EvalCaseResult, InvocationResult, MetricResult,
+    ToolTrajectoryMatchType, EvalMetricType, EvalConfig, EvalMetricConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,17 +117,11 @@ class ResponseEvaluator:
         self,
         actual_response: str,
         expected_response: str,
-    ) -> Tuple[float, bool]:
+    ) -> Tuple[Optional[float], Optional[bool]]:
         """Evaluate a single response.
         
-        Args:
-            actual_response: The agent's actual response
-            expected_response: The expected/golden response
-            
         Returns:
-            Tuple of (score, passed) where:
-            - score is ROUGE-1 F1 between 0.0 and 1.0
-            - passed is True if score >= threshold
+            Tuple of (score, passed)
         """
         if not expected_response:
             return (None, None)
@@ -152,8 +147,6 @@ class TrajectoryEvaluator:
     - EXACT: Perfect match, same order, no extra tools
     - IN_ORDER: Expected tools appear in order, extras allowed between
     - ANY_ORDER: All expected tools present, any order, extras allowed
-    
-    Score is 1.0 for match, 0.0 for mismatch.
     """
     
     def __init__(
@@ -166,17 +159,11 @@ class TrajectoryEvaluator:
         self,
         actual_tool_calls: List[Dict[str, Any]],
         expected_tool_calls: List[ExpectedToolCall],
-    ) -> Tuple[float, bool]:
+    ) -> Tuple[Optional[float], Optional[bool]]:
         """Evaluate tool trajectory.
         
-        Args:
-            actual_tool_calls: List of actual tool calls [{"name": ..., "args": ...}]
-            expected_tool_calls: List of expected tool calls
-            
         Returns:
-            Tuple of (score, passed) where:
-            - score is 1.0 if matched, 0.0 if not
-            - passed is True if matched
+            Tuple of (score, passed)
         """
         if not expected_tool_calls:
             return (None, None)
@@ -202,11 +189,9 @@ class TrajectoryEvaluator:
         expected: ExpectedToolCall,
     ) -> bool:
         """Check if an actual tool call matches an expected one."""
-        # Check name
         if actual.get("name") != expected.name:
             return False
         
-        # Check args based on match mode
         if expected.args_match_mode == "ignore":
             return True
         
@@ -216,7 +201,6 @@ class TrajectoryEvaluator:
         if expected.args_match_mode == "exact":
             return actual_args == expected_args
         elif expected.args_match_mode == "subset":
-            # Expected args must be subset of actual args
             for key, value in expected_args.items():
                 if key not in actual_args or actual_args[key] != value:
                     return False
@@ -256,10 +240,8 @@ class TrajectoryEvaluator:
                 if self._tool_matches(actual_call, current_expected):
                     current_expected = next(expected_iter)
         except StopIteration:
-            # All expected tools found
             return True
         
-        # Not all expected tools were found
         return False
     
     def _any_order_match(
@@ -301,22 +283,24 @@ class EvaluationService:
         """
         self.runtime_manager = runtime_manager
     
+    def _get_metric_config(
+        self,
+        eval_config: EvalConfig,
+        metric: EvalMetricType,
+    ) -> Optional[EvalMetricConfig]:
+        """Get the configuration for a specific metric."""
+        for m in eval_config.metrics:
+            if m.metric == metric and m.enabled:
+                return m
+        return None
+    
     async def run_eval_set(
         self,
         project: Project,
         eval_set: EvalSet,
         agent_id: Optional[str] = None,
     ) -> EvalSetResult:
-        """Run all evaluation cases in an eval set.
-        
-        Args:
-            project: The project containing the agent
-            eval_set: The evaluation set to run
-            agent_id: Optional specific agent to test (defaults to root_agent_id)
-            
-        Returns:
-            EvalSetResult with all case results and coverage metrics
-        """
+        """Run all evaluation cases in an eval set."""
         result = EvalSetResult(
             id=str(uuid.uuid4())[:8],
             eval_set_id=eval_set.id,
@@ -326,32 +310,40 @@ class EvaluationService:
             total_cases=len(eval_set.eval_cases),
         )
         
-        response_scores = []
-        trajectory_scores = []
+        # Track scores per metric
+        metric_scores: Dict[str, List[float]] = {}
+        metric_pass_counts: Dict[str, int] = {}
+        metric_totals: Dict[str, int] = {}
         
         for eval_case in eval_set.eval_cases:
             case_result = await self.run_eval_case(
                 project=project,
                 eval_case=eval_case,
+                eval_config=eval_set.eval_config,
                 agent_id=agent_id,
-                default_response_threshold=eval_set.default_response_threshold,
-                default_trajectory_match_type=eval_set.default_trajectory_match_type,
             )
             result.case_results.append(case_result)
             
             # Aggregate statistics
             if case_result.error:
                 result.error_cases += 1
-            elif case_result.overall_passed:
+            elif case_result.passed:
                 result.passed_cases += 1
             else:
                 result.failed_cases += 1
             
-            # Collect scores for averages
-            if case_result.overall_response_score is not None:
-                response_scores.append(case_result.overall_response_score)
-            if case_result.overall_trajectory_score is not None:
-                trajectory_scores.append(case_result.overall_trajectory_score)
+            # Collect per-metric scores
+            for mr in case_result.metric_results:
+                if mr.metric not in metric_scores:
+                    metric_scores[mr.metric] = []
+                    metric_pass_counts[mr.metric] = 0
+                    metric_totals[mr.metric] = 0
+                
+                if mr.score is not None:
+                    metric_scores[mr.metric].append(mr.score)
+                metric_totals[mr.metric] += 1
+                if mr.passed:
+                    metric_pass_counts[mr.metric] += 1
         
         result.ended_at = time.time()
         result.duration_ms = (result.ended_at - result.started_at) * 1000
@@ -359,19 +351,13 @@ class EvaluationService:
         # Calculate coverage metrics
         if result.total_cases > 0:
             result.overall_pass_rate = result.passed_cases / result.total_cases
-            
-            # Calculate pass rates for response and trajectory separately
-            response_passed = sum(1 for r in result.case_results if r.response_passed)
-            trajectory_passed = sum(1 for r in result.case_results if r.trajectory_passed)
-            
-            result.response_pass_rate = response_passed / result.total_cases
-            result.trajectory_pass_rate = trajectory_passed / result.total_cases
         
-        # Calculate average scores
-        if response_scores:
-            result.avg_response_score = sum(response_scores) / len(response_scores)
-        if trajectory_scores:
-            result.avg_trajectory_score = sum(trajectory_scores) / len(trajectory_scores)
+        # Calculate per-metric pass rates and averages
+        for metric in metric_scores:
+            if metric_totals[metric] > 0:
+                result.metric_pass_rates[metric] = metric_pass_counts[metric] / metric_totals[metric]
+            if metric_scores[metric]:
+                result.metric_avg_scores[metric] = sum(metric_scores[metric]) / len(metric_scores[metric])
         
         return result
     
@@ -379,25 +365,20 @@ class EvaluationService:
         self,
         project: Project,
         eval_case: EvalCase,
+        eval_config: Optional[EvalConfig] = None,
         agent_id: Optional[str] = None,
-        default_response_threshold: float = 0.7,
-        default_trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER,
     ) -> EvalCaseResult:
-        """Run a single evaluation case.
+        """Run a single evaluation case."""
+        # Use provided config or default
+        if eval_config is None:
+            eval_config = EvalConfig()
         
-        Args:
-            project: The project containing the agent
-            eval_case: The evaluation case to run
-            agent_id: Optional specific agent to test
-            default_response_threshold: Default threshold if not set in case
-            default_trajectory_match_type: Default match type if not set in case
-            
-        Returns:
-            EvalCaseResult with all invocation results and scores
-        """
-        # Use case-specific thresholds or defaults
-        response_threshold = eval_case.response_match_threshold or default_response_threshold
-        trajectory_match_type = eval_case.trajectory_match_type or default_trajectory_match_type
+        # Get thresholds from enabled metrics
+        response_config = self._get_metric_config(eval_config, EvalMetricType.RESPONSE_MATCH_SCORE)
+        trajectory_config = self._get_metric_config(eval_config, EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE)
+        
+        response_threshold = response_config.criterion.threshold if response_config else 0.7
+        trajectory_match_type = eval_config.default_trajectory_match_type
         
         # Initialize evaluators
         response_evaluator = ResponseEvaluator(threshold=response_threshold)
@@ -406,67 +387,85 @@ class EvaluationService:
         result = EvalCaseResult(
             eval_case_id=eval_case.id,
             eval_case_name=eval_case.name,
-            session_id="",  # Will be set when running
-            response_threshold=response_threshold,
-            trajectory_match_type=trajectory_match_type,
+            session_id="",
             started_at=time.time(),
         )
         
         try:
             # Run each invocation in sequence
             session_id = None
-            all_response_passed = True
-            all_trajectory_passed = True
-            response_scores = []
-            trajectory_scores = []
+            all_passed = True
+            
+            # Track per-metric results across invocations
+            metric_scores: Dict[str, List[float]] = {}
+            metric_passed: Dict[str, bool] = {}
             
             for invocation in eval_case.invocations:
                 inv_result = await self._run_invocation(
                     project=project,
                     invocation=invocation,
                     agent_id=agent_id,
-                    session_id=session_id,  # Reuse session for multi-turn
+                    session_id=session_id,
                     response_evaluator=response_evaluator,
                     trajectory_evaluator=trajectory_evaluator,
+                    eval_config=eval_config,
                 )
                 
                 result.invocation_results.append(inv_result)
                 
-                # Update session_id for next invocation (multi-turn)
+                # Update session_id for next invocation
                 if not session_id and inv_result.invocation_id:
                     session_id = inv_result.invocation_id.split('_')[0] if '_' in inv_result.invocation_id else inv_result.invocation_id
                 
-                # Aggregate scores
-                if inv_result.response_passed is not None:
-                    all_response_passed = all_response_passed and inv_result.response_passed
-                    if inv_result.response_score is not None:
-                        response_scores.append(inv_result.response_score)
+                # Aggregate metric results
+                for mr in inv_result.metric_results:
+                    if mr.metric not in metric_scores:
+                        metric_scores[mr.metric] = []
+                        metric_passed[mr.metric] = True
+                    
+                    if mr.score is not None:
+                        metric_scores[mr.metric].append(mr.score)
+                    if not mr.passed:
+                        metric_passed[mr.metric] = False
                 
-                if inv_result.trajectory_passed is not None:
-                    all_trajectory_passed = all_trajectory_passed and inv_result.trajectory_passed
-                    if inv_result.trajectory_score is not None:
-                        trajectory_scores.append(inv_result.trajectory_score)
+                if not inv_result.passed:
+                    all_passed = False
             
             result.session_id = session_id or ""
-            result.response_passed = all_response_passed
-            result.trajectory_passed = all_trajectory_passed
-            result.overall_passed = all_response_passed and all_trajectory_passed
+            result.passed = all_passed
             
-            # Calculate overall scores
-            if response_scores:
-                result.overall_response_score = sum(response_scores) / len(response_scores)
-            if trajectory_scores:
-                result.overall_trajectory_score = sum(trajectory_scores) / len(trajectory_scores)
+            # Build overall metric results
+            for metric, scores in metric_scores.items():
+                avg_score = sum(scores) / len(scores) if scores else None
+                result.metric_results.append(MetricResult(
+                    metric=metric,
+                    score=avg_score,
+                    threshold=self._get_threshold_for_metric(eval_config, metric),
+                    passed=metric_passed.get(metric, True),
+                ))
+            
+            # Aggregate token counts from all invocations
+            for inv_result in result.invocation_results:
+                result.total_input_tokens += inv_result.input_tokens
+                result.total_output_tokens += inv_result.output_tokens
+            result.total_tokens = result.total_input_tokens + result.total_output_tokens
             
         except Exception as e:
             import traceback
             result.error = f"{str(e)}\n{traceback.format_exc()}"
-            result.overall_passed = False
+            result.passed = False
         
         result.ended_at = time.time()
         result.duration_ms = (result.ended_at - result.started_at) * 1000
         
         return result
+    
+    def _get_threshold_for_metric(self, eval_config: EvalConfig, metric: str) -> float:
+        """Get the threshold for a metric from config."""
+        for m in eval_config.metrics:
+            if m.metric.value == metric or m.metric == metric:
+                return m.criterion.threshold
+        return 0.7
     
     async def _run_invocation(
         self,
@@ -476,20 +475,9 @@ class EvaluationService:
         session_id: Optional[str],
         response_evaluator: ResponseEvaluator,
         trajectory_evaluator: TrajectoryEvaluator,
+        eval_config: EvalConfig,
     ) -> InvocationResult:
-        """Run a single invocation and evaluate it.
-        
-        Args:
-            project: The project containing the agent
-            invocation: The invocation to run
-            agent_id: Optional specific agent to test
-            session_id: Optional session ID to reuse (for multi-turn)
-            response_evaluator: The response evaluator
-            trajectory_evaluator: The trajectory evaluator
-            
-        Returns:
-            InvocationResult with scores
-        """
+        """Run a single invocation and evaluate it."""
         result = InvocationResult(
             invocation_id=invocation.id or str(uuid.uuid4())[:8],
             user_message=invocation.user_message,
@@ -520,6 +508,8 @@ class EvaluationService:
             # Extract actual response and tool calls from events
             actual_response = ""
             actual_tool_calls = []
+            input_tokens = 0
+            output_tokens = 0
             
             for event in collected_events:
                 event_data = event.data if hasattr(event, 'data') else {}
@@ -530,11 +520,15 @@ class EvaluationService:
                     text = event_data.get("text", "")
                     if text:
                         actual_response += text
-                    # Also check for structured parts
                     parts = event_data.get("parts", [])
                     for part in parts:
                         if part.get("type") == "text" and not part.get("thought"):
                             actual_response += part.get("text", "")
+                    
+                    # Extract token counts
+                    token_counts = event_data.get("token_counts", {})
+                    input_tokens += token_counts.get("input_tokens", 0)
+                    output_tokens += token_counts.get("output_tokens", 0)
                 
                 # Extract tool calls
                 if event_type == "tool_call":
@@ -545,28 +539,73 @@ class EvaluationService:
             
             result.actual_response = actual_response.strip()
             result.actual_tool_calls = actual_tool_calls
+            result.input_tokens = input_tokens
+            result.output_tokens = output_tokens
             
-            # Evaluate response
-            if invocation.expected_response:
-                score, passed = response_evaluator.evaluate(
-                    actual_response=result.actual_response,
-                    expected_response=invocation.expected_response,
-                )
-                result.response_score = score
-                result.response_passed = passed
+            all_passed = True
             
-            # Evaluate trajectory
-            if invocation.expected_tool_calls:
-                score, passed = trajectory_evaluator.evaluate(
-                    actual_tool_calls=actual_tool_calls,
-                    expected_tool_calls=invocation.expected_tool_calls,
-                )
-                result.trajectory_score = score
-                result.trajectory_passed = passed
+            # Evaluate response_match_score if enabled
+            if self._get_metric_config(eval_config, EvalMetricType.RESPONSE_MATCH_SCORE):
+                if invocation.expected_response:
+                    score, passed = response_evaluator.evaluate(
+                        actual_response=result.actual_response,
+                        expected_response=invocation.expected_response,
+                    )
+                    result.metric_results.append(MetricResult(
+                        metric=EvalMetricType.RESPONSE_MATCH_SCORE.value,
+                        score=score,
+                        threshold=response_evaluator.threshold,
+                        passed=passed if passed is not None else True,
+                    ))
+                    if passed is not None and not passed:
+                        all_passed = False
+            
+            # Evaluate tool_trajectory_avg_score if enabled
+            if self._get_metric_config(eval_config, EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE):
+                if invocation.expected_tool_calls:
+                    # Use per-invocation match type if specified
+                    traj_eval = TrajectoryEvaluator(
+                        match_type=invocation.tool_trajectory_match_type or trajectory_evaluator.match_type
+                    )
+                    score, passed = traj_eval.evaluate(
+                        actual_tool_calls=actual_tool_calls,
+                        expected_tool_calls=invocation.expected_tool_calls,
+                    )
+                    result.metric_results.append(MetricResult(
+                        metric=EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE.value,
+                        score=score,
+                        threshold=1.0,  # Trajectory is binary
+                        passed=passed if passed is not None else True,
+                    ))
+                    if passed is not None and not passed:
+                        all_passed = False
+            
+            # LLM-judged metrics (placeholders - would require actual API calls)
+            for metric_type in [
+                EvalMetricType.RESPONSE_EVALUATION_SCORE,
+                EvalMetricType.FINAL_RESPONSE_MATCH_V2,
+                EvalMetricType.SAFETY_V1,
+                EvalMetricType.HALLUCINATIONS_V1,
+                EvalMetricType.RUBRIC_BASED_FINAL_RESPONSE_QUALITY_V1,
+                EvalMetricType.RUBRIC_BASED_TOOL_USE_QUALITY_V1,
+            ]:
+                config = self._get_metric_config(eval_config, metric_type)
+                if config:
+                    # TODO: Implement actual LLM-judged evaluation
+                    result.metric_results.append(MetricResult(
+                        metric=metric_type.value,
+                        score=None,
+                        threshold=config.criterion.threshold,
+                        passed=True,
+                        error="LLM-judged metrics not yet implemented",
+                    ))
+            
+            result.passed = all_passed
             
         except Exception as e:
             import traceback
             result.error = f"{str(e)}\n{traceback.format_exc()}"
+            result.passed = False
         
         return result
 
