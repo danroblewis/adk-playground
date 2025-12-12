@@ -896,7 +896,9 @@ export default function EvalPanel() {
         }
         
         .tab.active {
-          color: var(--accent-primary);
+          color: var(--bg-primary);
+          background: var(--accent-primary);
+          border-radius: var(--radius-sm) var(--radius-sm) 0 0;
           border-bottom-color: var(--accent-primary);
         }
       `}</style>
