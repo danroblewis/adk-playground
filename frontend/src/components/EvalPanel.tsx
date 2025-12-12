@@ -127,7 +127,7 @@ export default function EvalPanel() {
     setError(null);
     
     try {
-      const response = await api.get(`/api/projects/${project.id}/eval-sets`);
+      const response = await api.get(`/projects/${project.id}/eval-sets`);
       setEvalSets(response.eval_sets || []);
       
       // Auto-expand first set if exists
@@ -149,7 +149,7 @@ export default function EvalPanel() {
     if (!project?.id) return;
     
     try {
-      const response = await api.post(`/api/projects/${project.id}/eval-sets`, {
+      const response = await api.post(`/projects/${project.id}/eval-sets`, {
         name: 'New Eval Set',
         description: '',
         default_response_threshold: 0.7,
@@ -170,7 +170,7 @@ export default function EvalPanel() {
     
     try {
       const response = await api.post(
-        `/api/projects/${project.id}/eval-sets/${evalSetId}/cases`,
+        `/projects/${project.id}/eval-sets/${evalSetId}/cases`,
         {
           name: 'New Test Case',
           description: '',
@@ -205,7 +205,7 @@ export default function EvalPanel() {
     
     try {
       const response = await api.put(
-        `/api/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}`,
+        `/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}`,
         updates
       );
       
@@ -230,7 +230,7 @@ export default function EvalPanel() {
     if (!project?.id) return;
     
     try {
-      await api.delete(`/api/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}`);
+      await api.delete(`/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}`);
       
       // Update local state
       setEvalSets(prev => prev.map(set => 
@@ -252,7 +252,7 @@ export default function EvalPanel() {
     if (!project?.id) return;
     
     try {
-      await api.delete(`/api/projects/${project.id}/eval-sets/${evalSetId}`);
+      await api.delete(`/projects/${project.id}/eval-sets/${evalSetId}`);
       
       // Update local state
       setEvalSets(prev => prev.filter(s => s.id !== evalSetId));
@@ -274,7 +274,7 @@ export default function EvalPanel() {
     
     try {
       const response = await api.post(
-        `/api/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}/run`,
+        `/projects/${project.id}/eval-sets/${evalSetId}/cases/${caseId}/run`,
         {}
       );
       
@@ -303,7 +303,7 @@ export default function EvalPanel() {
     
     try {
       const response = await api.post(
-        `/api/projects/${project.id}/eval-sets/${evalSetId}/run`,
+        `/projects/${project.id}/eval-sets/${evalSetId}/run`,
         {}
       );
       
@@ -334,7 +334,7 @@ export default function EvalPanel() {
     setQuickEvalResult(null);
     
     try {
-      const response = await api.post(`/api/projects/${project.id}/quick-eval`, {
+      const response = await api.post(`/projects/${project.id}/quick-eval`, {
         user_message: quickEvalMessage,
         expected_response: quickEvalExpectedResponse || undefined,
         expected_tool_calls: [],
@@ -919,7 +919,7 @@ export default function EvalPanel() {
             onUpdate={async (updates) => {
               try {
                 const response = await api.put(
-                  `/api/projects/${project.id}/eval-sets/${selectedSet.id}`,
+                  `/projects/${project.id}/eval-sets/${selectedSet.id}`,
                   updates
                 );
                 setEvalSets(prev => prev.map(s => 
