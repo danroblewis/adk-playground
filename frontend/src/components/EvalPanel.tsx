@@ -4,6 +4,7 @@ import {
   CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
   MessageSquare, Wrench, RefreshCw, Download, Upload, ExternalLink
 } from 'lucide-react';
+import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
 import { api } from '../utils/api';
 
@@ -795,12 +796,21 @@ export default function EvalPanel() {
           padding: 4px 8px;
         }
         
-        .tool-args-input {
+        .tool-args-editor {
           flex: 1;
-          font-family: var(--font-mono);
-          font-size: 11px;
-          padding: 4px 8px;
-          min-width: 80px;
+          min-width: 100px;
+          height: 22px;
+          border-radius: var(--radius-sm);
+          overflow: hidden;
+          border: 1px solid var(--border-color);
+        }
+        
+        .tool-args-editor .monaco-editor {
+          padding: 0 !important;
+        }
+        
+        .tool-args-editor .monaco-editor .margin {
+          display: none !important;
         }
         
         .pillbox-toggle {
@@ -1521,17 +1531,37 @@ function EvalCaseEditor({
                             onClick={() => updateToolCall(idx, tcIdx, { args_match_mode: 'exact' })}
                           >Exact</button>
                         </div>
-                        <input
-                          type="text"
-                          value={JSON.stringify(tc.args || {})}
-                          onChange={(e) => {
-                            try {
-                              updateToolCall(idx, tcIdx, { args: JSON.parse(e.target.value) });
-                            } catch {}
-                          }}
-                          placeholder="{}"
-                          className="tool-args-input"
-                        />
+                        <div className="tool-args-editor">
+                          <Editor
+                            height="22px"
+                            defaultLanguage="json"
+                            value={JSON.stringify(tc.args || {})}
+                            onChange={(value) => {
+                              try {
+                                if (value) updateToolCall(idx, tcIdx, { args: JSON.parse(value) });
+                              } catch {}
+                            }}
+                            theme="vs-dark"
+                            options={{
+                              minimap: { enabled: false },
+                              scrollBeyondLastLine: false,
+                              lineNumbers: 'off',
+                              glyphMargin: false,
+                              folding: false,
+                              lineDecorationsWidth: 0,
+                              lineNumbersMinChars: 0,
+                              wordWrap: 'off',
+                              scrollbar: { vertical: 'hidden', horizontal: 'hidden' },
+                              overviewRulerLanes: 0,
+                              hideCursorInOverviewRuler: true,
+                              overviewRulerBorder: false,
+                              renderLineHighlight: 'none',
+                              fontSize: 11,
+                              padding: { top: 3, bottom: 3 },
+                              automaticLayout: true,
+                            }}
+                          />
+                        </div>
                         <button
                           className="btn btn-danger btn-sm"
                           onClick={() => removeToolCall(idx, tcIdx)}
