@@ -1,10 +1,28 @@
-"""Runtime execution for ADK agents with tracking."""
+"""Runtime execution for ADK agents with tracking.
+
+This module provides two approaches for running agents:
+
+1. **Code-based execution** (NEW - default): 
+   - Generates complete Python code from the project
+   - Writes it to a temp directory as agent.py
+   - Imports and runs the agent from the generated code
+   - The Code tab shows exactly what's being executed
+   - Users can copy the code and run it with `adk run` or `adk web`
+
+2. **Legacy dynamic loading** (fallback):
+   - Loads callbacks/tools dynamically from module paths
+   - More complex, harder to debug
+   - Kept for backward compatibility
+"""
 
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
+import os
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -23,6 +41,7 @@ from models import (
     ToolConfig, FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig,
     SkillSetToolConfig, ModelConfig,
 )
+from code_generator import generate_code, write_agent_directory
 
 
 # =============================================================================
@@ -393,13 +412,105 @@ class TrackingPlugin:
 
 
 class RuntimeManager:
-    """Manages agent runtime execution."""
+    """Manages agent runtime execution.
     
-    def __init__(self, projects_dir: str = "./projects"):
+    This class provides two execution modes:
+    
+    1. Code-based execution (use_generated_code=True, default):
+       - Generates complete Python code from the project
+       - Writes it to a temp directory  
+       - Imports and runs the agent
+       - The Code tab shows exactly what's being executed
+    
+    2. Legacy dynamic loading (use_generated_code=False):
+       - Loads callbacks/tools dynamically from module paths
+       - Kept for backward compatibility
+    """
+    
+    def __init__(self, projects_dir: str = "./projects", use_generated_code: bool = True):
         self.projects_dir = Path(projects_dir)
         self.sessions: Dict[str, RunSession] = {}
         self._running: Dict[str, bool] = {}
         self._temp_dirs: Dict[str, Path] = {}  # session_id -> temp_dir for cleanup
+        self.use_generated_code = use_generated_code
+    
+    def _generate_and_write_code(self, project: Project, session_id: str) -> Path:
+        """Generate Python code from project and write to temp directory.
+        
+        This creates a self-contained agent directory that can be run with
+        `adk run` or `adk web`. The generated code includes all custom tools
+        and callbacks inline, so no dynamic loading is needed.
+        
+        Args:
+            project: The Project to generate code for
+            session_id: Used to create unique temp directory
+            
+        Returns:
+            Path to the temp directory containing agent.py
+        """
+        # Create temp directory
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"adk_{project.id}_{session_id}_"))
+        self._temp_dirs[session_id] = temp_dir
+        
+        # Write the agent directory
+        write_agent_directory(project, temp_dir)
+        
+        # Also copy any local dependencies (skillset, knowledge_service) if used
+        # These are needed when the generated code references them
+        has_skillsets = any(
+            a.type == 'LlmAgent' and any(t.type == 'skillset' for t in a.tools)
+            for a in project.agents
+        )
+        if has_skillsets:
+            # Copy skillset.py and knowledge_service.py to temp dir
+            backend_dir = Path(__file__).parent
+            for filename in ['skillset.py', 'knowledge_service.py']:
+                src = backend_dir / filename
+                if src.exists():
+                    dst = temp_dir / filename
+                    dst.write_text(src.read_text())
+        
+        logger.info(f"Generated agent code in temp dir: {temp_dir}")
+        return temp_dir
+    
+    def _import_agent_from_code(self, temp_dir: Path, project: Project):
+        """Import the root_agent from the generated code.
+        
+        Args:
+            temp_dir: Directory containing the generated agent.py
+            project: The project (for context/error messages)
+            
+        Returns:
+            The root_agent object from the generated code
+        """
+        agent_file = temp_dir / "agent.py"
+        
+        # Add temp dir to sys.path
+        if str(temp_dir) not in sys.path:
+            sys.path.insert(0, str(temp_dir))
+        
+        # Import the module
+        spec = importlib.util.spec_from_file_location("generated_agent", agent_file)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Failed to load spec from {agent_file}")
+        
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["generated_agent"] = module
+        
+        try:
+            spec.loader.exec_module(module)
+        except Exception as e:
+            logger.error(f"Failed to execute generated agent code: {e}")
+            # Log the code for debugging
+            logger.debug(f"Generated code:\n{agent_file.read_text()}")
+            raise
+        
+        # Get the root_agent
+        root_agent = getattr(module, 'root_agent', None)
+        if root_agent is None:
+            raise ValueError("Generated code does not export 'root_agent'")
+        
+        return root_agent
     
     def _prepare_project_files(self, project: Project, session_id: str) -> Path:
         """Create temp directory with callback and tool files from project.
@@ -550,13 +661,7 @@ class RuntimeManager:
         self._running[session_id] = True
         
         try:
-            # Prepare project files (callbacks, tools) from Project object
-            # This creates a temp directory with Python files generated from
-            # project.custom_callbacks[].code and project.custom_tools[].code
-            temp_project_dir = self._prepare_project_files(project, session_id)
-            
             # Set environment variables from project config
-            import os
             env_vars = project.app.env_vars or {}
             for key, value in env_vars.items():
                 if value:  # Only set if value is not empty
@@ -596,20 +701,32 @@ class RuntimeManager:
                         session.started_at = adk_session.events[0].timestamp if adk_session.events else time.time()
                     self.sessions[session_id] = session
             
-            # Create tracking plugin BEFORE building agents so callbacks can be wrapped
+            # Create tracking plugin for monitoring execution
             tracking = TrackingPlugin(session, event_callback)
             
-            # Build agents from config - NOW with tracking plugin so callbacks can be wrapped
-            agents = self._build_agents(project, tracking_plugin=tracking)
-            
-            # Determine which agent to run
-            target_agent_id = agent_id or project.app.root_agent_id
-            
-            if not target_agent_id or target_agent_id not in agents:
-                available = list(agents.keys())
-                raise ValueError(f"Agent '{target_agent_id}' not found. Available agents: {available}")
-            
-            root_agent = agents[target_agent_id]
+            # Choose execution approach: generated code or legacy dynamic loading
+            if self.use_generated_code:
+                # NEW: Generate complete Python code and import the agent
+                # This ensures the Code tab shows exactly what's being run
+                temp_project_dir = self._generate_and_write_code(project, session_id)
+                root_agent = self._import_agent_from_code(temp_project_dir, project)
+                logger.info(f"Using generated code execution for project {project.id}")
+            else:
+                # LEGACY: Prepare files and dynamically load callbacks/tools
+                temp_project_dir = self._prepare_project_files(project, session_id)
+                
+                # Build agents from config with tracking for callback wrapping
+                agents = self._build_agents(project, tracking_plugin=tracking)
+                
+                # Determine which agent to run
+                target_agent_id = agent_id or project.app.root_agent_id
+                
+                if not target_agent_id or target_agent_id not in agents:
+                    available = list(agents.keys())
+                    raise ValueError(f"Agent '{target_agent_id}' not found. Available agents: {available}")
+                
+                root_agent = agents[target_agent_id]
+                logger.info(f"Using legacy dynamic loading for project {project.id}")
             
             # Build the app
             from google.adk.plugins import BasePlugin

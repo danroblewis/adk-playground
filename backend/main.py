@@ -23,6 +23,7 @@ from models import (
 from project_manager import ProjectManager
 from runtime import RuntimeManager
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
+from code_generator import generate_code
 
 # Get projects directory from environment variable, default to ~/.adk-playground/projects
 # This can be overridden by setting ADK_PLAYGROUND_PROJECTS_DIR environment variable
@@ -306,6 +307,38 @@ async def update_project_yaml(project_id: str, data: dict):
     if not project:
         raise HTTPException(status_code=400, detail="Invalid YAML")
     return {"project": project.model_dump(mode="json", by_alias=True)}
+
+
+# ============================================================================
+# Generated Code Endpoint
+# ============================================================================
+
+@app.get("/api/projects/{project_id}/code")
+async def get_project_code(project_id: str):
+    """Get the generated Python code for a project.
+    
+    This returns the complete, runnable Python code that can be executed
+    with `adk run` or `adk web`. This is the same code that the runtime
+    executes when running the agent.
+    
+    The generated code:
+    - Is self-contained with all callbacks and tools inline
+    - Exports `root_agent` for ADK to use
+    - Can be copied and saved as agent.py
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        code = generate_code(project)
+        return {"code": code}
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate code: {str(e)}\n{traceback.format_exc()}"
+        )
 
 
 # ============================================================================

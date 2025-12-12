@@ -158,8 +158,13 @@ def set_after_flag(callback_context: CallbackContext) -> Optional[types.Content]
     
     @pytest.mark.asyncio
     async def test_before_agent_callback_executed(self, projects_dir, callback_project):
-        """Test that before_agent_callback is executed and modifies state."""
-        manager = RuntimeManager(projects_dir=str(projects_dir))
+        """Test that before_agent_callback is executed and modifies state.
+        
+        Note: Uses legacy mode (use_generated_code=False) because callback_start/callback_end 
+        events are only emitted when callbacks are wrapped by the legacy runtime.
+        The new code-based approach doesn't wrap callbacks for tracking.
+        """
+        manager = RuntimeManager(projects_dir=str(projects_dir), use_generated_code=False)
         events: List[RunEvent] = []
         
         async def event_collector(event: RunEvent):
@@ -204,8 +209,12 @@ def set_after_flag(callback_context: CallbackContext) -> Optional[types.Content]
     
     @pytest.mark.asyncio
     async def test_after_agent_callback_executed(self, projects_dir, callback_project):
-        """Test that after_agent_callback is executed and modifies state."""
-        manager = RuntimeManager(projects_dir=str(projects_dir))
+        """Test that after_agent_callback is executed and modifies state.
+        
+        Note: Uses legacy mode (use_generated_code=False) because callback_start/callback_end 
+        events are only emitted when callbacks are wrapped by the legacy runtime.
+        """
+        manager = RuntimeManager(projects_dir=str(projects_dir), use_generated_code=False)
         events: List[RunEvent] = []
         
         async def event_collector(event: RunEvent):
@@ -241,8 +250,12 @@ def set_after_flag(callback_context: CallbackContext) -> Optional[types.Content]
     
     @pytest.mark.asyncio
     async def test_callback_modifies_state(self, projects_dir, callback_project):
-        """Test that callbacks can modify session state."""
-        manager = RuntimeManager(projects_dir=str(projects_dir))
+        """Test that callbacks can modify session state.
+        
+        Note: Uses legacy mode (use_generated_code=False) because callback_end events
+        are only emitted when callbacks are wrapped by the legacy runtime.
+        """
+        manager = RuntimeManager(projects_dir=str(projects_dir), use_generated_code=False)
         events: List[RunEvent] = []
         state_changes: List[Dict] = []
         
@@ -651,8 +664,12 @@ def increment_counter(callback_context: CallbackContext) -> Optional[types.Conte
     
     @pytest.mark.asyncio
     async def test_state_persists_across_session(self, projects_dir, state_project):
-        """Test that state changes persist within a session."""
-        manager = RuntimeManager(projects_dir=str(projects_dir))
+        """Test that state changes persist within a session.
+        
+        Note: Uses legacy mode (use_generated_code=False) because state_change events
+        from callbacks are only emitted when callbacks are wrapped by the legacy runtime.
+        """
+        manager = RuntimeManager(projects_dir=str(projects_dir), use_generated_code=False)
         events: List[RunEvent] = []
         
         async def event_collector(event: RunEvent):

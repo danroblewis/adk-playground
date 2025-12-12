@@ -96,6 +96,12 @@ export async function updateProjectFromYaml(id: string, yaml: string): Promise<P
   return data.project;
 }
 
+// Generated Code
+export async function getProjectCode(id: string): Promise<string> {
+  const data = await fetchJSON<{ code: string }>(`/projects/${id}/code`);
+  return data.code;
+}
+
 // Agents
 export async function createAgent(projectId: string, agent: Partial<AgentConfig>): Promise<AgentConfig> {
   const data = await fetchJSON<{ agent: AgentConfig }>(`/projects/${projectId}/agents`, {
