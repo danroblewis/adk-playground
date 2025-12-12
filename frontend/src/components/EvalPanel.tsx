@@ -1455,19 +1455,54 @@ function EvalCaseEditor({
             
             <div className="form-section">
               <h4>session_input <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(initial state)</span></h4>
-              <textarea
-                value={JSON.stringify(localCase.initial_state, null, 2)}
-                onChange={(e) => {
-                  try {
-                    saveCase({ initial_state: JSON.parse(e.target.value) });
-                  } catch {}
-                }}
-                placeholder='{"user_id": "test_user"}'
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 40 }}
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Pre-populate session state before the test runs.
-              </p>
+              <div style={{ height: 80, borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                <Editor
+                  height="100%"
+                  defaultLanguage="json"
+                  value={JSON.stringify(localCase.initial_state, null, 2)}
+                  onChange={(value) => {
+                    try {
+                      if (value) saveCase({ initial_state: JSON.parse(value) });
+                    } catch {}
+                  }}
+                  theme="vs-dark"
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    lineNumbers: 'off',
+                    glyphMargin: false,
+                    folding: false,
+                    lineDecorationsWidth: 0,
+                    lineNumbersMinChars: 0,
+                    fontSize: 12,
+                    automaticLayout: true,
+                    scrollbar: { verticalScrollbarSize: 6 },
+                  }}
+                />
+              </div>
+              {project?.app_config?.state_keys && project.app_config.state_keys.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      const initialState: Record<string, any> = {};
+                      project.app_config.state_keys.forEach(sk => {
+                        if (sk.default_value !== undefined) {
+                          initialState[sk.name] = sk.default_value;
+                        } else {
+                          initialState[sk.name] = sk.type === 'string' ? '' : 
+                                                  sk.type === 'number' ? 0 : 
+                                                  sk.type === 'boolean' ? false :
+                                                  sk.type === 'array' ? [] : {};
+                        }
+                      });
+                      saveCase({ initial_state: initialState });
+                    }}
+                  >
+                    Populate from App state_keys
+                  </button>
+                </div>
+              )}
             </div>
             
             <div className="form-section">
@@ -1902,7 +1937,7 @@ function EvalCaseEditor({
           
           {result.invocation_results.map((invRes, idx) => (
             <div key={idx} className="result-details">
-              <h5>Turn {idx + 1}: {invRes.user_message.slice(0, 50)}...</h5>
+              <h5>Turn {idx + 1}: {invRes.user_message.length > 50 ? invRes.user_message.slice(0, 50) + '…' : invRes.user_message}</h5>
               
               {invRes.metric_results.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
