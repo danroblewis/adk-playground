@@ -1320,7 +1320,7 @@ function EvalCaseEditor({
 }) {
   const { project } = useStore();
   const [localCase, setLocalCase] = useState(evalCase);
-  const [activeTab, setActiveTab] = useState<'assertions' | 'evaluations' | 'docs'>('assertions');
+  const [activeTab, setActiveTab] = useState<'assertions' | 'rubrics' | 'docs'>('assertions');
   // Update local state when evalCase changes (from external source)
   useEffect(() => {
     setLocalCase(evalCase);
@@ -1425,11 +1425,11 @@ function EvalCaseEditor({
           Assertions ({localCase.invocations.length})
         </div>
         <div 
-          className={`tab ${activeTab === 'evaluations' ? 'active' : ''}`}
-          onClick={() => setActiveTab('evaluations')}
+          className={`tab ${activeTab === 'rubrics' ? 'active' : ''}`}
+          onClick={() => setActiveTab('rubrics')}
         >
           <Target size={14} style={{ marginRight: 6 }} />
-          Evaluations
+          Rubrics
         </div>
         <div 
           className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
@@ -1647,12 +1647,8 @@ function EvalCaseEditor({
                 <Plus size={14} /> Add Turn
               </button>
             </div>
-          </>
-        )}
-        
-        {activeTab === 'evaluations' && (
-          <>
-            {/* State Assertions */}
+            
+            {/* Final State Assertion */}
             <div className="form-section">
               <h4>
                 <CheckCircle size={14} style={{ marginRight: 6 }} />
@@ -1691,7 +1687,11 @@ function EvalCaseEditor({
                 />
               </div>
             </div>
-            
+          </>
+        )}
+        
+        {activeTab === 'rubrics' && (
+          <>
             {/* Rubrics */}
             <div className="form-section">
               <h4>
