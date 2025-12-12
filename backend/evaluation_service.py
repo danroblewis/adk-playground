@@ -444,6 +444,25 @@ class EvaluationService:
                     passed=metric_passed.get(metric, True),
                 ))
             
+            # Add enabled LLM-judged metrics from the EvalCase
+            # These metrics require external LLM evaluation (Vertex AI or custom)
+            # For now, we add placeholder results indicating they need to be configured
+            if hasattr(eval_case, 'enabled_metrics') and eval_case.enabled_metrics:
+                for em in eval_case.enabled_metrics:
+                    # Skip if this metric already has results from standard evaluation
+                    if any(mr.metric == em.metric for mr in result.metric_results):
+                        continue
+                    
+                    # Placeholder: These metrics require LLM judge integration
+                    # In production, this would call the appropriate ADK evaluator
+                    result.metric_results.append(MetricResult(
+                        metric=em.metric,
+                        score=None,  # Not evaluated
+                        threshold=em.threshold,
+                        passed=False,
+                        error=f"{em.metric} requires LLM judge configuration",
+                    ))
+            
             # Aggregate token counts from all invocations
             for inv_result in result.invocation_results:
                 result.total_input_tokens += inv_result.input_tokens
