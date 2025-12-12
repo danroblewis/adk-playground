@@ -1443,6 +1443,33 @@ function EvalCaseEditor({
       <div className="editor-content">
         {activeTab === 'assertions' && (
           <>
+            {/* Test Setup */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>target_agent</label>
+                <select
+                  value={localCase.target_agent || ''}
+                  onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">root_agent</option>
+                  {project?.agents?.map(agent => (
+                    <option key={agent.name} value={agent.name}>{agent.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>tags</label>
+                <input
+                  type="text"
+                  value={localCase.tags.join(', ')}
+                  onChange={(e) => saveCase({ tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                  placeholder="smoke, regression"
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+            
             <div className="form-section">
               <h4>Description</h4>
               <textarea
@@ -1624,45 +1651,6 @@ function EvalCaseEditor({
               >
                 <Plus size={14} /> Add Turn
               </button>
-            </div>
-            
-            <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '16px 0' }} />
-            
-            {/* Test Setup */}
-            <div className="form-section">
-              <h4 style={{ color: 'var(--text-muted)' }}>
-                <Settings size={14} style={{ marginRight: 6 }} />
-                Test Setup
-              </h4>
-            </div>
-            
-            <div className="form-section">
-              <h4>target_agent</h4>
-              <select
-                value={localCase.target_agent || ''}
-                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
-              >
-                <option value="">root_agent (default)</option>
-                {project?.agents?.map(agent => (
-                  <option key={agent.name} value={agent.name}>{agent.name}</option>
-                ))}
-              </select>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Which agent to run. Use sub-agents for unit testing.
-              </p>
-            </div>
-            
-            <div className="form-section">
-              <h4>tags</h4>
-              <input
-                type="text"
-                value={localCase.tags.join(', ')}
-                onChange={(e) => saveCase({ tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
-                placeholder="smoke, regression, critical"
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Comma-separated tags for organizing test cases.
-              </p>
             </div>
           </>
         )}
