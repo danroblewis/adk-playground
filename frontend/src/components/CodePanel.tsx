@@ -44,9 +44,17 @@ function generateToolCode(tool: ToolConfig, project: Project): string {
     const agent = project.agents.find(a => a.id === (tool as any).agent_id);
     return agent ? `AgentTool(agent=${agent.name}_agent)` : 'AgentTool(agent=sub_agent)';
   } else if (tool.type === 'mcp') {
-    // Reference the MCPToolset variable generated earlier
+    // Reference the McpToolset variable generated earlier
     if (tool.server?.name) {
       return `${tool.server.name}_tools`;
+    }
+    return '';
+  } else if (tool.type === 'skillset') {
+    // Reference the SkillSet variable generated earlier
+    const skillsetId = (tool as any).skillset_id;
+    const skillset = project.skillsets?.find((s: any) => s.id === skillsetId);
+    if (skillset) {
+      return `${skillset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_skillset`;
     }
     return '';
   }
@@ -179,7 +187,7 @@ function generateMcpToolsetCode(server: MCPServerConfig): string {
   const lines: string[] = [];
   
   if (server.connection_type === 'stdio') {
-    lines.push(`${server.name}_tools = MCPToolset(`);
+    lines.push(`${server.name}_tools = McpToolset(`);
     lines.push(`    connection_params=StdioConnectionParams(`);
     lines.push(`        server_params=StdioServerParameters(`);
     if (server.command) lines.push(`            command="${server.command}",`);
@@ -187,16 +195,42 @@ function generateMcpToolsetCode(server: MCPServerConfig): string {
     if (Object.keys(server.env).length > 0) {
       lines.push(`            env=${JSON.stringify(server.env)},`);
     }
-    lines.push(`        )`);
-    lines.push(`    )`);
+    lines.push(`        ),`);
+    if (server.timeout) lines.push(`        timeout=${server.timeout},`);
+    lines.push(`    ),`);
     lines.push(`)`);
   } else if (server.connection_type === 'sse') {
-    lines.push(`${server.name}_tools = MCPToolset(`);
+    lines.push(`${server.name}_tools = McpToolset(`);
     lines.push(`    connection_params=SseConnectionParams(`);
     if (server.url) lines.push(`        url="${server.url}",`);
-    lines.push(`    )`);
+    if (server.timeout) lines.push(`        timeout=${server.timeout},`);
+    lines.push(`    ),`);
     lines.push(`)`);
   }
+  
+  return lines.join('\n');
+}
+
+function generateSkillSetCode(skillset: any, project: any): string {
+  const lines: string[] = [];
+  
+  // Create the knowledge service manager
+  lines.push(`# SkillSet: ${skillset.name}`);
+  lines.push(`${skillset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_manager = KnowledgeServiceManager()`);
+  lines.push(`${skillset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_skillset = SkillSet(`);
+  lines.push(`    skillset_id="${skillset.id}",`);
+  lines.push(`    project_id="${project.id}",`);
+  lines.push(`    manager=${skillset.name.replace(/[^a-zA-Z0-9_]/g, '_')}_manager,`);
+  if (skillset.embedding_model) {
+    lines.push(`    model_name="${skillset.embedding_model}",`);
+  } else {
+    lines.push(`    model_name="text-embedding-004",`);
+  }
+  lines.push(`    search_enabled=${skillset.search_enabled ? 'True' : 'False'},`);
+  lines.push(`    preload_enabled=${skillset.preload_enabled ? 'True' : 'False'},`);
+  if (skillset.preload_top_k) lines.push(`    preload_top_k=${skillset.preload_top_k},`);
+  if (skillset.preload_min_score) lines.push(`    preload_min_score=${skillset.preload_min_score},`);
+  lines.push(`)`);
   
   return lines.join('\n');
 }
@@ -285,9 +319,38 @@ function generatePythonCode(project: Project): string {
   // Check for MCP
   const hasMcp = project.mcp_servers.length > 0;
   if (hasMcp) {
-    imports.add('from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset');
-    imports.add('from google.adk.tools.mcp_tool.mcp_toolset import StdioConnectionParams');
-    imports.add('from google.adk.tools.mcp_tool.mcp_toolset import StdioServerParameters');
+    imports.add('from google.adk.tools.mcp_tool.mcp_toolset import McpToolset');
+    
+    // Check which connection types are used
+    const hasStdio = project.mcp_servers.some(s => s.connection_type === 'stdio');
+    const hasSse = project.mcp_servers.some(s => s.connection_type === 'sse');
+    
+    if (hasStdio) {
+      imports.add('from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams');
+      imports.add('from mcp import StdioServerParameters');
+    }
+    if (hasSse) {
+      imports.add('from google.adk.tools.mcp_tool.mcp_session_manager import SseConnectionParams');
+    }
+  }
+  
+  // Check for SkillSets
+  const hasSkillsets = project.skillsets && project.skillsets.length > 0;
+  const usedSkillsets = new Set<string>();
+  project.agents.forEach(agent => {
+    if ('tools' in agent && agent.tools) {
+      agent.tools.forEach(t => {
+        if (t.type === 'skillset') {
+          usedSkillsets.add((t as any).skillset_id);
+        }
+      });
+    }
+  });
+  
+  if (usedSkillsets.size > 0) {
+    // SkillSet is a custom toolset - import from local skillset module
+    imports.add('from skillset import SkillSet');
+    imports.add('from knowledge_service import KnowledgeServiceManager');
   }
   
   // Always import App
@@ -353,6 +416,31 @@ function generatePythonCode(project: Project): string {
     usedMcpServers.forEach(server => {
       lines.push(generateMcpToolsetCode(server));
       lines.push('');
+    });
+    lines.push('');
+  }
+  
+  // Collect and generate SkillSet toolsets used by agents
+  const usedSkillsetIds = new Set<string>();
+  sortedAgents.forEach(agent => {
+    if (agent.type === 'LlmAgent') {
+      (agent as LlmAgentConfig).tools.forEach(tool => {
+        if (tool.type === 'skillset') {
+          usedSkillsetIds.add((tool as any).skillset_id);
+        }
+      });
+    }
+  });
+  
+  if (usedSkillsetIds.size > 0 && project.skillsets) {
+    lines.push('# SkillSet Toolsets');
+    lines.push('# Note: SkillSets store knowledge in ~/.adk-playground/skillsets/{project_id}/');
+    usedSkillsetIds.forEach(skillsetId => {
+      const skillset = project.skillsets?.find((s: any) => s.id === skillsetId);
+      if (skillset) {
+        lines.push(generateSkillSetCode(skillset, project));
+        lines.push('');
+      }
     });
     lines.push('');
   }
