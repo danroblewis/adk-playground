@@ -1320,7 +1320,7 @@ function EvalCaseEditor({
 }) {
   const { project } = useStore();
   const [localCase, setLocalCase] = useState(evalCase);
-  const [activeTab, setActiveTab] = useState<'invocations' | 'settings' | 'docs'>('invocations');
+  const [activeTab, setActiveTab] = useState<'assertions' | 'evaluations' | 'docs'>('assertions');
   // Update local state when evalCase changes (from external source)
   useEffect(() => {
     setLocalCase(evalCase);
@@ -1418,18 +1418,18 @@ function EvalCaseEditor({
       
       <div className="tabs">
         <div 
-          className={`tab ${activeTab === 'invocations' ? 'active' : ''}`}
-          onClick={() => setActiveTab('invocations')}
+          className={`tab ${activeTab === 'assertions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('assertions')}
         >
           <MessageSquare size={14} style={{ marginRight: 6 }} />
-          Invocations ({localCase.invocations.length})
+          Assertions ({localCase.invocations.length})
         </div>
         <div 
-          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
+          className={`tab ${activeTab === 'evaluations' ? 'active' : ''}`}
+          onClick={() => setActiveTab('evaluations')}
         >
           <Target size={14} style={{ marginRight: 6 }} />
-          Assertions
+          Evaluations
         </div>
         <div 
           className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
@@ -1441,7 +1441,7 @@ function EvalCaseEditor({
       </div>
       
       <div className="editor-content">
-        {activeTab === 'invocations' && (
+        {activeTab === 'assertions' && (
           <>
             <div className="form-section">
               <h4>Description</h4>
@@ -1625,10 +1625,49 @@ function EvalCaseEditor({
                 <Plus size={14} /> Add Turn
               </button>
             </div>
+            
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '16px 0' }} />
+            
+            {/* Test Setup */}
+            <div className="form-section">
+              <h4 style={{ color: 'var(--text-muted)' }}>
+                <Settings size={14} style={{ marginRight: 6 }} />
+                Test Setup
+              </h4>
+            </div>
+            
+            <div className="form-section">
+              <h4>target_agent</h4>
+              <select
+                value={localCase.target_agent || ''}
+                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
+              >
+                <option value="">root_agent (default)</option>
+                {project?.agents?.map(agent => (
+                  <option key={agent.name} value={agent.name}>{agent.name}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Which agent to run. Use sub-agents for unit testing.
+              </p>
+            </div>
+            
+            <div className="form-section">
+              <h4>tags</h4>
+              <input
+                type="text"
+                value={localCase.tags.join(', ')}
+                onChange={(e) => saveCase({ tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                placeholder="smoke, regression, critical"
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Comma-separated tags for organizing test cases.
+              </p>
+            </div>
           </>
         )}
         
-        {activeTab === 'settings' && (
+        {activeTab === 'evaluations' && (
           <>
             {/* State Assertions */}
             <div className="form-section">
@@ -1639,20 +1678,35 @@ function EvalCaseEditor({
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
                 Assert that session state contains these key-value pairs after all turns complete.
               </p>
-              <textarea
-                value={localCase.expected_final_state ? JSON.stringify(localCase.expected_final_state, null, 2) : ''}
-                onChange={(e) => {
-                  if (!e.target.value) {
-                    saveCase({ expected_final_state: undefined });
-                  } else {
-                    try {
-                      saveCase({ expected_final_state: JSON.parse(e.target.value) });
-                    } catch {}
-                  }
-                }}
-                placeholder='{"user_preference": "dark_mode", "items_in_cart": 3}'
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-              />
+              <div style={{ height: 80, borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                <Editor
+                  height="100%"
+                  defaultLanguage="json"
+                  value={localCase.expected_final_state ? JSON.stringify(localCase.expected_final_state, null, 2) : '{}'}
+                  onChange={(value) => {
+                    if (!value || value === '{}') {
+                      saveCase({ expected_final_state: undefined });
+                    } else {
+                      try {
+                        saveCase({ expected_final_state: JSON.parse(value) });
+                      } catch {}
+                    }
+                  }}
+                  theme="vs-dark"
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    lineNumbers: 'off',
+                    glyphMargin: false,
+                    folding: false,
+                    lineDecorationsWidth: 0,
+                    lineNumbersMinChars: 0,
+                    fontSize: 12,
+                    automaticLayout: true,
+                    scrollbar: { verticalScrollbarSize: 6 },
+                  }}
+                />
+              </div>
             </div>
             
             {/* Rubrics */}
@@ -1693,45 +1747,6 @@ function EvalCaseEditor({
               </button>
             </div>
 
-            <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '20px 0' }} />
-            
-            {/* Test Setup */}
-            <div className="form-section">
-              <h4 style={{ color: 'var(--text-muted)' }}>
-                <Settings size={14} style={{ marginRight: 6 }} />
-                Test Setup
-              </h4>
-            </div>
-            
-            <div className="form-section">
-              <h4>target_agent</h4>
-              <select
-                value={localCase.target_agent || ''}
-                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
-              >
-                <option value="">root_agent (default)</option>
-                {project?.agents?.map(agent => (
-                  <option key={agent.name} value={agent.name}>{agent.name}</option>
-                ))}
-              </select>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Which agent to run. Use sub-agents for unit testing.
-              </p>
-            </div>
-            
-            
-            <div className="form-section">
-              <h4>tags</h4>
-              <input
-                type="text"
-                value={localCase.tags.join(', ')}
-                onChange={(e) => saveCase({ tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
-                placeholder="smoke, regression, critical"
-              />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                Comma-separated tags for organizing test cases.
-              </p>
-            </div>
           </>
         )}
         
