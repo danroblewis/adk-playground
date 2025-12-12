@@ -471,39 +471,32 @@ export default function AppConfigPanel() {
             <Database size={20} />
             Services
           </h2>
+          <span className="section-hint">Configure session, memory, and artifact storage backends</span>
         </div>
         <div className="form-grid">
+          {/* Session Service */}
           <div className="form-group">
             <label>Session Service</label>
             <select
               value={app.session_service_uri.split('://')[0]}
               onChange={(e) => {
                 const type = e.target.value;
-                if (type === 'memory') {
-                  updateApp({ session_service_uri: 'memory://' });
-                } else if (type === 'file') {
-                  updateApp({ session_service_uri: 'file://./sessions' });
-                } else if (type === 'sqlite') {
-                  updateApp({ session_service_uri: 'sqlite://./sessions.db' });
-                } else {
-                  updateApp({ session_service_uri: type + '://' });
-                }
+                const defaults: Record<string, string> = {
+                  'memory': 'memory://',
+                  'sqlite': 'sqlite://./sessions.db',
+                  'postgresql': 'postgresql://user:pass@localhost:5432/adk_sessions',
+                  'mysql': 'mysql://user:pass@localhost:3306/adk_sessions',
+                  'agentengine': 'agentengine://project/us-central1/engine-id',
+                };
+                updateApp({ session_service_uri: defaults[type] || type + '://' });
               }}
             >
-              <option value="memory">In-Memory</option>
-              <option value="file">File System (JSON)</option>
-              <option value="sqlite">SQLite</option>
+              <option value="memory">In-Memory (dev only)</option>
+              <option value="sqlite">SQLite (local)</option>
               <option value="postgresql">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
+              <option value="agentengine">Vertex AI Agent Engine</option>
             </select>
-            {app.session_service_uri.startsWith('file://') && (
-              <input
-                type="text"
-                value={app.session_service_uri.replace('file://', '')}
-                onChange={(e) => updateApp({ session_service_uri: 'file://' + e.target.value })}
-                placeholder="./sessions"
-                style={{ marginTop: 8 }}
-              />
-            )}
             {app.session_service_uri.startsWith('sqlite://') && (
               <input
                 type="text"
@@ -513,55 +506,149 @@ export default function AppConfigPanel() {
                 style={{ marginTop: 8 }}
               />
             )}
+            {(app.session_service_uri.startsWith('postgresql://') || app.session_service_uri.startsWith('mysql://')) && (
+              <input
+                type="text"
+                value={app.session_service_uri}
+                onChange={(e) => updateApp({ session_service_uri: e.target.value })}
+                placeholder="postgresql://user:pass@localhost:5432/db"
+                style={{ marginTop: 8 }}
+              />
+            )}
+            {app.session_service_uri.startsWith('agentengine://') && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  type="text"
+                  value={app.session_service_uri.split('/')[2] || ''}
+                  onChange={(e) => {
+                    const parts = app.session_service_uri.split('/');
+                    parts[2] = e.target.value;
+                    updateApp({ session_service_uri: parts.join('/') });
+                  }}
+                  placeholder="project-id"
+                />
+                <input
+                  type="text"
+                  value={app.session_service_uri.split('/')[3] || ''}
+                  onChange={(e) => {
+                    const parts = app.session_service_uri.split('/');
+                    parts[3] = e.target.value;
+                    updateApp({ session_service_uri: parts.join('/') });
+                  }}
+                  placeholder="location (e.g., us-central1)"
+                />
+                <input
+                  type="text"
+                  value={app.session_service_uri.split('/')[4] || ''}
+                  onChange={(e) => {
+                    const parts = app.session_service_uri.split('/');
+                    parts[4] = e.target.value;
+                    updateApp({ session_service_uri: parts.join('/') });
+                  }}
+                  placeholder="agent-engine-id"
+                />
+              </div>
+            )}
+            <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
+              {app.session_service_uri.startsWith('memory://') && 'Sessions stored in memory, lost on restart'}
+              {app.session_service_uri.startsWith('sqlite://') && 'Persists to local SQLite file'}
+              {app.session_service_uri.startsWith('postgresql://') && 'Production-ready PostgreSQL backend'}
+              {app.session_service_uri.startsWith('mysql://') && 'Production-ready MySQL backend'}
+              {app.session_service_uri.startsWith('agentengine://') && 'Vertex AI Agent Engine managed sessions'}
+            </span>
           </div>
+          
+          {/* Memory Service */}
           <div className="form-group">
             <label>Memory Service</label>
             <select
               value={app.memory_service_uri.split('://')[0]}
               onChange={(e) => {
                 const type = e.target.value;
-                if (type === 'memory') {
-                  updateApp({ memory_service_uri: 'memory://' });
-                } else if (type === 'file') {
-                  updateApp({ memory_service_uri: 'file://./memory' });
-                } else {
-                  updateApp({ memory_service_uri: type + '://' });
-                }
+                const defaults: Record<string, string> = {
+                  'memory': 'memory://',
+                  'rag': 'rag://rag-corpus-id',
+                  'agentengine': 'agentengine://project/us-central1/engine-id',
+                };
+                updateApp({ memory_service_uri: defaults[type] || type + '://' });
               }}
             >
-              <option value="memory">In-Memory</option>
-              <option value="file">File System (JSON)</option>
+              <option value="memory">In-Memory (keyword matching)</option>
+              <option value="rag">Vertex AI RAG</option>
+              <option value="agentengine">Vertex AI Memory Bank</option>
             </select>
-            {app.memory_service_uri.startsWith('file://') && (
-              <input
-                type="text"
-                value={app.memory_service_uri.replace('file://', '')}
-                onChange={(e) => updateApp({ memory_service_uri: 'file://' + e.target.value })}
-                placeholder="./memory"
-                style={{ marginTop: 8 }}
-              />
+            {app.memory_service_uri.startsWith('rag://') && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  type="text"
+                  value={app.memory_service_uri.replace('rag://', '')}
+                  onChange={(e) => updateApp({ memory_service_uri: 'rag://' + e.target.value })}
+                  placeholder="rag-corpus-id or full resource path"
+                />
+                <span className="help-text" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                  Format: projects/PROJECT/locations/LOCATION/ragCorpora/CORPUS_ID
+                </span>
+              </div>
             )}
+            {app.memory_service_uri.startsWith('agentengine://') && (
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input
+                  type="text"
+                  value={app.memory_service_uri.split('/')[2] || ''}
+                  onChange={(e) => {
+                    const parts = app.memory_service_uri.split('/');
+                    parts[2] = e.target.value;
+                    updateApp({ memory_service_uri: parts.join('/') });
+                  }}
+                  placeholder="project-id"
+                />
+                <input
+                  type="text"
+                  value={app.memory_service_uri.split('/')[3] || ''}
+                  onChange={(e) => {
+                    const parts = app.memory_service_uri.split('/');
+                    parts[3] = e.target.value;
+                    updateApp({ memory_service_uri: parts.join('/') });
+                  }}
+                  placeholder="location (e.g., us-central1)"
+                />
+                <input
+                  type="text"
+                  value={app.memory_service_uri.split('/')[4] || ''}
+                  onChange={(e) => {
+                    const parts = app.memory_service_uri.split('/');
+                    parts[4] = e.target.value;
+                    updateApp({ memory_service_uri: parts.join('/') });
+                  }}
+                  placeholder="agent-engine-id"
+                />
+              </div>
+            )}
+            <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
+              {app.memory_service_uri.startsWith('memory://') && 'Simple keyword matching, good for prototyping'}
+              {app.memory_service_uri.startsWith('rag://') && 'Semantic search using Vertex AI RAG corpus'}
+              {app.memory_service_uri.startsWith('agentengine://') && 'Managed memory via Agent Engine Memory Bank'}
+            </span>
           </div>
+          
+          {/* Artifact Service */}
           <div className="form-group">
             <label>Artifact Service</label>
             <select
-              value={app.artifact_service_uri.split('://')[0]}
+              value={app.artifact_service_uri.split('://')[0] === 'gs' ? 'gs' : app.artifact_service_uri.split('://')[0]}
               onChange={(e) => {
                 const type = e.target.value;
-                if (type === 'memory') {
-                  updateApp({ artifact_service_uri: 'memory://' });
-                } else if (type === 'file') {
-                  updateApp({ artifact_service_uri: 'file://./artifacts' });
-                } else if (type === 'gcs') {
-                  updateApp({ artifact_service_uri: 'gcs://your-bucket-name' });
-                } else {
-                  updateApp({ artifact_service_uri: type + '://' });
-                }
+                const defaults: Record<string, string> = {
+                  'memory': 'memory://',
+                  'file': 'file://./artifacts',
+                  'gs': 'gs://your-bucket-name',
+                };
+                updateApp({ artifact_service_uri: defaults[type] || type + '://' });
               }}
             >
-              <option value="memory">In-Memory</option>
+              <option value="memory">In-Memory (dev only)</option>
               <option value="file">File System</option>
-              <option value="gcs">Google Cloud Storage</option>
+              <option value="gs">Google Cloud Storage</option>
             </select>
             {app.artifact_service_uri.startsWith('file://') && (
               <input
@@ -572,15 +659,20 @@ export default function AppConfigPanel() {
                 style={{ marginTop: 8 }}
               />
             )}
-            {app.artifact_service_uri.startsWith('gcs://') && (
+            {app.artifact_service_uri.startsWith('gs://') && (
               <input
                 type="text"
-                value={app.artifact_service_uri.replace('gcs://', '')}
-                onChange={(e) => updateApp({ artifact_service_uri: 'gcs://' + e.target.value })}
-                placeholder="your-bucket-name"
+                value={app.artifact_service_uri.replace('gs://', '')}
+                onChange={(e) => updateApp({ artifact_service_uri: 'gs://' + e.target.value })}
+                placeholder="bucket-name/optional-prefix"
                 style={{ marginTop: 8 }}
               />
             )}
+            <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
+              {app.artifact_service_uri.startsWith('memory://') && 'Artifacts stored in memory, lost on restart'}
+              {app.artifact_service_uri.startsWith('file://') && 'Persists to local filesystem'}
+              {app.artifact_service_uri.startsWith('gs://') && 'Production-ready Google Cloud Storage backend'}
+            </span>
           </div>
         </div>
       </section>

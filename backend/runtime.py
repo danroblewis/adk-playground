@@ -25,6 +25,138 @@ from models import (
 )
 
 
+# =============================================================================
+# Service Factory Functions
+# =============================================================================
+# These factory functions create ADK services based on URI configuration.
+# They support multiple backends: in-memory (dev), file-based, SQLite,
+# PostgreSQL, MySQL, and Google Cloud services (Vertex AI, GCS).
+
+def create_session_service_from_uri(uri: str):
+    """Create a session service from a URI.
+    
+    Supported URI schemes:
+    - memory:// - In-memory (development only)
+    - sqlite://{path} - SQLite database
+    - postgresql://{connection_string} - PostgreSQL
+    - mysql://{connection_string} - MySQL
+    - agentengine://{project}/{location}/{engine_id} - Vertex AI Agent Engine
+    - file://{path} - Custom file-based (if available)
+    """
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    
+    if uri.startswith("memory://"):
+        return InMemorySessionService()
+    elif uri.startswith("sqlite://"):
+        from google.adk.sessions.sqlite_session_service import SqliteSessionService
+        db_path = uri[9:]  # Remove "sqlite://" prefix
+        return SqliteSessionService(db_path=db_path)
+    elif uri.startswith("postgresql://") or uri.startswith("mysql://"):
+        try:
+            from google.adk.sessions.database_session_service import DatabaseSessionService
+            return DatabaseSessionService(db_url=uri)
+        except ImportError as e:
+            logger.warning(f"DatabaseSessionService not available: {e}. Using InMemorySessionService.")
+            return InMemorySessionService()
+    elif uri.startswith("agentengine://"):
+        try:
+            from google.adk.sessions.vertex_ai_session_service import VertexAiSessionService
+            parts = uri[14:].split('/')  # Remove "agentengine://" prefix
+            project = parts[0] if len(parts) > 0 else None
+            location = parts[1] if len(parts) > 1 else None
+            engine_id = parts[2] if len(parts) > 2 else None
+            return VertexAiSessionService(project=project, location=location, agent_engine_id=engine_id)
+        except ImportError as e:
+            logger.warning(f"VertexAiSessionService not available: {e}. Using InMemorySessionService.")
+            return InMemorySessionService()
+    elif uri.startswith("file://"):
+        try:
+            from file_session_service import FileSessionService
+            path = str(Path(uri[7:]).expanduser())
+            return FileSessionService(base_dir=path)
+        except ImportError:
+            logger.debug("FileSessionService not available. Using InMemorySessionService.")
+            return InMemorySessionService()
+    else:
+        return InMemorySessionService()
+
+
+def create_memory_service_from_uri(uri: str):
+    """Create a memory service from a URI.
+    
+    Supported URI schemes:
+    - memory:// - In-memory with keyword matching (development)
+    - rag://{corpus} - Vertex AI RAG with vector search
+    - agentengine://{project}/{location}/{engine_id} - Vertex AI Memory Bank
+    - file://{path} - Custom file-based (if available)
+    """
+    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+    
+    if uri.startswith("memory://"):
+        return InMemoryMemoryService()
+    elif uri.startswith("rag://"):
+        try:
+            from google.adk.memory.vertex_ai_rag_memory_service import VertexAiRagMemoryService
+            rag_corpus = uri[6:]  # Remove "rag://" prefix
+            return VertexAiRagMemoryService(rag_corpus=rag_corpus)
+        except ImportError as e:
+            logger.warning(f"VertexAiRagMemoryService not available: {e}. Using InMemoryMemoryService.")
+            return InMemoryMemoryService()
+    elif uri.startswith("agentengine://"):
+        try:
+            from google.adk.memory.vertex_ai_memory_bank_service import VertexAiMemoryBankService
+            parts = uri[14:].split('/')  # Remove "agentengine://" prefix
+            project = parts[0] if len(parts) > 0 else None
+            location = parts[1] if len(parts) > 1 else None
+            engine_id = parts[2] if len(parts) > 2 else None
+            return VertexAiMemoryBankService(project=project, location=location, agent_engine_id=engine_id)
+        except ImportError as e:
+            logger.warning(f"VertexAiMemoryBankService not available: {e}. Using InMemoryMemoryService.")
+            return InMemoryMemoryService()
+    elif uri.startswith("file://"):
+        try:
+            from file_memory_service import FileMemoryService
+            path = str(Path(uri[7:]).expanduser())
+            return FileMemoryService(base_dir=path)
+        except ImportError:
+            logger.debug("FileMemoryService not available. Using InMemoryMemoryService.")
+            return InMemoryMemoryService()
+    else:
+        return InMemoryMemoryService()
+
+
+def create_artifact_service_from_uri(uri: str):
+    """Create an artifact service from a URI.
+    
+    Supported URI schemes:
+    - memory:// - In-memory (development only)
+    - file://{path} - Local filesystem
+    - gs://{bucket} or gcs://{bucket} - Google Cloud Storage
+    """
+    from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+    
+    if uri.startswith("memory://"):
+        return InMemoryArtifactService()
+    elif uri.startswith("file://"):
+        try:
+            from google.adk.artifacts.file_artifact_service import FileArtifactService
+            path = str(Path(uri[7:]).expanduser())
+            return FileArtifactService(root_dir=path)
+        except ImportError:
+            logger.debug("FileArtifactService not available. Using InMemoryArtifactService.")
+            return InMemoryArtifactService()
+    elif uri.startswith("gs://") or uri.startswith("gcs://"):
+        try:
+            from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
+            bucket = uri[5:] if uri.startswith("gs://") else uri[6:]
+            return GcsArtifactService(bucket_name=bucket)
+        except ImportError as e:
+            logger.warning(f"GcsArtifactService not available: {e}. Using InMemoryArtifactService.")
+            return InMemoryArtifactService()
+    else:
+        return InMemoryArtifactService()
+
+
 class TrackingPlugin:
     """Plugin that tracks all events during agent execution."""
     
@@ -440,91 +572,10 @@ class RuntimeManager:
             from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
             from google.genai import types
             
-            # Create session service based on URI
-            def create_session_service(uri: str):
-                if uri.startswith("file://"):
-                    from file_session_service import FileSessionService
-                    from pathlib import Path
-                    path = uri[7:]  # Remove "file://" prefix
-                    # Expand ~ to home directory
-                    path = str(Path(path).expanduser())
-                    return FileSessionService(base_dir=path)
-                elif uri.startswith("sqlite://"):
-                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
-                    db_path = uri[9:]  # Remove "sqlite://" prefix
-                    return SqliteSessionService(db_path=db_path)
-                else:
-                    return InMemorySessionService()
-            
-            # Create memory service based on URI
-            def create_memory_service(uri: str):
-                if uri.startswith("file://"):
-                    try:
-                        from file_memory_service import FileMemoryService
-                        from pathlib import Path
-                        path = uri[7:]  # Remove "file://" prefix
-                        # Expand ~ to home directory
-                        path = str(Path(path).expanduser())
-                        return FileMemoryService(base_dir=path)
-                    except ImportError:
-                        # FileMemoryService may not be available
-                        # This is expected - fallback to in-memory
-                        import logging
-                        from pathlib import Path
-                        expanded_path = str(Path(uri[7:]).expanduser()) if uri.startswith("file://") else uri
-                        logger = logging.getLogger(__name__)
-                        logger.debug(
-                            f"FileMemoryService not available. "
-                            f"Using InMemoryMemoryService for file:// URI: {expanded_path}. "
-                            f"Memory will work but not be persisted to disk."
-                        )
-                        return InMemoryMemoryService()
-                else:
-                    return InMemoryMemoryService()
-            
-            # Create artifact service based on URI
-            def create_artifact_service(uri: str):
-                if uri.startswith("file://"):
-                    # Try to import FileArtifactService - it may not be available in all google-adk installations
-                    try:
-                        # First try direct import
-                        from google.adk.artifacts.file_artifact_service import FileArtifactService
-                        from pathlib import Path
-                        path = uri[7:]  # Remove "file://" prefix
-                        # Expand ~ to home directory
-                        path = str(Path(path).expanduser())
-                        return FileArtifactService(root_dir=path)
-                    except ImportError:
-                        # FileArtifactService is not available in the installed google-adk package
-                        # This is expected when using the PyPI package - fallback to in-memory
-                        # Note: This is not an error - artifacts will work, just not persisted to disk
-                        import sys
-                        from pathlib import Path
-                        expanded_path = str(Path(uri[7:]).expanduser()) if uri.startswith("file://") else uri
-                        # Only log at debug level since this is expected behavior
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.debug(
-                            f"FileArtifactService not available in google-adk package. "
-                            f"Using InMemoryArtifactService for file:// URI: {expanded_path}. "
-                            f"Artifacts will work but not be persisted to disk."
-                        )
-                        return InMemoryArtifactService()
-                elif uri.startswith("gcs://"):
-                    try:
-                        from google.adk.artifacts.gcs_artifact_service import GcsArtifactService
-                        bucket = uri[6:]  # Remove "gcs://" prefix
-                        return GcsArtifactService(bucket_name=bucket)
-                    except ImportError:
-                        import sys
-                        print(f"WARNING: GcsArtifactService not available, using InMemoryArtifactService for gcs:// URI", file=sys.stderr)
-                        return InMemoryArtifactService()
-                else:
-                    return InMemoryArtifactService()
-            
-            session_service = create_session_service(project.app.session_service_uri or "memory://")
-            memory_service = create_memory_service(project.app.memory_service_uri or "memory://")
-            artifact_service = create_artifact_service(project.app.artifact_service_uri or "memory://")
+            # Create services based on URI configuration
+            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
+            memory_service = create_memory_service_from_uri(project.app.memory_service_uri or "memory://")
+            artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
             
             # Check if ADK session exists (for reuse) - check before building agents
             adk_session = None
@@ -757,23 +808,7 @@ class RuntimeManager:
             List of session summaries (id, started_at, ended_at, status)
         """
         try:
-            def create_session_service(uri: str):
-                if uri.startswith("file://"):
-                    from file_session_service import FileSessionService
-                    from pathlib import Path
-                    path = uri[7:]  # Remove "file://" prefix
-                    # Expand ~ to home directory
-                    path = str(Path(path).expanduser())
-                    return FileSessionService(base_dir=path)
-                elif uri.startswith("sqlite://"):
-                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
-                    db_path = uri[9:]  # Remove "sqlite://" prefix
-                    return SqliteSessionService(db_path=db_path)
-                else:
-                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
-                    return InMemorySessionService()
-            
-            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
             
             # List sessions from the service
             response = await session_service.list_sessions(
@@ -818,23 +853,7 @@ class RuntimeManager:
             RunSession with events, or None if not found
         """
         try:
-            def create_session_service(uri: str):
-                if uri.startswith("file://"):
-                    from file_session_service import FileSessionService
-                    from pathlib import Path
-                    path = uri[7:]  # Remove "file://" prefix
-                    # Expand ~ to home directory
-                    path = str(Path(path).expanduser())
-                    return FileSessionService(base_dir=path)
-                elif uri.startswith("sqlite://"):
-                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
-                    db_path = uri[9:]  # Remove "sqlite://" prefix
-                    return SqliteSessionService(db_path=db_path)
-                else:
-                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
-                    return InMemorySessionService()
-            
-            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
             
             # Get the ADK session
             adk_session = await session_service.get_session(
@@ -960,39 +979,9 @@ class RuntimeManager:
             return {"success": False, "error": "Session not found"}
         
         try:
-            # Create memory service based on project config
-            def create_memory_service(uri: str):
-                if uri.startswith("file://"):
-                    from file_memory_service import FileMemoryService
-                    from pathlib import Path
-                    path = uri[7:]  # Remove "file://" prefix
-                    # Expand ~ to home directory
-                    path = str(Path(path).expanduser())
-                    return FileMemoryService(base_dir=path)
-                else:
-                    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-                    return InMemoryMemoryService()
-            
-            memory_service = create_memory_service(project.app.memory_service_uri or "memory://")
-            
-            # Get the actual ADK session from the session service
-            def create_session_service(uri: str):
-                if uri.startswith("file://"):
-                    from file_session_service import FileSessionService
-                    from pathlib import Path
-                    path = uri[7:]  # Remove "file://" prefix
-                    # Expand ~ to home directory
-                    path = str(Path(path).expanduser())
-                    return FileSessionService(base_dir=path)
-                elif uri.startswith("sqlite://"):
-                    from google.adk.sessions.sqlite_session_service import SqliteSessionService
-                    db_path = uri[9:]  # Remove "sqlite://" prefix
-                    return SqliteSessionService(db_path=db_path)
-                else:
-                    from google.adk.sessions.in_memory_session_service import InMemorySessionService
-                    return InMemorySessionService()
-            
-            session_service = create_session_service(project.app.session_service_uri or "memory://")
+            # Create services based on project config
+            memory_service = create_memory_service_from_uri(project.app.memory_service_uri or "memory://")
+            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
             
             # Get the ADK session
             adk_session = await session_service.get_session(
