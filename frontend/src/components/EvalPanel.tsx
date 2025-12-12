@@ -1,17 +1,90 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
   CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
-  MessageSquare, Wrench, RefreshCw
+  MessageSquare, Wrench, RefreshCw, Download, Upload, ExternalLink
 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { api } from '../utils/api';
 
-// Types matching backend models
+// ADK Prebuilt Metrics
+type EvalMetricType = 
+  | 'tool_trajectory_avg_score'
+  | 'response_match_score'
+  | 'response_evaluation_score'
+  | 'final_response_match_v2'
+  | 'safety_v1'
+  | 'hallucinations_v1'
+  | 'rubric_based_final_response_quality_v1'
+  | 'rubric_based_tool_use_quality_v1';
+
+const METRIC_INFO: Record<EvalMetricType, { name: string; description: string; requiresJudge: boolean }> = {
+  tool_trajectory_avg_score: { 
+    name: 'Tool Trajectory', 
+    description: 'Did the agent call the right tools in the expected order?',
+    requiresJudge: false
+  },
+  response_match_score: { 
+    name: 'Response Match (ROUGE-1)', 
+    description: 'Does the response contain expected text? (fuzzy word matching)',
+    requiresJudge: false
+  },
+  response_evaluation_score: { 
+    name: 'Response Evaluation (LLM)', 
+    description: 'LLM-judged semantic match of final response',
+    requiresJudge: true
+  },
+  final_response_match_v2: { 
+    name: 'Response Quality v2 (LLM)', 
+    description: 'Enhanced LLM-judged response quality check',
+    requiresJudge: true
+  },
+  safety_v1: { 
+    name: 'Safety', 
+    description: 'Is the response safe and harmless? (Vertex AI)',
+    requiresJudge: true
+  },
+  hallucinations_v1: { 
+    name: 'Hallucination Detection', 
+    description: 'Are all claims supported by context? No false information?',
+    requiresJudge: true
+  },
+  rubric_based_final_response_quality_v1: { 
+    name: 'Rubric: Response Quality', 
+    description: 'Custom rubric-based quality assessment of responses',
+    requiresJudge: true
+  },
+  rubric_based_tool_use_quality_v1: { 
+    name: 'Rubric: Tool Use Quality', 
+    description: 'Custom rubric-based assessment of tool usage',
+    requiresJudge: true
+  },
+};
+
+interface JudgeModelOptions {
+  judge_model: string;
+  num_samples: number;
+}
+
+interface EvalCriterion {
+  threshold: number;
+  judge_model_options?: JudgeModelOptions;
+}
+
+interface EvalMetricConfig {
+  metric: EvalMetricType;
+  enabled: boolean;
+  criterion: EvalCriterion;
+}
+
 interface ExpectedToolCall {
   name: string;
   args?: Record<string, any>;
   args_match_mode: 'exact' | 'subset' | 'ignore';
+}
+
+interface Rubric {
+  rubric: string;
 }
 
 interface EvalInvocation {
@@ -19,6 +92,14 @@ interface EvalInvocation {
   user_message: string;
   expected_response?: string;
   expected_tool_calls: ExpectedToolCall[];
+  tool_trajectory_match_type: 'exact' | 'in_order' | 'any_order';
+  rubrics: Rubric[];
+}
+
+interface EvalConfig {
+  metrics: EvalMetricConfig[];
+  default_trajectory_match_type: 'exact' | 'in_order' | 'any_order';
+  num_runs: number;
 }
 
 interface EvalCase {
@@ -28,9 +109,9 @@ interface EvalCase {
   invocations: EvalInvocation[];
   initial_state: Record<string, any>;
   expected_final_state?: Record<string, any>;
-  response_match_threshold: number;
-  trajectory_match_type: 'exact' | 'in_order' | 'any_order';
+  rubrics: Rubric[];
   tags: string[];
+  target_agent?: string;  // Optional: test a specific sub-agent instead of root_agent
 }
 
 interface EvalSet {
@@ -38,10 +119,18 @@ interface EvalSet {
   name: string;
   description: string;
   eval_cases: EvalCase[];
-  default_response_threshold: number;
-  default_trajectory_match_type: 'exact' | 'in_order' | 'any_order';
+  eval_config: EvalConfig;
   created_at: number;
   updated_at: number;
+}
+
+interface MetricResult {
+  metric: string;
+  score?: number;
+  threshold: number;
+  passed: boolean;
+  details?: string;
+  error?: string;
 }
 
 interface InvocationResult {
@@ -51,27 +140,28 @@ interface InvocationResult {
   actual_tool_calls: { name: string; args: Record<string, any> }[];
   expected_response?: string;
   expected_tool_calls: { name: string; args: Record<string, any> }[];
-  response_score?: number;
-  trajectory_score?: number;
-  response_passed?: boolean;
-  trajectory_passed?: boolean;
+  metric_results: MetricResult[];
+  rubric_results: Record<string, any>[];
+  passed: boolean;
   error?: string;
+  // Token usage
+  input_tokens?: number;
+  output_tokens?: number;
 }
 
 interface EvalCaseResult {
   eval_case_id: string;
   eval_case_name: string;
   session_id: string;
-  overall_response_score?: number;
-  overall_trajectory_score?: number;
-  response_threshold: number;
-  trajectory_match_type: string;
-  response_passed: boolean;
-  trajectory_passed: boolean;
-  overall_passed: boolean;
+  metric_results: MetricResult[];
+  passed: boolean;
   invocation_results: InvocationResult[];
   duration_ms: number;
   error?: string;
+  // Token usage
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_tokens?: number;
 }
 
 interface EvalSetResult {
@@ -82,14 +172,22 @@ interface EvalSetResult {
   passed_cases: number;
   failed_cases: number;
   error_cases: number;
-  response_pass_rate?: number;
-  trajectory_pass_rate?: number;
+  metric_pass_rates: Record<string, number>;
+  metric_avg_scores: Record<string, number>;
   overall_pass_rate: number;
-  avg_response_score?: number;
-  avg_trajectory_score?: number;
   case_results: EvalCaseResult[];
   duration_ms: number;
 }
+
+// Default eval config with most useful metrics
+const DEFAULT_EVAL_CONFIG: EvalConfig = {
+  metrics: [
+    { metric: 'tool_trajectory_avg_score', enabled: true, criterion: { threshold: 1.0 } },
+    { metric: 'response_match_score', enabled: true, criterion: { threshold: 0.7 } },
+  ],
+  default_trajectory_match_type: 'in_order',
+  num_runs: 1
+};
 
 function generateId() {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -152,8 +250,7 @@ export default function EvalPanel() {
       const response = await api.post(`/projects/${project.id}/eval-sets`, {
         name: 'New Eval Set',
         description: '',
-        default_response_threshold: 0.7,
-        default_trajectory_match_type: 'in_order',
+        eval_config: DEFAULT_EVAL_CONFIG,
       });
       
       setEvalSets(prev => [...prev, response.eval_set]);
@@ -179,9 +276,12 @@ export default function EvalPanel() {
             user_message: '',
             expected_response: '',
             expected_tool_calls: [],
+            tool_trajectory_match_type: 'in_order',
+            rubrics: [],
           }],
-          response_match_threshold: 0.7,
-          trajectory_match_type: 'in_order',
+          initial_state: {},
+          rubrics: [],
+          tags: [],
         }
       );
       
@@ -265,6 +365,47 @@ export default function EvalPanel() {
       setError(err.message || 'Failed to delete eval set');
     }
   };
+  
+  // Export eval set as JSON
+  const exportEvalSet = async (evalSetId: string) => {
+    if (!project?.id) return;
+    
+    try {
+      const data = await api.get(`/projects/${project.id}/eval-sets/${evalSetId}/export`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const evalSet = evalSets.find(s => s.id === evalSetId);
+      a.download = `${evalSet?.name || 'eval-set'}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Failed to export eval set');
+    }
+  };
+  
+  // Import eval set from JSON
+  const importEvalSet = async (file: File) => {
+    if (!project?.id) return;
+    
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const response = await api.post(`/projects/${project.id}/eval-sets/import`, data);
+      
+      setEvalSets(prev => [...prev, response.eval_set]);
+      setSelectedSetId(response.eval_set.id);
+      setExpandedSets(prev => new Set([...prev, response.eval_set.id]));
+    } catch (err: any) {
+      setError(err.message || 'Failed to import eval set');
+    }
+  };
+  
+  // File input ref for import
+  const importInputRef = useRef<HTMLInputElement>(null);
   
   // Run single eval case
   const runEvalCase = async (evalSetId: string, caseId: string) => {
@@ -374,7 +515,7 @@ export default function EvalPanel() {
     for (const c of evalSet.eval_cases) {
       const result = caseResultsMap.get(c.id);
       if (result) {
-        if (result.overall_passed) passed++;
+        if (result.passed) passed++;
         else failed++;
       } else {
         pending++;
@@ -764,6 +905,26 @@ export default function EvalPanel() {
         <div className="sidebar-header">
           <h3>Evaluation Tests</h3>
           <div className="header-actions">
+            <input
+              type="file"
+              ref={importInputRef}
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  importEvalSet(file);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <button 
+              className="btn btn-secondary btn-sm" 
+              onClick={() => importInputRef.current?.click()}
+              title="Import eval set from JSON"
+            >
+              <Upload size={14} />
+            </button>
             <button 
               className="btn btn-secondary btn-sm" 
               onClick={loadEvalSets}
@@ -853,7 +1014,7 @@ export default function EvalPanel() {
                           {isCaseRunning ? (
                             <Clock size={14} className="spinning" style={{ color: 'var(--warning)' }} />
                           ) : caseResult ? (
-                            caseResult.overall_passed ? (
+                            caseResult.passed ? (
                               <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                             ) : (
                               <XCircle size={14} style={{ color: 'var(--error)' }} />
@@ -862,12 +1023,12 @@ export default function EvalPanel() {
                             <FileCheck size={14} style={{ color: 'var(--text-muted)' }} />
                           )}
                           <span className="case-name">{evalCase.name}</span>
-                          {caseResult && (
+                          {caseResult && caseResult.metric_results.length > 0 && (
                             <span style={{ 
                               fontSize: 11, 
-                              color: caseResult.overall_passed ? 'var(--success)' : 'var(--error)' 
+                              color: caseResult.passed ? 'var(--success)' : 'var(--error)' 
                             }}>
-                              {formatScore(caseResult.overall_response_score)}
+                              {formatScore(caseResult.metric_results[0]?.score)}
                             </span>
                           )}
                           <button 
@@ -931,6 +1092,7 @@ export default function EvalPanel() {
             }}
             onDelete={() => deleteEvalSet(selectedSet.id)}
             onRun={() => runEvalSet(selectedSet.id)}
+            onExport={() => exportEvalSet(selectedSet.id)}
           />
         ) : (
           <div className="editor-content">
@@ -989,8 +1151,8 @@ export default function EvalPanel() {
               
               {quickEvalResult && (
                 <div className="result-panel" style={{ marginTop: 16, borderRadius: 'var(--radius-md)' }}>
-                  <div className={`result-header ${quickEvalResult.overall_passed ? 'passed' : 'failed'}`}>
-                    {quickEvalResult.overall_passed ? (
+                  <div className={`result-header ${quickEvalResult.passed ? 'passed' : 'failed'}`}>
+                    {quickEvalResult.passed ? (
                       <><CheckCircle size={18} /> <strong>Passed</strong></>
                     ) : (
                       <><XCircle size={18} /> <strong>Failed</strong></>
@@ -1000,24 +1162,28 @@ export default function EvalPanel() {
                     </span>
                   </div>
                   
-                  {quickEvalResult.invocation_results[0] && (
-                    <>
-                      <div className="result-scores">
-                        <div className="score-card">
-                          <div className={`score-value ${quickEvalResult.invocation_results[0].response_passed ? 'passed' : 'failed'}`}>
-                            {formatScore(quickEvalResult.invocation_results[0].response_score)}
+                  {quickEvalResult.metric_results.length > 0 && (
+                    <div className="result-scores">
+                      {quickEvalResult.metric_results.map((mr, idx) => (
+                        <div key={idx} className="score-card">
+                          <div className={`score-value ${mr.passed ? 'passed' : 'failed'}`}>
+                            {formatScore(mr.score)}
                           </div>
-                          <div className="score-label">Response Match (ROUGE-1)</div>
+                          <div className="score-label">
+                            {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {quickEvalResult.invocation_results[0] && (
+                    <div className="result-details">
+                      <h5>Actual Response</h5>
+                      <div className="detail-box">
+                        {quickEvalResult.invocation_results[0].actual_response || '(no response)'}
                       </div>
-                      
-                      <div className="result-details">
-                        <h5>Actual Response</h5>
-                        <div className="detail-box">
-                          {quickEvalResult.invocation_results[0].actual_response || '(no response)'}
-                        </div>
-                      </div>
-                    </>
+                    </div>
                   )}
                 </div>
               )}
@@ -1054,20 +1220,21 @@ function EvalCaseEditor({
   onDelete: () => void;
   onRun: () => void;
 }) {
+  const { project } = useStore();
   const [localCase, setLocalCase] = useState(evalCase);
-  const [activeTab, setActiveTab] = useState<'invocations' | 'settings'>('invocations');
-  
-  // Update local state when evalCase changes
+  const [activeTab, setActiveTab] = useState<'invocations' | 'settings' | 'docs'>('invocations');
+  // Update local state when evalCase changes (from external source)
   useEffect(() => {
     setLocalCase(evalCase);
-  }, [evalCase]);
+  }, [evalCase.id]); // Only reset when the case ID changes, not on every prop update
   
-  // Debounced save
+  // Save immediately (no debounce for now to ensure persistence)
   const saveCase = useCallback((updates: Partial<EvalCase>) => {
-    const updated = { ...localCase, ...updates };
-    setLocalCase(updated);
+    // Update local state immediately for responsiveness
+    setLocalCase(prev => ({ ...prev, ...updates }));
+    // Save to backend
     onUpdate(updates);
-  }, [localCase, onUpdate]);
+  }, [onUpdate]);
   
   const addInvocation = () => {
     const newInv: EvalInvocation = {
@@ -1075,6 +1242,8 @@ function EvalCaseEditor({
       user_message: '',
       expected_response: '',
       expected_tool_calls: [],
+      tool_trajectory_match_type: 'in_order',
+      rubrics: [],
     };
     saveCase({ invocations: [...localCase.invocations, newInv] });
   };
@@ -1163,6 +1332,13 @@ function EvalCaseEditor({
         >
           <Settings size={14} style={{ marginRight: 6 }} />
           Settings
+        </div>
+        <div 
+          className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
+          onClick={() => setActiveTab('docs')}
+        >
+          <AlertCircle size={14} style={{ marginRight: 6 }} />
+          Docs
         </div>
       </div>
       
@@ -1312,34 +1488,20 @@ function EvalCaseEditor({
         
         {activeTab === 'settings' && (
           <>
-            <div className="form-row">
-              <div className="form-field">
-                <label>Response Match Threshold (0.0 - 1.0)</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={localCase.response_match_threshold}
-                  onChange={(e) => saveCase({ response_match_threshold: parseFloat(e.target.value) || 0.7 })}
-                />
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                  ROUGE-1 F1 score threshold. 0.7 means 70% word overlap.
-                </p>
-              </div>
-              <div className="form-field">
-                <label>Tool Trajectory Match Type</label>
-                <select
-                  value={localCase.trajectory_match_type}
-                  onChange={(e) => saveCase({ 
-                    trajectory_match_type: e.target.value as 'exact' | 'in_order' | 'any_order' 
-                  })}
-                >
-                  <option value="exact">Exact (same order, no extras)</option>
-                  <option value="in_order">In Order (extras allowed between)</option>
-                  <option value="any_order">Any Order (all present, any order)</option>
-                </select>
-              </div>
+            <div className="form-section">
+              <h4>Target Agent</h4>
+              <select
+                value={localCase.target_agent || ''}
+                onChange={(e) => saveCase({ target_agent: e.target.value || undefined })}
+              >
+                <option value="">root_agent (default)</option>
+                {project?.agents?.map(agent => (
+                  <option key={agent.name} value={agent.name}>{agent.name}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Choose which agent to test. Default is the root_agent. Select a specific agent for unit-testing sub-agents.
+              </p>
             </div>
             
             <div className="form-section">
@@ -1371,41 +1533,282 @@ function EvalCaseEditor({
                 placeholder='{"key": "expected_value"}'
               />
             </div>
+            
+            <div className="form-section">
+              <h4>
+                <Target size={14} style={{ marginRight: 6 }} />
+                Custom Rubrics
+              </h4>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                Define custom criteria that the response must satisfy. Each rubric is evaluated by an LLM judge.
+              </p>
+              {localCase.rubrics.map((rubric, idx) => (
+                <div key={idx} className="tool-call-row" style={{ marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    value={rubric.rubric}
+                    onChange={(e) => {
+                      const rubrics = [...localCase.rubrics];
+                      rubrics[idx] = { rubric: e.target.value };
+                      saveCase({ rubrics });
+                    }}
+                    placeholder="e.g., Does the response include a specific price?"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => saveCase({ rubrics: localCase.rubrics.filter((_, i) => i !== idx) })}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => saveCase({ rubrics: [...localCase.rubrics, { rubric: '' }] })}
+              >
+                <Plus size={12} /> Add Rubric
+              </button>
+            </div>
+            
+            <div className="form-section">
+              <h4>Tags</h4>
+              <input
+                type="text"
+                value={localCase.tags.join(', ')}
+                onChange={(e) => saveCase({ tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                placeholder="smoke, regression, critical"
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Comma-separated tags for organizing test cases.
+              </p>
+            </div>
           </>
+        )}
+        
+        {activeTab === 'docs' && (
+          <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)', overflowY: 'auto', maxHeight: '100%' }}>
+            <h3 style={{ marginBottom: 16, color: 'var(--text-primary)' }}>Evaluation Test Case Guide</h3>
+            
+            <section style={{ marginBottom: 24, padding: 12, background: 'rgba(var(--accent-primary-rgb), 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--accent-primary)' }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>🎯 Quick Overview</h4>
+              <p>Each test case simulates a <strong>multi-turn conversation</strong> with an agent. For each turn (invocation), you provide a user message and define what you expect the agent to do.</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li><strong>Invocations</strong> = conversation turns (user messages)</li>
+                <li><strong>Expected Response</strong> = the agent's <em>final text reply</em> for that turn</li>
+                <li><strong>Expected Tool Calls</strong> = tools the agent should invoke during that turn</li>
+                <li><strong>Session State</strong> = test the <em>final state</em> after ALL turns complete</li>
+              </ul>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>📝 What is "Expected Response"?</h4>
+              <p>The <strong>Expected Response</strong> is matched against the agent's <strong>final response</strong> for that specific turn — NOT every message.</p>
+              <div style={{ background: 'var(--bg-secondary)', padding: 12, borderRadius: 'var(--radius-sm)', marginTop: 8 }}>
+                <p style={{ marginBottom: 8 }}><strong>During one turn, an agent may:</strong></p>
+                <ul style={{ marginLeft: 20, marginBottom: 12 }}>
+                  <li>Send intermediate thinking/reasoning messages</li>
+                  <li>Call multiple tools</li>
+                  <li>Transfer to sub-agents (who may respond)</li>
+                  <li>Finally send a <em>concluding response</em></li>
+                </ul>
+                <p>Only the <strong>last text response</strong> from the agent for that turn is compared against your Expected Response.</p>
+              </div>
+              <p style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+                Tip: If you need to verify intermediate steps, use Tool Trajectory matching or custom Rubrics.
+              </p>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>🔄 Response Matching (ROUGE-1)</h4>
+              <p>The <code>response_match_score</code> uses <strong>ROUGE-1 F1 scoring</strong> — fuzzy word-level matching:</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li>Tokenizes both expected and actual responses into words</li>
+                <li>Calculates word overlap (not exact string match)</li>
+                <li>Returns a score from 0.0 to 1.0</li>
+              </ul>
+              <div style={{ background: 'var(--bg-secondary)', padding: 12, borderRadius: 'var(--radius-sm)', marginTop: 8 }}>
+                <p><strong>Example:</strong></p>
+                <p>Expected: <code>"The weather in Paris is sunny today"</code></p>
+                <p>Actual: <code>"Today in Paris, expect sunny weather"</code></p>
+                <p style={{ marginTop: 8, color: 'var(--success)' }}>✓ High ROUGE-1 score (same words, different order)</p>
+              </div>
+              <p style={{ marginTop: 8 }}>A threshold of <strong>0.7</strong> means 70% word overlap is required to pass.</p>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>🛠️ Tool Trajectory Matching</h4>
+              <p>The <code>tool_trajectory_avg_score</code> verifies the agent called expected tools. Match types:</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li><strong>Exact</strong> — Same tools in same order, no extras allowed</li>
+                <li><strong>In Order</strong> — Expected tools appear in order, extras allowed between</li>
+                <li><strong>Any Order</strong> — All expected tools present, any order, extras allowed</li>
+              </ul>
+              <p style={{ marginTop: 8 }}>For each tool, you can match by:</p>
+              <ul style={{ marginLeft: 20, marginTop: 4 }}>
+                <li><strong>Name Only</strong> — Just check the tool was called</li>
+                <li><strong>Exact Args</strong> — Arguments must match exactly (provide JSON)</li>
+                <li><strong>Args Subset</strong> — Your expected args must be present in actual args</li>
+              </ul>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>💾 Session State Testing</h4>
+              <p><strong>Initial State</strong> (Settings tab) — Pre-populate session state before running the test:</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li>Set user preferences or context</li>
+                <li>Simulate a specific scenario</li>
+                <li>Test state-dependent behavior</li>
+              </ul>
+              <p style={{ marginTop: 12 }}><strong>Expected Final State</strong> — Verified at the <em>very end</em> of the test case, <strong>after ALL invocations complete</strong>.</p>
+              <div style={{ background: 'var(--bg-secondary)', padding: 12, borderRadius: 'var(--radius-sm)', marginTop: 8, borderLeft: '3px solid var(--warning)' }}>
+                <p style={{ margin: 0 }}><strong>Important:</strong> State is tested once after the entire conversation, NOT after each turn. To test state changes per-turn, use separate test cases.</p>
+              </div>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>🎯 Target Agent (Settings tab)</h4>
+              <p>By default, tests run against the <strong>root_agent</strong> of your App. You can select a specific sub-agent to test in isolation:</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li><strong>root_agent</strong> — Test the full agent hierarchy (default)</li>
+                <li><strong>Specific agent</strong> — Unit test individual agents</li>
+              </ul>
+              <p style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+                Useful for testing sub-agents independently before integrating into the full system.
+              </p>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>📋 Custom Rubrics</h4>
+              <p>Rubrics are custom yes/no criteria evaluated by an LLM judge. Examples:</p>
+              <ul style={{ marginLeft: 20, marginTop: 8 }}>
+                <li>"Does the response mention the product price?"</li>
+                <li>"Is the tone professional and helpful?"</li>
+                <li>"Does the response avoid mentioning competitors?"</li>
+              </ul>
+              <p style={{ marginTop: 8, fontStyle: 'italic', color: 'var(--text-muted)' }}>
+                Note: Rubric evaluation requires LLM-judged metrics to be enabled in the Eval Set.
+              </p>
+            </section>
+            
+            <section style={{ marginBottom: 24 }}>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>📊 Available Metrics</h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 4px' }}>Metric</th>
+                    <th style={{ textAlign: 'left', padding: '8px 4px' }}>Type</th>
+                    <th style={{ textAlign: 'left', padding: '8px 4px' }}>Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(Object.keys(METRIC_INFO) as EvalMetricType[]).map(metric => (
+                    <tr key={metric} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '8px 4px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{metric}</td>
+                      <td style={{ padding: '8px 4px' }}>
+                        {METRIC_INFO[metric].requiresJudge ? (
+                          <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--accent-primary)', color: 'white', borderRadius: 4 }}>LLM Judge</span>
+                        ) : (
+                          <span style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-tertiary)', borderRadius: 4 }}>Built-in</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 4px', color: 'var(--text-muted)' }}>{METRIC_INFO[metric].description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+            
+            <section>
+              <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8 }}>💡 Tips</h4>
+              <ul style={{ marginLeft: 20 }}>
+                <li>Start with simple single-turn tests, then add complexity</li>
+                <li>Use "In Order" matching for most tool trajectory tests</li>
+                <li>Lower ROUGE thresholds (0.5-0.6) for creative/varied responses</li>
+                <li>Higher thresholds (0.8-0.9) for factual/precise responses</li>
+                <li>Use tags to organize tests by feature or priority</li>
+                <li>Test sub-agents individually using Target Agent selector</li>
+              </ul>
+            </section>
+          </div>
         )}
       </div>
       
       {result && (
         <div className="result-panel">
-          <div className={`result-header ${result.overall_passed ? 'passed' : 'failed'}`}>
-            {result.overall_passed ? (
+          <div className={`result-header ${result.passed ? 'passed' : 'failed'}`}>
+            {result.passed ? (
               <><CheckCircle size={18} /> <strong>Passed</strong></>
             ) : (
               <><XCircle size={18} /> <strong>Failed</strong></>
             )}
-            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 12 }}>
-              {result.duration_ms.toFixed(0)}ms
-            </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+              {result.total_tokens ? (
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Total tokens used">
+                  {result.total_tokens.toLocaleString()} tokens
+                </span>
+              ) : null}
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                {result.duration_ms.toFixed(0)}ms
+              </span>
+              {result.session_id && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    // Navigate to Run tab with session loaded
+                    window.location.href = `/project/${project?.id}/run?session=${result.session_id}`;
+                  }}
+                  title="View this session in the Run panel"
+                  style={{ fontSize: 11 }}
+                >
+                  <ExternalLink size={12} />
+                  View Session
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="result-scores">
-            <div className="score-card">
-              <div className={`score-value ${result.response_passed ? 'passed' : 'failed'}`}>
-                {formatScore(result.overall_response_score)}
+            {result.metric_results.map((mr, idx) => (
+              <div key={idx} className="score-card">
+                <div className={`score-value ${mr.passed ? 'passed' : 'failed'}`}>
+                  {formatScore(mr.score)}
+                </div>
+                <div className="score-label">
+                  {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}
+                </div>
+                {mr.error && (
+                  <div style={{ fontSize: 10, color: 'var(--error)', marginTop: 4 }}>
+                    {mr.error}
+                  </div>
+                )}
               </div>
-              <div className="score-label">Response Match</div>
-            </div>
-            <div className="score-card">
-              <div className={`score-value ${result.trajectory_passed ? 'passed' : 'failed'}`}>
-                {formatScore(result.overall_trajectory_score)}
-              </div>
-              <div className="score-label">Tool Trajectory</div>
-            </div>
+            ))}
           </div>
           
           {result.invocation_results.map((invRes, idx) => (
             <div key={idx} className="result-details">
               <h5>Turn {idx + 1}: {invRes.user_message.slice(0, 50)}...</h5>
+              
+              {invRes.metric_results.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {invRes.metric_results.map((mr, mIdx) => (
+                    <span 
+                      key={mIdx} 
+                      style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: mr.passed ? 'rgba(var(--success-rgb), 0.15)' : 'rgba(var(--error-rgb), 0.15)',
+                        color: mr.passed ? 'var(--success)' : 'var(--error)',
+                      }}
+                    >
+                      {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}: {formatScore(mr.score)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              
               <div className="detail-box">
                 <strong>Actual Response:</strong>{'\n'}
                 {invRes.actual_response || '(no response)'}{'\n\n'}
@@ -1445,6 +1848,7 @@ function EvalSetEditor({
   onUpdate,
   onDelete,
   onRun,
+  onExport,
 }: {
   evalSet: EvalSet;
   projectId: string;
@@ -1454,22 +1858,45 @@ function EvalSetEditor({
   onUpdate: (updates: Partial<EvalSet>) => void;
   onDelete: () => void;
   onRun: () => void;
+  onExport: () => void;
 }) {
+  const [localName, setLocalName] = useState(evalSet.name);
+  
+  // Update local name when evalSet changes (from external source)
+  useEffect(() => {
+    setLocalName(evalSet.name);
+  }, [evalSet.id]);
+  
+  // Save on blur
+  const handleNameBlur = useCallback(() => {
+    if (localName !== evalSet.name) {
+      onUpdate({ name: localName });
+    }
+  }, [localName, evalSet.name, onUpdate]);
+  
   const formatScore = (score?: number | null) => {
     if (score === null || score === undefined) return '-';
     return `${Math.round(score * 100)}%`;
   };
-  
+
   return (
     <>
       <div className="editor-header">
         <FolderTree size={20} style={{ color: 'var(--accent-secondary)' }} />
         <input
           type="text"
-          value={evalSet.name}
-          onChange={(e) => onUpdate({ name: e.target.value })}
+          value={localName}
+          onChange={(e) => setLocalName(e.target.value)}
+          onBlur={handleNameBlur}
           placeholder="Eval set name"
         />
+        <button 
+          className="btn btn-secondary btn-sm"
+          onClick={onExport}
+          title="Export as JSON (compatible with adk eval)"
+        >
+          <Download size={14} />
+        </button>
         <button 
           className="btn btn-primary btn-sm"
           onClick={onRun}
@@ -1498,31 +1925,123 @@ function EvalSetEditor({
         </div>
         
         <div className="form-section">
-          <h4><Settings size={14} /> Default Settings</h4>
-          <div className="form-row">
-            <div className="form-field">
-              <label>Default Response Threshold</label>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.1}
-                value={evalSet.default_response_threshold}
-                onChange={(e) => onUpdate({ default_response_threshold: parseFloat(e.target.value) || 0.7 })}
-              />
-            </div>
+          <h4><Settings size={14} /> Evaluation Metrics</h4>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Configure which metrics to use for this eval set and their pass thresholds.
+          </p>
+          
+          {(Object.keys(METRIC_INFO) as EvalMetricType[]).map(metric => {
+            const info = METRIC_INFO[metric];
+            const config = evalSet.eval_config?.metrics?.find(m => m.metric === metric);
+            const isEnabled = config?.enabled ?? false;
+            const threshold = config?.criterion?.threshold ?? 0.7;
+            
+            return (
+              <div 
+                key={metric} 
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '8px 12px',
+                  background: isEnabled ? 'var(--bg-tertiary)' : 'transparent',
+                  borderRadius: 'var(--radius-sm)',
+                  marginBottom: 8,
+                  border: '1px solid',
+                  borderColor: isEnabled ? 'var(--border-color)' : 'transparent',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  onChange={(e) => {
+                    const metrics = [...(evalSet.eval_config?.metrics || [])];
+                    const idx = metrics.findIndex(m => m.metric === metric);
+                    if (e.target.checked) {
+                      if (idx === -1) {
+                        metrics.push({ metric, enabled: true, criterion: { threshold: 0.7 } });
+                      } else {
+                        metrics[idx] = { ...metrics[idx], enabled: true };
+                      }
+                    } else {
+                      if (idx !== -1) {
+                        metrics[idx] = { ...metrics[idx], enabled: false };
+                      }
+                    }
+                    onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
+                  }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>{info.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{info.description}</div>
+                </div>
+                {isEnabled && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: 11 }}>Threshold:</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={threshold}
+                      onChange={(e) => {
+                        const metrics = [...(evalSet.eval_config?.metrics || [])];
+                        const idx = metrics.findIndex(m => m.metric === metric);
+                        if (idx !== -1) {
+                          metrics[idx] = { 
+                            ...metrics[idx], 
+                            criterion: { ...metrics[idx].criterion, threshold: parseFloat(e.target.value) || 0.7 }
+                          };
+                          onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
+                        }
+                      }}
+                      style={{ width: 60 }}
+                    />
+                  </div>
+                )}
+                {info.requiresJudge && isEnabled && (
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4 }}>
+                    LLM Judge
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          
+          <div className="form-row" style={{ marginTop: 16 }}>
             <div className="form-field">
               <label>Default Trajectory Match Type</label>
               <select
-                value={evalSet.default_trajectory_match_type}
+                value={evalSet.eval_config?.default_trajectory_match_type || 'in_order'}
                 onChange={(e) => onUpdate({ 
-                  default_trajectory_match_type: e.target.value as 'exact' | 'in_order' | 'any_order' 
+                  eval_config: { 
+                    ...evalSet.eval_config, 
+                    default_trajectory_match_type: e.target.value as 'exact' | 'in_order' | 'any_order' 
+                  }
                 })}
               >
-                <option value="exact">Exact</option>
-                <option value="in_order">In Order</option>
-                <option value="any_order">Any Order</option>
+                <option value="exact">Exact (same order, no extras)</option>
+                <option value="in_order">In Order (extras allowed between)</option>
+                <option value="any_order">Any Order (all present, any order)</option>
               </select>
+            </div>
+            <div className="form-field">
+              <label>Number of Runs</label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={evalSet.eval_config?.num_runs || 1}
+                onChange={(e) => onUpdate({ 
+                  eval_config: { 
+                    ...evalSet.eval_config, 
+                    num_runs: parseInt(e.target.value) || 1 
+                  }
+                })}
+              />
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Run each test multiple times for statistical reliability.
+              </p>
             </div>
           </div>
         </div>
@@ -1545,18 +2064,16 @@ function EvalSetEditor({
                   </div>
                   <div className="score-label">Pass Rate</div>
                 </div>
-                <div className="score-card">
-                  <div className="score-value">
-                    {formatScore(result.avg_response_score)}
+                {Object.entries(result.metric_avg_scores || {}).map(([metric, score]) => (
+                  <div key={metric} className="score-card">
+                    <div className="score-value">
+                      {formatScore(score)}
+                    </div>
+                    <div className="score-label">
+                      Avg {METRIC_INFO[metric as EvalMetricType]?.name || metric}
+                    </div>
                   </div>
-                  <div className="score-label">Avg Response Score</div>
-                </div>
-                <div className="score-card">
-                  <div className="score-value">
-                    {formatScore(result.avg_trajectory_score)}
-                  </div>
-                  <div className="score-label">Avg Trajectory Score</div>
-                </div>
+                ))}
               </div>
               
               <div style={{ marginTop: 16 }}>
@@ -1571,14 +2088,33 @@ function EvalSetEditor({
                 </div>
               </div>
               
+              {Object.entries(result.metric_pass_rates || {}).length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <h5 style={{ fontSize: 13, marginBottom: 8 }}>Metric Pass Rates</h5>
+                  {Object.entries(result.metric_pass_rates).map(([metric, rate]) => (
+                    <div key={metric} style={{ marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span>{METRIC_INFO[metric as EvalMetricType]?.name || metric}</span>
+                        <span>{formatScore(rate)}</span>
+                      </div>
+                      <div className="coverage-bar">
+                        <div 
+                          className={`coverage-fill ${rate >= 0.8 ? 'passed' : 'failed'}`}
+                          style={{ width: `${rate * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               <div style={{ marginTop: 16 }}>
                 <h5 style={{ fontSize: 13, marginBottom: 8 }}>Individual Results</h5>
                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <th style={{ textAlign: 'left', padding: '8px 4px' }}>Test Case</th>
-                      <th style={{ textAlign: 'center', padding: '8px 4px' }}>Response</th>
-                      <th style={{ textAlign: 'center', padding: '8px 4px' }}>Trajectory</th>
+                      <th style={{ textAlign: 'center', padding: '8px 4px' }}>Metrics</th>
                       <th style={{ textAlign: 'center', padding: '8px 4px' }}>Status</th>
                     </tr>
                   </thead>
@@ -1587,13 +2123,24 @@ function EvalSetEditor({
                       <tr key={cr.eval_case_id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '8px 4px' }}>{cr.eval_case_name}</td>
                         <td style={{ textAlign: 'center', padding: '8px 4px' }}>
-                          {formatScore(cr.overall_response_score)}
+                          {cr.metric_results.map((mr, idx) => (
+                            <span 
+                              key={idx}
+                              style={{
+                                fontSize: 10,
+                                padding: '2px 4px',
+                                marginRight: 4,
+                                borderRadius: 'var(--radius-sm)',
+                                background: mr.passed ? 'rgba(var(--success-rgb), 0.15)' : 'rgba(var(--error-rgb), 0.15)',
+                                color: mr.passed ? 'var(--success)' : 'var(--error)',
+                              }}
+                            >
+                              {formatScore(mr.score)}
+                            </span>
+                          ))}
                         </td>
                         <td style={{ textAlign: 'center', padding: '8px 4px' }}>
-                          {formatScore(cr.overall_trajectory_score)}
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '8px 4px' }}>
-                          {cr.overall_passed ? (
+                          {cr.passed ? (
                             <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                           ) : cr.error ? (
                             <AlertCircle size={14} style={{ color: 'var(--warning)' }} />
@@ -1645,7 +2192,7 @@ function EvalSetEditor({
                     }}
                   >
                     {caseResult ? (
-                      caseResult.overall_passed ? (
+                      caseResult.passed ? (
                         <CheckCircle size={14} style={{ color: 'var(--success)' }} />
                       ) : (
                         <XCircle size={14} style={{ color: 'var(--error)' }} />
