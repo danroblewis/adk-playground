@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
   CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
-  MessageSquare, Wrench, RefreshCw, Download, Upload, ExternalLink
+  MessageSquare, RefreshCw, Download, Upload, ExternalLink
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
@@ -214,11 +214,6 @@ export default function EvalPanel() {
   const [error, setError] = useState<string | null>(null);
   
   // Quick eval state
-  const [quickEvalMessage, setQuickEvalMessage] = useState('');
-  const [quickEvalExpectedResponse, setQuickEvalExpectedResponse] = useState('');
-  const [quickEvalThreshold, setQuickEvalThreshold] = useState(0.7);
-  const [quickEvalResult, setQuickEvalResult] = useState<EvalCaseResult | null>(null);
-  
   // Load eval sets when project changes
   useEffect(() => {
     if (project?.id) {
@@ -471,34 +466,6 @@ export default function EvalPanel() {
         const next = new Set(prev);
         next.delete(evalSetId);
         caseIds.forEach(id => next.delete(id));
-        return next;
-      });
-    }
-  };
-  
-  // Run quick eval
-  const runQuickEval = async () => {
-    if (!project?.id || !quickEvalMessage) return;
-    
-    setRunning(prev => new Set([...prev, 'quick_eval']));
-    setQuickEvalResult(null);
-    
-    try {
-      const response = await api.post(`/projects/${project.id}/quick-eval`, {
-        user_message: quickEvalMessage,
-        expected_response: quickEvalExpectedResponse || undefined,
-        expected_tool_calls: [],
-        response_threshold: quickEvalThreshold,
-        trajectory_match_type: 'in_order',
-      });
-      
-      setQuickEvalResult(response.result);
-    } catch (err: any) {
-      setError(err.message || 'Failed to run quick eval');
-    } finally {
-      setRunning(prev => {
-        const next = new Set(prev);
-        next.delete('quick_eval');
         return next;
       });
     }
@@ -1005,6 +972,53 @@ export default function EvalPanel() {
           border-radius: var(--radius-sm) var(--radius-sm) 0 0;
           border-bottom-color: var(--accent-primary);
         }
+        
+        .toggle-switch {
+          position: relative;
+          display: inline-block;
+          width: 32px;
+          height: 18px;
+          flex-shrink: 0;
+        }
+        
+        .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        
+        .toggle-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: var(--bg-tertiary);
+          transition: 0.2s;
+          border-radius: 18px;
+        }
+        
+        .toggle-slider:before {
+          position: absolute;
+          content: "";
+          height: 12px;
+          width: 12px;
+          left: 3px;
+          bottom: 3px;
+          background-color: var(--text-muted);
+          transition: 0.2s;
+          border-radius: 50%;
+        }
+        
+        .toggle-switch input:checked + .toggle-slider {
+          background-color: var(--accent-primary);
+        }
+        
+        .toggle-switch input:checked + .toggle-slider:before {
+          transform: translateX(14px);
+          background-color: var(--bg-primary);
+        }
       `}</style>
       
       <aside className="eval-sidebar">
@@ -1202,99 +1216,6 @@ export default function EvalPanel() {
           />
         ) : (
           <div className="editor-content">
-            <div className="quick-eval">
-              <h4><Target size={16} /> Quick Evaluation</h4>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-                Test a single message without creating a full test case.
-              </p>
-              
-              <div className="form-section">
-                <label>User Query</label>
-                <textarea
-                  value={quickEvalMessage}
-                  onChange={(e) => setQuickEvalMessage(e.target.value)}
-                  placeholder="Enter a message to send to the agent..."
-                  style={{ minHeight: 60 }}
-                />
-              </div>
-              
-              <div className="form-section">
-                <label>Expected Response (for fuzzy matching)</label>
-                <textarea
-                  value={quickEvalExpectedResponse}
-                  onChange={(e) => setQuickEvalExpectedResponse(e.target.value)}
-                  placeholder="Expected text in the response (uses ROUGE-1 fuzzy matching)..."
-                  style={{ minHeight: 60 }}
-                />
-              </div>
-              
-              <div className="form-row">
-                <div className="form-field">
-                  <label>Response Threshold</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    value={quickEvalThreshold}
-                    onChange={(e) => setQuickEvalThreshold(parseFloat(e.target.value) || 0.7)}
-                  />
-                </div>
-                <div className="form-field" style={{ display: 'flex', alignItems: 'flex-end' }}>
-                  <button
-                    className="btn btn-primary"
-                    onClick={runQuickEval}
-                    disabled={!quickEvalMessage || running.has('quick_eval')}
-                  >
-                    {running.has('quick_eval') ? (
-                      <><Clock size={14} className="spinning" /> Running...</>
-                    ) : (
-                      <><Play size={14} /> Run Quick Eval</>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
-              {quickEvalResult && (
-                <div className="result-panel" style={{ marginTop: 16, borderRadius: 'var(--radius-md)' }}>
-                  <div className={`result-header ${quickEvalResult.passed ? 'passed' : 'failed'}`}>
-                    {quickEvalResult.passed ? (
-                      <><CheckCircle size={18} /> <strong>Passed</strong></>
-                    ) : (
-                      <><XCircle size={18} /> <strong>Failed</strong></>
-                    )}
-                    <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 12 }}>
-                      {quickEvalResult.duration_ms.toFixed(0)}ms
-                    </span>
-                  </div>
-                  
-                  {quickEvalResult.metric_results.length > 0 && (
-                    <div className="result-scores">
-                      {quickEvalResult.metric_results.map((mr, idx) => (
-                        <div key={idx} className="score-card">
-                          <div className={`score-value ${mr.passed ? 'passed' : 'failed'}`}>
-                            {formatScore(mr.score)}
-                          </div>
-                          <div className="score-label">
-                            {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {quickEvalResult.invocation_results[0] && (
-                    <div className="result-details">
-                      <h5>Actual Response</h5>
-                      <div className="detail-box">
-                        {quickEvalResult.invocation_results[0].actual_response || '(no response)'}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            
             <div className="empty-state">
               <FileCheck size={48} />
               <p>Select a test case to edit<br />or create a new one</p>
@@ -1497,9 +1418,9 @@ function EvalCaseEditor({
                   value={(() => {
                     // Pre-populate with app state_keys if initial_state is empty
                     const isEmpty = !localCase.initial_state || Object.keys(localCase.initial_state).length === 0;
-                    if (isEmpty && project?.app_config?.state_keys?.length > 0) {
+                    if (isEmpty && project?.app?.state_keys && project.app.state_keys.length > 0) {
                       const prePopulated: Record<string, any> = {};
-                      project.app_config.state_keys.forEach(sk => {
+                      project.app.state_keys.forEach((sk: any) => {
                         if (sk.default_value !== undefined) {
                           prePopulated[sk.name] = sk.default_value;
                         } else {
@@ -1701,45 +1622,41 @@ function EvalCaseEditor({
         {activeTab === 'rubrics' && (
           <>
             {/* LLM Judge Metrics */}
-            <div className="form-section">
-              <h4>LLM Judge Metrics</h4>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Enable metrics and set pass thresholds. Scores must be ≥ threshold to pass.
-              </p>
-              
+            <div className="form-section" style={{ marginBottom: 16 }}>
               {[
-                { metric: 'safety_v1', label: 'Safety', desc: 'harmless response', range: '0-1', default: 0.8 },
-                { metric: 'hallucinations_v1', label: 'Hallucinations', desc: 'no false claims', range: '0-1', default: 0.8 },
-                { metric: 'response_evaluation_score', label: 'Coherence', desc: 'quality score', range: '1-5', default: 3.5 },
-                { metric: 'final_response_match_v2', label: 'Semantic Match', desc: 'vs expected', range: '0-1', default: 0.7 },
-              ].map(({ metric, label, desc, range, default: defaultVal }) => {
+                { metric: 'safety_v1', label: 'Safety', default: 0.8, max: 1 },
+                { metric: 'hallucinations_v1', label: 'Hallucinations', default: 0.8, max: 1 },
+                { metric: 'response_evaluation_score', label: 'Coherence', default: 3.5, max: 5 },
+                { metric: 'final_response_match_v2', label: 'Semantic Match', default: 0.7, max: 1 },
+              ].map(({ metric, label, default: defaultVal, max }) => {
                 const enabled = (localCase.enabled_metrics || []).find(em => em.metric === metric);
                 const threshold = enabled?.threshold ?? defaultVal;
                 
                 return (
-                  <div key={metric} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, padding: '4px 0' }}>
-                    <input
-                      type="checkbox"
-                      checked={!!enabled}
-                      onChange={(e) => {
-                        const metrics = [...(localCase.enabled_metrics || [])];
-                        if (e.target.checked) {
-                          metrics.push({ metric: metric as EvalMetricType, threshold: defaultVal });
-                        } else {
-                          const idx = metrics.findIndex(m => m.metric === metric);
-                          if (idx !== -1) metrics.splice(idx, 1);
-                        }
-                        saveCase({ enabled_metrics: metrics });
-                      }}
-                      style={{ margin: 0 }}
-                    />
-                    <span style={{ width: 100, fontSize: 12, fontWeight: 500 }}>{label}</span>
-                    <span style={{ flex: 1, fontSize: 11, color: 'var(--text-muted)' }}>{desc}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>≥</span>
+                  <div key={metric} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <label className="toggle-switch" style={{ margin: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={!!enabled}
+                        onChange={(e) => {
+                          const metrics = [...(localCase.enabled_metrics || [])];
+                          if (e.target.checked) {
+                            metrics.push({ metric: metric as EvalMetricType, threshold: defaultVal });
+                          } else {
+                            const idx = metrics.findIndex(m => m.metric === metric);
+                            if (idx !== -1) metrics.splice(idx, 1);
+                          }
+                          saveCase({ enabled_metrics: metrics });
+                        }}
+                      />
+                      <span className="toggle-slider" />
+                    </label>
+                    <span style={{ fontSize: 12, opacity: enabled ? 1 : 0.5, minWidth: 100 }}>{label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', opacity: enabled ? 1 : 0.4 }}>≥</span>
                     <input
                       type="number"
-                      min={metric === 'response_evaluation_score' ? 1 : 0}
-                      max={metric === 'response_evaluation_score' ? 5 : 1}
+                      min={max === 5 ? 1 : 0}
+                      max={max}
                       step={0.1}
                       value={threshold}
                       disabled={!enabled}
@@ -1751,9 +1668,8 @@ function EvalCaseEditor({
                           saveCase({ enabled_metrics: metrics });
                         }
                       }}
-                      style={{ width: 50, textAlign: 'center', opacity: enabled ? 1 : 0.4 }}
+                      style={{ width: 45, textAlign: 'center', opacity: enabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
                     />
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)', width: 30 }}>({range})</span>
                   </div>
                 );
               })}
