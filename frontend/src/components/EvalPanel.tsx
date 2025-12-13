@@ -101,6 +101,7 @@ interface EvalConfig {
   metrics: EvalMetricConfig[];
   default_trajectory_match_type: 'exact' | 'in_order' | 'any_order';
   num_runs: number;
+  judge_model?: string;  // LLM judge model - if empty, uses App's default model
 }
 
 // LLM Judges that can be enabled per test case
@@ -2162,6 +2163,25 @@ function EvalSetEditor({
             onChange={(e) => onUpdate({ description: e.target.value })}
             placeholder="Description of this evaluation set..."
             style={{ minHeight: 40 }}
+          />
+        </div>
+        
+        <div className="form-section">
+          <h4>LLM Judge Model</h4>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Model used for LLM-judged metrics (safety, hallucinations, etc.). Leave empty to use App's default model.
+          </p>
+          <input
+            type="text"
+            value={evalSet.eval_config?.judge_model || ''}
+            onChange={(e) => onUpdate({ 
+              eval_config: { 
+                ...evalSet.eval_config, 
+                judge_model: e.target.value 
+              } 
+            })}
+            placeholder="e.g., gemini-2.0-flash (leave empty for App default)"
+            style={{ width: '100%', maxWidth: 400 }}
           />
         </div>
         

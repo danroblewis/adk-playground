@@ -508,6 +508,8 @@ class EvalConfig(BaseModel):
     ])
     default_trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
     num_runs: int = 1
+    # LLM judge model - if empty, uses the App's default model
+    judge_model: str = ""
 
 
 class EvalSet(BaseModel):
