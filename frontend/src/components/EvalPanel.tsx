@@ -1688,9 +1688,9 @@ function TestResultViewer({
                           background: metric.error 
                             ? 'rgba(255, 193, 7, 0.1)' 
                             : metric.passed 
-                              ? 'rgba(var(--success-rgb), 0.1)' 
+                              ? 'rgba(var(--success-rgb), 0.05)' 
                               : 'rgba(var(--error-rgb), 0.1)',
-                          border: `1px solid ${metric.error ? 'var(--warning)' : metric.passed ? 'var(--success)' : 'var(--error)'}`,
+                          border: `1px solid ${metric.error ? 'var(--warning)' : metric.passed ? 'var(--border-color)' : 'var(--error)'}`,
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
