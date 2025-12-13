@@ -1431,7 +1431,7 @@ function TestResultViewer({
   onClose: () => void;
 }) {
   const { project } = useStore();
-  const [showOnlyFailed, setShowOnlyFailed] = useState(false);
+  const [showOnlyFailed, setShowOnlyFailed] = useState(true);
   const [expandedCases, setExpandedCases] = useState<Set<string>>(new Set());
   const caseResults = run.case_results || [];
   const passedCases = caseResults.filter((c: any) => c.passed).length;
