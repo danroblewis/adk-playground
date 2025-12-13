@@ -135,9 +135,11 @@ export default function ProjectEditor() {
     window.dispatchEvent(new CustomEvent('eval-tests-started'));
     
     try {
-      // Run all eval sets
+      // Run all eval sets and collect results
       let totalPassed = 0;
       let totalCases = 0;
+      const allCaseResults: any[] = [];
+      const evalSetNames: string[] = [];
       
       for (const evalSet of project.eval_sets || []) {
         if (evalSet.eval_cases.length === 0) continue;
@@ -151,12 +153,34 @@ export default function ProjectEditor() {
           totalPassed += response.result.passed_cases || 0;
           totalCases += response.result.total_cases || 0;
           
-          // Save to history
-          try {
-            await api.post(`/projects/${project.id}/eval-history`, response.result);
-          } catch (err) {
-            console.warn('Failed to save eval run to history:', err);
+          // Collect case results from this eval set
+          if (response.result.case_results) {
+            allCaseResults.push(...response.result.case_results);
           }
+          evalSetNames.push(response.result.eval_set_name || evalSet.name || evalSet.id);
+        }
+      }
+      
+      // Save combined batch result to history
+      if (allCaseResults.length > 0) {
+        const batchResult = {
+          id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+          eval_set_id: 'batch',  // Special marker for batch runs
+          eval_set_name: evalSetNames.length > 1 
+            ? `All Tests (${evalSetNames.length} sets)` 
+            : evalSetNames[0] || 'All Tests',
+          started_at: Date.now() / 1000,
+          completed_at: Date.now() / 1000,
+          total_cases: totalCases,
+          passed_cases: totalPassed,
+          failed_cases: totalCases - totalPassed,
+          case_results: allCaseResults,
+        };
+        
+        try {
+          await api.post(`/projects/${project.id}/eval-history`, batchResult);
+        } catch (err) {
+          console.warn('Failed to save batch eval run to history:', err);
         }
       }
       

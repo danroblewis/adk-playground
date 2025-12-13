@@ -247,7 +247,13 @@ export default function EvalPanel() {
         setCaseResultsMap(newCaseResults);
       }
       
-      if (run?.eval_set_id) {
+      // For batch runs (eval_set_id === 'batch'), expand all eval sets
+      // For single set runs, expand just that set
+      if (run?.eval_set_id === 'batch') {
+        // Batch run - expand all sets and don't select a specific one
+        setExpandedSets(new Set(evalSets.map(es => es.id)));
+        setSelectedSetId(null);
+      } else if (run?.eval_set_id) {
         const newSetResults = new Map<string, EvalSetResult>();
         newSetResults.set(run.eval_set_id, run);
         setSetResultsMap(newSetResults);
