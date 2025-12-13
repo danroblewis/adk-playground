@@ -22,6 +22,7 @@ adk-playground = "adk_playground:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
