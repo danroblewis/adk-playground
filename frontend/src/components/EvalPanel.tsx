@@ -1583,9 +1583,6 @@ function TestResultViewer({
           >
             <Link2 size={14} />
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={onClose}>
-            ← Back to Editor
-          </button>
         </div>
       </div>
               
