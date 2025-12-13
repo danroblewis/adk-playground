@@ -556,6 +556,8 @@ class EvalCaseResult(BaseModel):
     """Result of running a single evaluation case."""
     eval_case_id: str
     eval_case_name: str
+    eval_set_id: str = ""
+    eval_set_name: str = ""
     session_id: str
     metric_results: List[MetricResult] = Field(default_factory=list)
     rubric_results: List[Dict[str, Any]] = Field(default_factory=list)

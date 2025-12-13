@@ -321,6 +321,8 @@ class EvaluationService:
                 eval_case=eval_case,
                 eval_config=eval_set.eval_config,
                 agent_id=agent_id,
+                eval_set_id=eval_set.id,
+                eval_set_name=eval_set.name,
             )
             result.case_results.append(case_result)
             
@@ -367,6 +369,8 @@ class EvaluationService:
         eval_case: EvalCase,
         eval_config: Optional[EvalConfig] = None,
         agent_id: Optional[str] = None,
+        eval_set_id: str = "",
+        eval_set_name: str = "",
     ) -> EvalCaseResult:
         """Run a single evaluation case."""
         # Use provided config or default
@@ -387,6 +391,8 @@ class EvaluationService:
         result = EvalCaseResult(
             eval_case_id=eval_case.id,
             eval_case_name=eval_case.name,
+            eval_set_id=eval_set_id,
+            eval_set_name=eval_set_name,
             session_id="",
             started_at=time.time(),
         )

@@ -1800,6 +1800,18 @@ function TestResultViewer({
                   ) : (
                     <XCircle size={16} style={{ color: 'var(--error)' }} />
                   )}
+                  {caseResult.eval_set_name && run?.eval_set_id === 'batch' && (
+                    <span style={{ 
+                      fontSize: 10, 
+                      color: 'var(--text-muted)', 
+                      background: 'var(--bg-tertiary)',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      marginRight: 6,
+                    }}>
+                      {caseResult.eval_set_name}
+                    </span>
+                  )}
                   {caseResult.case_name || `Case ${index + 1}`}
                   <span style={{ 
                     marginLeft: 10, 

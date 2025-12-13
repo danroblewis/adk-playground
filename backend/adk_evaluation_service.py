@@ -143,6 +143,8 @@ class AdkEvaluationService:
         self,
         adk_result: AdkEvalCaseResult,
         eval_case: EvalCase,
+        eval_set_id: str = "",
+        eval_set_name: str = "",
     ) -> EvalCaseResult:
         """Convert ADK's EvalCaseResult to our EvalCaseResult format."""
         # Extract invocation results
@@ -208,6 +210,8 @@ class AdkEvaluationService:
         return EvalCaseResult(
             eval_case_id=eval_case.id,
             eval_case_name=eval_case.name,
+            eval_set_id=eval_set_id,
+            eval_set_name=eval_set_name,
             passed=adk_result.final_eval_status == EvalStatus.PASSED,
             invocation_results=invocation_results,
             metric_results=metric_results,
@@ -284,7 +288,9 @@ class AdkEvaluationService:
                 None
             )
             if orig_case:
-                result = self._convert_adk_result_to_ours(adk_result, orig_case)
+                result = self._convert_adk_result_to_ours(
+                    adk_result, orig_case, eval_set.id, eval_set.name
+                )
                 case_results.append(result)
                 if result.passed:
                     passed_count += 1
@@ -308,6 +314,8 @@ class AdkEvaluationService:
         project: Project,
         eval_case: EvalCase,
         eval_config: EvalConfig,
+        eval_set_id: str = "",
+        eval_set_name: str = "",
     ) -> EvalCaseResult:
         """Run a single evaluation case using ADK LocalEvalService."""
         if not ADK_EVAL_AVAILABLE:
@@ -367,7 +375,9 @@ class AdkEvaluationService:
         )
         
         async for adk_result in eval_service.evaluate(evaluate_request):
-            return self._convert_adk_result_to_ours(adk_result, eval_case)
+            return self._convert_adk_result_to_ours(
+                adk_result, eval_case, eval_set_id, eval_set_name
+            )
         
         raise RuntimeError("No evaluation results generated")
     

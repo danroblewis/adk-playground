@@ -2697,6 +2697,8 @@ async def run_eval_case(
                     project=project,
                     eval_case=eval_case,
                     eval_config=eval_set.eval_config,
+                    eval_set_id=eval_set.id,
+                    eval_set_name=eval_set.name,
                 )
                 return {"result": result.model_dump(mode="json")}
             except Exception as adk_err:
@@ -2709,6 +2711,8 @@ async def run_eval_case(
             eval_case=eval_case,
             eval_config=eval_set.eval_config,
             agent_id=request.agent_id,
+            eval_set_id=eval_set.id,
+            eval_set_name=eval_set.name,
         )
         
         return {"result": result.model_dump(mode="json")}
