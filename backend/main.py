@@ -477,6 +477,62 @@ async def list_builtin_tools():
 
 
 # ============================================================================
+# Model Listing
+# ============================================================================
+
+class ListModelsRequest(BaseModel):
+    """Request to list available models."""
+    google_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    groq_api_key: Optional[str] = None
+    check_ollama: bool = True
+
+
+@app.post("/api/models")
+async def list_available_models(request: ListModelsRequest):
+    """List available models from all configured providers.
+    
+    Pass API keys to fetch models from each provider's API.
+    Keys can also come from environment variables.
+    """
+    from model_service import list_all_models
+    
+    providers = await list_all_models(
+        google_api_key=request.google_api_key,
+        anthropic_api_key=request.anthropic_api_key,
+        openai_api_key=request.openai_api_key,
+        groq_api_key=request.groq_api_key,
+        check_ollama=request.check_ollama,
+    )
+    
+    return {"providers": {k: v.model_dump() for k, v in providers.items()}}
+
+
+@app.get("/api/models/{project_id}")
+async def list_models_for_project(project_id: str):
+    """List available models using the project's configured API keys."""
+    from model_service import list_all_models
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get API keys from project's env_vars
+    env_vars = project.app.env_vars or {}
+    
+    providers = await list_all_models(
+        google_api_key=env_vars.get("GOOGLE_API_KEY") or env_vars.get("GEMINI_API_KEY"),
+        anthropic_api_key=env_vars.get("ANTHROPIC_API_KEY"),
+        openai_api_key=env_vars.get("OPENAI_API_KEY"),
+        groq_api_key=env_vars.get("GROQ_API_KEY"),
+        check_ollama=True,
+    )
+    
+    return {"providers": {k: v.model_dump() for k, v in providers.items()}}
+
+
+# ============================================================================
 # MCP Server Testing
 # ============================================================================
 
