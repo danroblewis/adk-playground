@@ -546,6 +546,8 @@ class InvocationResult(BaseModel):
     # Token usage for this invocation
     input_tokens: int = 0
     output_tokens: int = 0
+    # Session ID from the agent run (for "View Session" functionality)
+    session_id: Optional[str] = None
 
 
 class EvalCaseResult(BaseModel):
