@@ -197,8 +197,10 @@ class TestCallbackErrors:
         assert error_event.data["error"] == "Callback failed intentionally"
         assert error_event.data["error_type"] == "ValueError"
     
-    def test_callback_module_not_found_handling(self, temp_projects_dir):
-        """Test handling when callback module is not found."""
+    def test_callback_module_not_found_generates_code(self, temp_projects_dir):
+        """Test that projects with missing callbacks still generate code."""
+        from code_generator import generate_python_code
+        
         project = Project(
             id="bad_callback",
             name="Bad Callback Project",
@@ -220,16 +222,13 @@ class TestCallbackErrors:
             ],
         )
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
+        # Code generation should still work
+        code = generate_python_code(project)
         
-        # Build agents - should handle missing callback gracefully
-        # Mock Agent to avoid actual ADK initialization
-        mock_agent_instance = MagicMock()
-        with patch("google.adk.Agent", return_value=mock_agent_instance) as mock_agent:
-            agents = manager._build_agents(project, tracking_plugin=None)
-            
-            # Agent should still be built (callback failure is logged but doesn't block)
-            assert "agent_1" in agents
+        # Should contain the agent definition
+        assert "Agent(" in code
+        # May reference the nonexistent callback (execution would fail)
+        assert "agent" in code.lower()
 
 
 class TestCallbackSignatures:

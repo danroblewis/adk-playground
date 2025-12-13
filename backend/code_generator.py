@@ -480,7 +480,9 @@ def generate_python_code(project: Project) -> str:
     lines.append("")
     lines.append("# App Configuration")
     lines.append("app = App(")
-    lines.append(f'    name="{project.app.name}",')
+    # Sanitize app name to be a valid identifier
+    safe_app_name = "".join(c if c.isalnum() or c == "_" else "_" for c in project.app.name)
+    lines.append(f'    name="{safe_app_name}",')
     lines.append(f"    root_agent={root_agent_var_name},")
     
     if project.app.plugins:

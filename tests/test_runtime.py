@@ -236,40 +236,34 @@ class TestRunAgent:
         assert session_id in manager.sessions
         assert manager.sessions[session_id].status == "running"
     
-    @pytest.mark.asyncio
-    async def test_build_agents_includes_all_configured(self, temp_projects_dir, sequential_agent_project):
-        """Test that _build_agents includes all configured agents."""
+    def test_execute_generated_code_produces_app(self, temp_projects_dir, simple_project):
+        """Test that _execute_generated_code produces an app."""
         manager = RuntimeManager(projects_dir=str(temp_projects_dir))
         
-        # Mock Agent and SequentialAgent to avoid ADK initialization
-        with patch("google.adk.Agent") as mock_agent, \
-             patch("google.adk.agents.SequentialAgent") as mock_seq:
-            mock_agent.return_value = MagicMock()
-            mock_seq.return_value = MagicMock()
+        # Prepare temp dir for imports
+        manager._prepare_temp_dir(simple_project, "test_session")
+        
+        try:
+            app = manager._execute_generated_code(simple_project)
             
-            agents = manager._build_agents(sequential_agent_project, tracking_plugin=None)
-            
-            # All agents should be built
-            assert "seq_agent" in agents
-            assert "agent_1" in agents
-            assert "agent_2" in agents
+            # App should exist
+            assert app is not None
+            # App name is sanitized to be a valid identifier
+            assert app.name == "Test_App"
+            assert app.root_agent is not None
+        finally:
+            manager._cleanup_temp_dir("test_session")
     
-    @pytest.mark.asyncio
-    async def test_agent_id_validation(self, temp_projects_dir, simple_project):
-        """Test that agent ID validation works correctly."""
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
+    def test_generated_code_includes_all_agents(self, temp_projects_dir, sequential_agent_project):
+        """Test that generated code includes all configured agents."""
+        from code_generator import generate_python_code
         
-        # Mock Agent to avoid ADK initialization
-        with patch("google.adk.Agent") as mock_agent:
-            mock_agent.return_value = MagicMock()
-            
-            agents = manager._build_agents(simple_project, tracking_plugin=None)
-            
-            # Valid agent ID should exist
-            assert "agent_1" in agents
-            
-            # Invalid agent ID should not exist
-            assert "nonexistent_agent" not in agents
+        code = generate_python_code(sequential_agent_project)
+        
+        # All agents should be in the generated code
+        assert "sequential_controller" in code
+        assert "first_agent" in code
+        assert "second_agent" in code
     
     @pytest.mark.asyncio
     async def test_session_reuse_logic(self, temp_projects_dir, simple_project):

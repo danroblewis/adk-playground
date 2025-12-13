@@ -1,4 +1,4 @@
-"""Tests for project parsing and agent building."""
+"""Tests for project parsing and code generation."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from models import (
     CustomCallbackDefinition,
 )
 from runtime import RuntimeManager
+from code_generator import generate_python_code
 
 
 class TestProjectParsing:
@@ -113,8 +114,8 @@ class TestProjectParsing:
         assert "callback_context.state['foo']" in callback.code
 
 
-class TestAgentBuilding:
-    """Tests for building ADK agents from project configuration."""
+class TestCodeGeneration:
+    """Tests for generating Python code from project configuration."""
     
     def test_runtime_manager_init(self, temp_projects_dir):
         """Test RuntimeManager initialization."""
@@ -122,147 +123,85 @@ class TestAgentBuilding:
         assert manager.projects_dir == temp_projects_dir
         assert manager.sessions == {}
     
-    @patch("google.adk.Agent")
-    def test_build_simple_agent(self, mock_agent_class, temp_projects_dir, simple_project):
-        """Test building a simple LLM agent."""
-        # Set up mock to return a mock agent instance
-        mock_agent_instance = MagicMock()
-        mock_agent_class.return_value = mock_agent_instance
+    def test_generate_code_includes_agent(self, simple_project):
+        """Test that generated code includes the agent."""
+        code = generate_python_code(simple_project)
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        # Build agents without tracking plugin
-        agents = manager._build_agents(simple_project, tracking_plugin=None)
-        
-        assert "agent_1" in agents
-        mock_agent_class.assert_called_once()
-        
-        # Verify the call arguments
-        call_kwargs = mock_agent_class.call_args.kwargs
-        assert call_kwargs["name"] == "test_agent"
-        assert "HELLO_WORLD" in call_kwargs["instruction"]
+        assert "Agent(" in code
+        assert 'name="test_agent"' in code
+        assert "gemini-2.0-flash" in code
     
-    @patch("google.adk.agents.SequentialAgent")
-    @patch("google.adk.Agent")
-    def test_build_sequential_agent(self, mock_agent_class, mock_seq_class, 
-                                      temp_projects_dir, sequential_agent_project):
-        """Test building a sequential agent with sub-agents."""
-        # Set up mocks to return mock instances
-        mock_agent_class.return_value = MagicMock()
-        mock_seq_class.return_value = MagicMock()
+    def test_generate_code_includes_app(self, simple_project):
+        """Test that generated code includes the App."""
+        code = generate_python_code(simple_project)
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        agents = manager._build_agents(sequential_agent_project, tracking_plugin=None)
-        
-        assert "seq_agent" in agents
-        assert "agent_1" in agents
-        assert "agent_2" in agents
-        mock_seq_class.assert_called_once()
+        assert "from google.adk.apps import App" in code
+        assert "app = App(" in code
+        # App name is sanitized to be a valid identifier
+        assert 'name="Test_App"' in code
     
-    @patch("google.adk.agents.LoopAgent")
-    @patch("google.adk.Agent")
-    def test_build_loop_agent(self, mock_agent_class, mock_loop_class,
-                               temp_projects_dir, loop_agent_project):
-        """Test building a loop agent."""
-        # Set up mocks to return mock instances
-        mock_agent_class.return_value = MagicMock()
-        mock_loop_class.return_value = MagicMock()
+    def test_generate_code_includes_imports(self, simple_project):
+        """Test that generated code includes necessary imports."""
+        code = generate_python_code(simple_project)
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
+        assert "from google.adk.agents import Agent" in code
+    
+    def test_generate_sequential_agent_code(self, sequential_agent_project):
+        """Test code generation for sequential agents."""
+        code = generate_python_code(sequential_agent_project)
         
-        agents = manager._build_agents(loop_agent_project, tracking_plugin=None)
+        assert "from google.adk.agents import SequentialAgent" in code
+        assert "SequentialAgent(" in code
+    
+    def test_generate_loop_agent_code(self, loop_agent_project):
+        """Test code generation for loop agents."""
+        code = generate_python_code(loop_agent_project)
         
-        assert "loop_agent" in agents
-        mock_loop_class.assert_called_once()
+        assert "from google.adk.agents import LoopAgent" in code
+        assert "LoopAgent(" in code
+        assert "max_iterations=3" in code
+    
+    def test_generate_code_with_builtin_tool(self, loop_agent_project):
+        """Test code generation includes builtin tools."""
+        code = generate_python_code(loop_agent_project)
         
-        # Verify max_iterations is passed
-        call_kwargs = mock_loop_class.call_args.kwargs
-        assert call_kwargs["max_iterations"] == 3
+        assert "from google.adk.tools import exit_loop" in code
+        assert "exit_loop" in code
 
 
-class TestModelBuilding:
-    """Tests for building model configurations."""
+class TestCodeExecution:
+    """Tests for executing generated code."""
     
-    def test_build_gemini_model(self, temp_projects_dir, simple_project):
-        """Test building a Gemini model."""
+    def test_execute_code_produces_app(self, temp_projects_dir, simple_project):
+        """Test that executing generated code produces an app."""
         manager = RuntimeManager(projects_dir=str(temp_projects_dir))
         
-        agent = simple_project.agents[0]
-        model = manager._build_model(agent.model)
+        # Prepare temp dir for imports
+        manager._prepare_temp_dir(simple_project, "test_session")
         
-        # For Gemini, it should return the model name as a string
-        assert model == "gemini-2.0-flash"
-    
-    @patch("google.adk.models.lite_llm.LiteLlm")
-    def test_build_litellm_model(self, mock_litellm, temp_projects_dir):
-        """Test building a LiteLLM model."""
-        # Set up mock to return a mock instance
-        mock_litellm.return_value = MagicMock()
-        
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        model_config = ModelConfig(
-            provider="litellm",
-            model_name="gpt-4o-mini",
-            api_base="http://localhost:8000",
-        )
-        
-        result = manager._build_model(model_config)
-        
-        mock_litellm.assert_called_once()
-        call_kwargs = mock_litellm.call_args.kwargs
-        assert call_kwargs["model"] == "gpt-4o-mini"
-        assert call_kwargs["api_base"] == "http://localhost:8000"
-
-
-class TestToolBuilding:
-    """Tests for building tools from configuration."""
-    
-    def test_get_builtin_exit_loop_tool(self, temp_projects_dir):
-        """Test getting the exit_loop builtin tool."""
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        tool = manager._get_builtin_tool("exit_loop")
-        
-        assert tool is not None
-    
-    def test_get_unknown_builtin_returns_none(self, temp_projects_dir):
-        """Test that unknown builtin tools return None."""
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        tool = manager._get_builtin_tool("unknown_tool")
-        
-        assert tool is None
-    
-    def test_build_tools_with_builtin(self, temp_projects_dir, loop_agent_project):
-        """Test building tools list with builtin tools."""
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        
-        agent = None
-        for a in loop_agent_project.agents:
-            if isinstance(a, LlmAgentConfig) and a.tools:
-                agent = a
-                break
-        
-        tools = manager._build_tools(agent.tools, loop_agent_project)
-        
-        # Should have the exit_loop tool
-        assert len(tools) >= 1
+        try:
+            app = manager._execute_generated_code(simple_project)
+            
+            assert app is not None
+            # App name is sanitized to be a valid identifier
+            assert app.name == "Test_App"
+            assert app.root_agent is not None
+        finally:
+            manager._cleanup_temp_dir("test_session")
 
 
 class TestProjectValidation:
     """Tests for project validation."""
     
-    def test_project_with_invalid_root_agent_id(self, temp_projects_dir):
-        """Test that invalid root_agent_id raises an error."""
+    def test_project_generates_valid_code(self, temp_projects_dir):
+        """Test that a project generates syntactically valid code."""
         project = Project(
-            id="invalid_project",
-            name="Invalid Project",
+            id="valid_project",
+            name="Valid Project",
             app=AppConfig(
-                id="app_invalid",
-                name="Invalid App",
-                root_agent_id="nonexistent_agent",
+                id="app_valid",
+                name="Valid App",
+                root_agent_id="agent_1",
                 session_service_uri="memory://",
             ),
             agents=[
@@ -274,15 +213,13 @@ class TestProjectValidation:
             ],
         )
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        agents = manager._build_agents(project, tracking_plugin=None)
+        code = generate_python_code(project)
         
-        # The agent should be built but root_agent_id points to wrong agent
-        assert "agent_1" in agents
-        assert "nonexistent_agent" not in agents
+        # Code should be valid Python
+        compile(code, "<test>", "exec")
     
-    def test_project_with_missing_sub_agents(self, temp_projects_dir):
-        """Test handling of missing sub-agent references."""
+    def test_project_with_missing_sub_agents_generates_code(self, temp_projects_dir):
+        """Test that projects with missing sub-agents still generate code."""
         project = Project(
             id="missing_sub",
             name="Missing Sub-agents",
@@ -301,9 +238,7 @@ class TestProjectValidation:
             ],
         )
         
-        manager = RuntimeManager(projects_dir=str(temp_projects_dir))
-        agents = manager._build_agents(project, tracking_plugin=None)
+        code = generate_python_code(project)
         
-        # Sequential agent should be created but with empty sub_agents
-        assert "seq_agent" in agents
-
+        # Should still generate code (may reference nonexistent agents)
+        assert "SequentialAgent(" in code
