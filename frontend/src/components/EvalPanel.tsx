@@ -1432,12 +1432,25 @@ function TestResultViewer({
 }) {
   const { project } = useStore();
   const [showOnlyFailed, setShowOnlyFailed] = useState(false);
+  const [expandedCases, setExpandedCases] = useState<Set<string>>(new Set());
   const caseResults = run.case_results || [];
   const passedCases = caseResults.filter((c: any) => c.passed).length;
   const failedCases = caseResults.filter((c: any) => !c.passed).length;
   const displayedCases = showOnlyFailed 
     ? caseResults.filter((c: any) => !c.passed) 
     : caseResults;
+  
+  const toggleCaseExpanded = (caseId: string) => {
+    setExpandedCases(prev => {
+      const next = new Set(prev);
+      if (next.has(caseId)) {
+        next.delete(caseId);
+      } else {
+        next.add(caseId);
+      }
+      return next;
+    });
+  };
   
   const viewSession = (sessionId: string) => {
     if (sessionId && project) {
@@ -1644,42 +1657,77 @@ function TestResultViewer({
       </div>
               
       <div className="result-cases">
-        {displayedCases.map((caseResult: any, index: number) => (
-          <div key={caseResult.case_id || index} className="result-case">
-            <div className="result-case-header">
-              <div className="result-case-name">
-                {caseResult.passed ? (
-                  <CheckCircle size={16} style={{ color: 'var(--success)' }} />
-                ) : (
-                  <XCircle size={16} style={{ color: 'var(--error)' }} />
-                )}
-                {caseResult.case_name || `Case ${index + 1}`}
+        {displayedCases.map((caseResult: any, index: number) => {
+          const caseId = caseResult.case_id || `case-${index}`;
+          const isExpanded = expandedCases.has(caseId);
+          
+          // Calculate pass/fail counts for the header
+          const failedMetrics = caseResult.metric_results?.filter((m: any) => !m.passed || m.error) || [];
+          const passedMetrics = caseResult.metric_results?.filter((m: any) => m.passed && !m.error) || [];
+          const failedRubrics = caseResult.rubric_results?.filter((r: any) => !r.passed || r.error) || [];
+          const passedRubrics = caseResult.rubric_results?.filter((r: any) => r.passed && !r.error) || [];
+          
+          // Get metrics to display based on expanded state
+          const displayMetrics = isExpanded ? caseResult.metric_results : failedMetrics;
+          const displayRubrics = isExpanded ? caseResult.rubric_results : failedRubrics;
+          const displayInvocations = isExpanded 
+            ? caseResult.invocation_results 
+            : caseResult.invocation_results?.filter((inv: any) => 
+                inv.metric_results?.some((m: any) => !m.passed) || inv.error
+              );
+          
+          const totalPassed = passedMetrics.length + passedRubrics.length;
+          const totalFailed = failedMetrics.length + failedRubrics.length;
+          
+          return (
+            <div key={caseId} className="result-case">
+              <div 
+                className="result-case-header"
+                onClick={() => toggleCaseExpanded(caseId)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="result-case-name">
+                  <span style={{ marginRight: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                    {isExpanded ? '▼' : '▶'}
+                  </span>
+                  {caseResult.passed ? (
+                    <CheckCircle size={16} style={{ color: 'var(--success)' }} />
+                  ) : (
+                    <XCircle size={16} style={{ color: 'var(--error)' }} />
+                  )}
+                  {caseResult.case_name || `Case ${index + 1}`}
+                  <span style={{ 
+                    marginLeft: 10, 
+                    fontSize: 11, 
+                    color: 'var(--text-muted)',
+                    fontWeight: 400,
+                  }}>
+                    {totalFailed > 0 && <span style={{ color: 'var(--error)' }}>{totalFailed} failed</span>}
+                    {totalFailed > 0 && totalPassed > 0 && ' · '}
+                    {totalPassed > 0 && <span style={{ color: 'var(--success)' }}>{totalPassed} passed</span>}
+                  </span>
                 </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {caseResult.session_id && (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => viewSession(caseResult.session_id)}
-                    title="View session in Run panel"
-                  >
-                    <ExternalLink size={12} /> View Session
-                  </button>
-                )}
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                  {caseResult.duration_ms ? `${(caseResult.duration_ms / 1000).toFixed(2)}s` : ''}
-                </span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {caseResult.session_id && (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={(e) => { e.stopPropagation(); viewSession(caseResult.session_id); }}
+                      title="View session in Run panel"
+                    >
+                      <ExternalLink size={12} /> View Session
+                    </button>
+                  )}
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {caseResult.duration_ms ? `${(caseResult.duration_ms / 1000).toFixed(2)}s` : ''}
+                  </span>
                 </div>
               </div>
               
-            <div className="result-case-details">
-              {/* Metrics - compact horizontal boxes */}
-              {(() => {
-                const metrics = showOnlyFailed 
-                  ? caseResult.metric_results?.filter((m: any) => !m.passed || m.error) 
-                  : caseResult.metric_results;
-                return metrics?.length > 0 && (
+              <div className="result-case-details">
+                {/* Metrics - compact horizontal boxes */}
+                {displayMetrics?.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    {metrics.map((metric: any, mIndex: number) => (
+                    {displayMetrics.map((metric: any, mIndex: number) => (
                       <div 
                         key={mIndex} 
                         style={{
@@ -1725,19 +1773,28 @@ function TestResultViewer({
                         )}
                       </div>
                     ))}
+                    {!isExpanded && passedMetrics.length > 0 && (
+                      <div style={{
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-tertiary)',
+                        border: '1px dashed var(--border-color)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        fontSize: 11,
+                        color: 'var(--text-muted)',
+                      }}>
+                        +{passedMetrics.length} passed
+                      </div>
+                    )}
                   </div>
-                );
-              })()}
-              
-              {/* Rubric Results */}
-              {(() => {
-                const rubrics = showOnlyFailed 
-                  ? caseResult.rubric_results?.filter((r: any) => !r.passed || r.error)
-                  : caseResult.rubric_results;
-                return rubrics?.length > 0 && (
+                )}
+                
+                {/* Rubric Results */}
+                {displayRubrics?.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Custom Rubrics</div>
-                    {rubrics.map((rr: any, rIndex: number) => (
+                    {displayRubrics.map((rr: any, rIndex: number) => (
                       <div key={rIndex} className="metric-row">
                         <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
                         <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
@@ -1745,23 +1802,21 @@ function TestResultViewer({
                         </span>
                       </div>
                     ))}
+                    {!isExpanded && passedRubrics.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        +{passedRubrics.length} passed rubric{passedRubrics.length > 1 ? 's' : ''}
+                      </div>
+                    )}
                   </div>
-                );
-              })()}
-              
-              {/* Invocation Summary */}
-              {(() => {
-                const invocations = showOnlyFailed
-                  ? caseResult.invocation_results?.filter((inv: any) => 
-                      inv.metric_results?.some((m: any) => !m.passed) || inv.error
-                    )
-                  : caseResult.invocation_results;
-                return invocations?.length > 0 && (
+                )}
+                
+                {/* Invocation Summary */}
+                {displayInvocations?.length > 0 && (
                   <div className="invocation-summary">
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                      Invocations ({invocations.length}{showOnlyFailed && caseResult.invocation_results?.length > invocations.length ? ` of ${caseResult.invocation_results.length}` : ''})
+                      Invocations ({displayInvocations.length}{!isExpanded && caseResult.invocation_results?.length > displayInvocations.length ? ` of ${caseResult.invocation_results.length}` : ''})
                     </div>
-                    {invocations.map((inv: any, iIndex: number) => (
+                    {displayInvocations.map((inv: any, iIndex: number) => (
                       <div key={iIndex} className="invocation-item">
                         <div className="invocation-query">
                           Turn {inv.invocation_id || iIndex + 1}: {inv.user_message || '(no message)'}
@@ -1775,26 +1830,26 @@ function TestResultViewer({
                       </div>
                     ))}
                   </div>
-                );
-              })()}
-              
-              {/* Error message if case failed with error */}
-              {caseResult.error && (
-                <div style={{ 
-                  marginTop: 12, 
-                  padding: 12, 
-                  background: 'rgba(255, 107, 107, 0.1)', 
-                  borderRadius: 'var(--radius-sm)',
-                  color: 'var(--error)',
-                  fontSize: 12,
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  {caseResult.error}
-                </div>
-              )}
+                )}
+                
+                {/* Error message if case failed with error */}
+                {caseResult.error && (
+                  <div style={{ 
+                    marginTop: 12, 
+                    padding: 12, 
+                    background: 'rgba(255, 107, 107, 0.1)', 
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--error)',
+                    fontSize: 12,
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {caseResult.error}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         
         {caseResults.length === 0 && (
           <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
