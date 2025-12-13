@@ -1350,6 +1350,11 @@ export default function EvalPanel() {
             onUpdate={(updates) => updateEvalCase(selectedSetId!, selectedCase.id, updates)}
             onDelete={() => deleteEvalCase(selectedSetId!, selectedCase.id)}
             onRun={() => runEvalCase(selectedSetId!, selectedCase.id)}
+            onClearResult={() => setCaseResultsMap(prev => {
+              const next = new Map(prev);
+              next.delete(selectedCase.id);
+              return next;
+            })}
           />
         ) : selectedSet ? (
           <EvalSetEditor
@@ -1871,6 +1876,7 @@ function EvalCaseEditor({
   onUpdate,
   onDelete,
   onRun,
+  onClearResult,
 }: {
   evalCase: EvalCase;
   evalSetId: string;
@@ -1880,6 +1886,7 @@ function EvalCaseEditor({
   onUpdate: (updates: Partial<EvalCase>) => void;
   onDelete: () => void;
   onRun: () => void;
+  onClearResult?: () => void;
 }) {
   const { project } = useStore();
   const [localCase, setLocalCase] = useState(evalCase);
@@ -2535,6 +2542,16 @@ function EvalCaseEditor({
                 >
                   <ExternalLink size={12} />
                   View Session
+                </button>
+              )}
+              {onClearResult && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={onClearResult}
+                  title="Close test results"
+                  style={{ fontSize: 11, padding: '4px 8px' }}
+                >
+                  ✕
                 </button>
               )}
             </div>
