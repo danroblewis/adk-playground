@@ -1622,28 +1622,26 @@ function TestResultViewer({
               </div>
       
       {/* Filter toggle */}
-      {failedCases > 0 && (
-        <div style={{ 
-          padding: '8px 20px', 
-          borderBottom: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          background: 'var(--bg-secondary)'
-        }}>
-          <label className="toggle-switch" style={{ transform: 'scale(0.85)' }}>
-            <input
-              type="checkbox"
-              checked={showOnlyFailed}
-              onChange={(e) => setShowOnlyFailed(e.target.checked)}
-            />
-            <span className="toggle-slider" />
-          </label>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            Show only failing tests ({failedCases})
-          </span>
-        </div>
-      )}
+      <div style={{ 
+        padding: '8px 20px', 
+        borderBottom: '1px solid var(--border-color)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        background: 'var(--bg-secondary)'
+      }}>
+        <label className="toggle-switch" style={{ transform: 'scale(0.85)' }}>
+          <input
+            type="checkbox"
+            checked={showOnlyFailed}
+            onChange={(e) => setShowOnlyFailed(e.target.checked)}
+          />
+          <span className="toggle-slider" />
+        </label>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          Hide passing results
+        </span>
+      </div>
               
       <div className="result-cases">
         {displayedCases.map((caseResult: any, index: number) => (
@@ -1675,7 +1673,10 @@ function TestResultViewer({
               
             <div className="result-case-details">
               {/* Metrics */}
-              {caseResult.metric_results?.map((metric: any, mIndex: number) => (
+              {(showOnlyFailed 
+                ? caseResult.metric_results?.filter((m: any) => !m.passed || m.error) 
+                : caseResult.metric_results
+              )?.map((metric: any, mIndex: number) => (
                 <div key={mIndex} className="metric-row">
                   <span className="metric-name">{metric.metric}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1698,41 +1699,53 @@ function TestResultViewer({
               ))}
               
               {/* Rubric Results */}
-              {caseResult.rubric_results?.length > 0 && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Custom Rubrics</div>
-                  {caseResult.rubric_results.map((rr: any, rIndex: number) => (
-                    <div key={rIndex} className="metric-row">
-                      <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
-                      <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
-                        {rr.passed ? '✓ Pass' : '✗ Fail'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {(() => {
+                const rubrics = showOnlyFailed 
+                  ? caseResult.rubric_results?.filter((r: any) => !r.passed || r.error)
+                  : caseResult.rubric_results;
+                return rubrics?.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Custom Rubrics</div>
+                    {rubrics.map((rr: any, rIndex: number) => (
+                      <div key={rIndex} className="metric-row">
+                        <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
+                        <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
+                          {rr.passed ? '✓ Pass' : '✗ Fail'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
               
               {/* Invocation Summary */}
-              {caseResult.invocation_results?.length > 0 && (
-                <div className="invocation-summary">
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                    Invocations ({caseResult.invocation_results.length})
+              {(() => {
+                const invocations = showOnlyFailed
+                  ? caseResult.invocation_results?.filter((inv: any) => 
+                      inv.metric_results?.some((m: any) => !m.passed) || inv.error
+                    )
+                  : caseResult.invocation_results;
+                return invocations?.length > 0 && (
+                  <div className="invocation-summary">
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                      Invocations ({invocations.length}{showOnlyFailed && caseResult.invocation_results?.length > invocations.length ? ` of ${caseResult.invocation_results.length}` : ''})
+                    </div>
+                    {invocations.map((inv: any, iIndex: number) => (
+                      <div key={iIndex} className="invocation-item">
+                        <div className="invocation-query">
+                          Turn {inv.invocation_id || iIndex + 1}: {inv.user_message || '(no message)'}
+                        </div>
+                        {inv.actual_response && (
+                          <div className="invocation-response">
+                            Response: {inv.actual_response.substring(0, 200)}
+                            {inv.actual_response.length > 200 ? '...' : ''}
                           </div>
-                  {caseResult.invocation_results.map((inv: any, iIndex: number) => (
-                    <div key={iIndex} className="invocation-item">
-                      <div className="invocation-query">
-                        Turn {iIndex + 1}: {inv.user_message || '(no message)'}
-                        </div>
-                      {inv.actual_response && (
-                        <div className="invocation-response">
-                          Response: {inv.actual_response.substring(0, 200)}
-                          {inv.actual_response.length > 200 ? '...' : ''}
+                        )}
                       </div>
-                      )}
-                        </div>
-                  ))}
-                      </div>
-              )}
+                    ))}
+                  </div>
+                );
+              })()}
               
               {/* Error message if case failed with error */}
               {caseResult.error && (
