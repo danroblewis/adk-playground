@@ -1589,6 +1589,29 @@ export default function RunPanel() {
     }
   }, [project, clearRunEvents, clearWatchHistories, setCurrentSessionId, addRunEvent]);
   
+  // Handle ?session= query parameter from URL (e.g., from "View Session" in Eval panel)
+  useEffect(() => {
+    if (!project || availableSessions.length === 0 || loadingSessions) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const sessionIdFromUrl = params.get('session');
+    
+    if (sessionIdFromUrl) {
+      // Check if this session exists in available sessions
+      const sessionExists = availableSessions.some(s => s.id === sessionIdFromUrl);
+      if (sessionExists) {
+        // Load the session
+        handleSessionSelect(sessionIdFromUrl);
+        
+        // Clean up the URL by removing the query parameter
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        console.warn(`Session ${sessionIdFromUrl} not found in available sessions`);
+      }
+    }
+  }, [project, availableSessions, loadingSessions, handleSessionSelect]);
+  
   // Auto-scroll to new events
   useEffect(() => {
     if (isRunning && eventListRef.current) {

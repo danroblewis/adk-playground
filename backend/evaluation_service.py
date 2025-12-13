@@ -413,9 +413,9 @@ class EvaluationService:
                 
                 result.invocation_results.append(inv_result)
                 
-                # Update session_id for next invocation
-                if not session_id and inv_result.invocation_id:
-                    session_id = inv_result.invocation_id.split('_')[0] if '_' in inv_result.invocation_id else inv_result.invocation_id
+                # Update session_id for next invocation (use session_id from first invocation)
+                if not session_id and inv_result.session_id:
+                    session_id = inv_result.session_id
                 
                 # Aggregate metric results
                 for mr in inv_result.metric_results:
@@ -524,15 +524,20 @@ class EvaluationService:
             ):
                 collected_events.append(event)
             
-            # Extract actual response and tool calls from events
+            # Extract actual response, tool calls, and session_id from events
             actual_response = ""
             actual_tool_calls = []
             input_tokens = 0
             output_tokens = 0
+            extracted_session_id = None
             
             for event in collected_events:
                 event_data = event.data if hasattr(event, 'data') else {}
                 event_type = event.event_type if hasattr(event, 'event_type') else ""
+                
+                # Extract session_id from first agent_start event
+                if event_type == "agent_start" and not extracted_session_id:
+                    extracted_session_id = event_data.get("session_id")
                 
                 # Extract response text
                 if event_type == "model_response":
@@ -560,6 +565,7 @@ class EvaluationService:
             result.actual_tool_calls = actual_tool_calls
             result.input_tokens = input_tokens
             result.output_tokens = output_tokens
+            result.session_id = extracted_session_id
             
             all_passed = True
             
