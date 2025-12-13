@@ -22,6 +22,10 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
+# Clean old dist files before building
+echo "Cleaning old build artifacts..."
+rm -rf dist
+
 echo "Running production build (skipping TypeScript checks)..."
 # Use build without TypeScript check for now (can use build:check for full type checking)
 npm run build
