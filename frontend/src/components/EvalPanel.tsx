@@ -216,7 +216,7 @@ export default function EvalPanel() {
   
   // Eval history state
   const [evalHistory, setEvalHistory] = useState<any[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [selectedHistoryRun, setSelectedHistoryRun] = useState<any>(null);
   
   // Load eval history
