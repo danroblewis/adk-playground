@@ -58,11 +58,11 @@ function createDefaultAgent(type: string, defaultModel?: AppModelConfig): AgentC
         after_tool_callbacks: [],
       } as LlmAgentConfig;
     case 'SequentialAgent':
-      return { ...base, type: 'SequentialAgent', sub_agents: [] } as SequentialAgentConfig;
+      return { ...base, type: 'SequentialAgent', sub_agents: [], before_agent_callbacks: [], after_agent_callbacks: [] } as SequentialAgentConfig;
     case 'LoopAgent':
-      return { ...base, type: 'LoopAgent', sub_agents: [], max_iterations: 10 } as LoopAgentConfig;
+      return { ...base, type: 'LoopAgent', sub_agents: [], max_iterations: 10, before_agent_callbacks: [], after_agent_callbacks: [] } as LoopAgentConfig;
     case 'ParallelAgent':
-      return { ...base, type: 'ParallelAgent', sub_agents: [] } as ParallelAgentConfig;
+      return { ...base, type: 'ParallelAgent', sub_agents: [], before_agent_callbacks: [], after_agent_callbacks: [] } as ParallelAgentConfig;
     default:
       throw new Error(`Unknown agent type: ${type}`);
   }

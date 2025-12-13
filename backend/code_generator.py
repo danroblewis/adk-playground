@@ -252,8 +252,18 @@ def generate_agent_code(
         return f"{var_name} = Agent(\n    {','.join(params)}\n)"
     
     elif isinstance(agent, SequentialAgentConfig) or agent.type == "SequentialAgent":
+        params = [f'name="{agent.name}"']
         sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in (agent.sub_agents or [])]
-        return f'{var_name} = SequentialAgent(\n    name="{agent.name}",\n    sub_agents=[{", ".join(sub_agent_vars)}]\n)'
+        params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+        # Add agent callbacks for SequentialAgent
+        for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
+            if hasattr(agent, callback_type):
+                callbacks = getattr(agent, callback_type) or []
+                if callbacks:
+                    adk_key = callback_type.replace("_callbacks", "_callback")
+                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
+        return f'{var_name} = SequentialAgent(\n    {",".join(params)}\n)'
     
     elif isinstance(agent, LoopAgentConfig) or agent.type == "LoopAgent":
         params = [f'name="{agent.name}"']
@@ -261,11 +271,29 @@ def generate_agent_code(
         params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         if hasattr(agent, "max_iterations") and agent.max_iterations:
             params.append(f"max_iterations={agent.max_iterations}")
+        # Add agent callbacks for LoopAgent
+        for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
+            if hasattr(agent, callback_type):
+                callbacks = getattr(agent, callback_type) or []
+                if callbacks:
+                    adk_key = callback_type.replace("_callbacks", "_callback")
+                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f"{var_name} = LoopAgent(\n    {','.join(params)}\n)"
     
     elif isinstance(agent, ParallelAgentConfig) or agent.type == "ParallelAgent":
+        params = [f'name="{agent.name}"']
         sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in (agent.sub_agents or [])]
-        return f'{var_name} = ParallelAgent(\n    name="{agent.name}",\n    sub_agents=[{", ".join(sub_agent_vars)}]\n)'
+        params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+        # Add agent callbacks for ParallelAgent
+        for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
+            if hasattr(agent, callback_type):
+                callbacks = getattr(agent, callback_type) or []
+                if callbacks:
+                    adk_key = callback_type.replace("_callbacks", "_callback")
+                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
+        return f'{var_name} = ParallelAgent(\n    {",".join(params)}\n)'
     
     return f"# Unknown agent type: {agent.type}"
 

@@ -81,6 +81,8 @@ export interface SequentialAgentConfig {
   name: string;
   description: string;
   sub_agents: string[];
+  before_agent_callbacks: CallbackConfig[];
+  after_agent_callbacks: CallbackConfig[];
 }
 
 export interface LoopAgentConfig {
@@ -90,6 +92,8 @@ export interface LoopAgentConfig {
   description: string;
   sub_agents: string[];
   max_iterations?: number;
+  before_agent_callbacks: CallbackConfig[];
+  after_agent_callbacks: CallbackConfig[];
 }
 
 export interface ParallelAgentConfig {
@@ -98,6 +102,8 @@ export interface ParallelAgentConfig {
   name: string;
   description: string;
   sub_agents: string[];
+  before_agent_callbacks: CallbackConfig[];
+  after_agent_callbacks: CallbackConfig[];
 }
 
 export type AgentConfig = LlmAgentConfig | SequentialAgentConfig | LoopAgentConfig | ParallelAgentConfig;

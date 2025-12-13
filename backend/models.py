@@ -158,6 +158,8 @@ class SequentialAgentConfig(BaseModel):
     name: str
     description: str = ""
     sub_agents: List[str] = Field(default_factory=list)
+    before_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
+    after_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
 
 
 class LoopAgentConfig(BaseModel):
@@ -168,6 +170,8 @@ class LoopAgentConfig(BaseModel):
     description: str = ""
     sub_agents: List[str] = Field(default_factory=list)
     max_iterations: Optional[int] = None
+    before_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
+    after_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
 
 
 class ParallelAgentConfig(BaseModel):
@@ -177,6 +181,8 @@ class ParallelAgentConfig(BaseModel):
     name: str
     description: str = ""
     sub_agents: List[str] = Field(default_factory=list)
+    before_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
+    after_agent_callbacks: List[CallbackConfig] = Field(default_factory=list)
 
 
 AgentConfig = Union[LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig]

@@ -840,22 +840,21 @@ Your response (5-10 words only):`;
           </Section>
         )}
         
-        {/* Callbacks */}
-        {isLlmAgent && (
-          <Section
-            id="callbacks"
-            title="Callbacks"
-            icon={<Code size={16} />}
-            expanded={expandedSections.has('callbacks')}
-            onToggle={() => toggleSection('callbacks')}
-          >
-            <CallbacksEditor
-              agent={llmAgent}
-              onUpdate={update}
-              customCallbacks={project.custom_callbacks || []}
-            />
-          </Section>
-        )}
+        {/* Callbacks - available for all agent types */}
+        <Section
+          id="callbacks"
+          title="Callbacks"
+          icon={<Code size={16} />}
+          expanded={expandedSections.has('callbacks')}
+          onToggle={() => toggleSection('callbacks')}
+        >
+          <CallbacksEditor
+            agent={agent}
+            onUpdate={update}
+            customCallbacks={project.custom_callbacks || []}
+            isLlmAgent={isLlmAgent}
+          />
+        </Section>
       </div>
     </div>
   );
@@ -1955,42 +1954,53 @@ function ModelSelector({
 function CallbacksEditor({
   agent,
   onUpdate,
-  customCallbacks
+  customCallbacks,
+  isLlmAgent
 }: {
-  agent: LlmAgentConfig;
-  onUpdate: (updates: Partial<LlmAgentConfig>) => void;
+  agent: AgentConfig;
+  onUpdate: (updates: Partial<AgentConfig>) => void;
   customCallbacks: CustomCallbackDefinition[];
+  isLlmAgent: boolean;
 }) {
-  const callbackTypes: Array<{ key: keyof LlmAgentConfig; label: string }> = [
+  // All agent types support before_agent and after_agent callbacks
+  // Only LlmAgent supports model and tool callbacks
+  const agentCallbackTypes: Array<{ key: string; label: string }> = [
     { key: 'before_agent_callbacks', label: 'Before Agent' },
     { key: 'after_agent_callbacks', label: 'After Agent' },
+  ];
+  
+  const llmOnlyCallbackTypes: Array<{ key: string; label: string }> = [
     { key: 'before_model_callbacks', label: 'Before Model' },
     { key: 'after_model_callbacks', label: 'After Model' },
     { key: 'before_tool_callbacks', label: 'Before Tool' },
     { key: 'after_tool_callbacks', label: 'After Tool' },
   ];
   
-  function addCallback(type: keyof LlmAgentConfig, callbackId: string) {
-    const current = (agent[type] as CallbackConfig[]) || [];
+  const callbackTypes = isLlmAgent 
+    ? [...agentCallbackTypes, ...llmOnlyCallbackTypes]
+    : agentCallbackTypes;
+  
+  function addCallback(type: string, callbackId: string) {
+    const current = ((agent as any)[type] as CallbackConfig[]) || [];
     const callback = customCallbacks.find(c => c.id === callbackId);
     if (!callback) return;
     
     onUpdate({
       [type]: [...current, { module_path: callback.module_path }]
-    } as Partial<LlmAgentConfig>);
+    } as Partial<AgentConfig>);
   }
   
-  function removeCallback(type: keyof LlmAgentConfig, index: number) {
-    const current = (agent[type] as CallbackConfig[]) || [];
+  function removeCallback(type: string, index: number) {
+    const current = ((agent as any)[type] as CallbackConfig[]) || [];
     onUpdate({
       [type]: current.filter((_, i) => i !== index)
-    } as Partial<LlmAgentConfig>);
+    } as Partial<AgentConfig>);
   }
   
   return (
     <div className="callbacks-editor">
       {callbackTypes.map(({ key, label }) => {
-        const callbacks = (agent[key] as CallbackConfig[]) || [];
+        const callbacks = ((agent as any)[key] as CallbackConfig[]) || [];
         const availableCallbacks = customCallbacks;
         
         return (
