@@ -1669,6 +1669,21 @@ function TestResultViewer({
                 </div>
               ))}
               
+              {/* Rubric Results */}
+              {caseResult.rubric_results?.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Custom Rubrics</div>
+                  {caseResult.rubric_results.map((rr: any, rIndex: number) => (
+                    <div key={rIndex} className="metric-row">
+                      <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
+                      <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
+                        {rr.passed ? '✓ Pass' : '✗ Fail'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
               {/* Invocation Summary */}
               {caseResult.invocation_results?.length > 0 && (
                 <div className="invocation-summary">
@@ -2415,6 +2430,47 @@ function EvalCaseEditor({
             </div>
             ))}
           </div>
+          
+          {/* Rubric Results */}
+          {result.rubric_results && result.rubric_results.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h5 style={{ fontSize: 13, marginBottom: 8 }}>Custom Rubrics</h5>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {result.rubric_results.map((rr: any, idx: number) => (
+                  <div 
+                    key={idx}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: rr.passed ? 'rgba(var(--success-rgb), 0.1)' : 'rgba(var(--error-rgb), 0.1)',
+                      border: `1px solid ${rr.passed ? 'var(--success)' : 'var(--error)'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <span style={{ 
+                      fontSize: 16, 
+                      color: rr.passed ? 'var(--success)' : 'var(--error)',
+                      fontWeight: 'bold'
+                    }}>
+                      {rr.passed ? '✓' : '✗'}
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>
+                        {rr.rubric}
+                      </div>
+                      {rr.error && (
+                        <div style={{ fontSize: 10, color: 'var(--error)', marginTop: 2 }}>
+                          Error: {rr.error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           
           {result.invocation_results.map((invRes, idx) => (
             <div key={idx} className="result-details">

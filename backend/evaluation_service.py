@@ -486,6 +486,40 @@ class EvaluationService:
                 # Update result.passed after all LLM judges have run
                 result.passed = all_passed
             
+            # Evaluate custom rubrics
+            if hasattr(eval_case, 'rubrics') and eval_case.rubrics:
+                # Build combined actual_response from all invocation results
+                combined_response = " ".join(
+                    inv.actual_response for inv in result.invocation_results 
+                    if hasattr(inv, 'actual_response') and inv.actual_response
+                )
+                
+                for rubric in eval_case.rubrics:
+                    rubric_text = rubric.rubric if hasattr(rubric, 'rubric') else str(rubric)
+                    if not rubric_text.strip():
+                        continue
+                    
+                    try:
+                        rubric_result = await self._evaluate_rubric(
+                            project=project,
+                            eval_config=eval_config,
+                            rubric=rubric_text,
+                            actual_response=combined_response,
+                            invocation_results=result.invocation_results,
+                        )
+                        result.rubric_results.append(rubric_result)
+                        
+                        # Rubric failure means the test fails
+                        if not rubric_result.get('passed', False):
+                            result.passed = False
+                    except Exception as e:
+                        result.rubric_results.append({
+                            'rubric': rubric_text,
+                            'passed': False,
+                            'error': str(e),
+                        })
+                        result.passed = False
+            
             # Aggregate token counts from all invocations
             for inv_result in result.invocation_results:
                 result.total_input_tokens += inv_result.input_tokens
@@ -690,6 +724,75 @@ Respond with ONLY a number between 0.0 and 1.0."""
         
         # Default to 0.5 if we can't parse
         return 0.5
+    
+    async def _evaluate_rubric(
+        self,
+        project: Project,
+        eval_config: EvalConfig,
+        rubric: str,
+        actual_response: str,
+        invocation_results: list,
+    ) -> dict:
+        """Evaluate a custom rubric using an LLM judge."""
+        from google import genai
+        
+        # Get judge model from config or use app's default model
+        judge_model = eval_config.judge_model if hasattr(eval_config, 'judge_model') and eval_config.judge_model else None
+        if not judge_model:
+            if project.app and project.app.models:
+                default_model_id = project.app.default_model_id
+                if default_model_id:
+                    model_config = next((m for m in project.app.models if m.id == default_model_id), None)
+                    if model_config:
+                        judge_model = model_config.model_name
+        
+        if not judge_model:
+            judge_model = "gemini-2.0-flash"
+        
+        # Build conversation context
+        conversation = ""
+        for inv in invocation_results:
+            user_msg = getattr(inv, 'user_message', '') or ''
+            resp = getattr(inv, 'actual_response', '') or ''
+            conversation += f"User: {user_msg}\nAssistant: {resp}\n\n"
+        
+        # Build the prompt
+        prompt = f"""You are an AI evaluator. Evaluate whether the following AI assistant conversation satisfies the given rubric criterion.
+
+Conversation:
+{conversation}
+
+Rubric to evaluate:
+{rubric}
+
+Does the assistant's response satisfy this rubric criterion?
+
+Respond with ONLY one of these two words: YES or NO"""
+        
+        try:
+            client = genai.Client()
+            response = await client.aio.models.generate_content(
+                model=judge_model,
+                contents=prompt,
+            )
+            
+            response_text = response.text if hasattr(response, 'text') else str(response)
+            response_text = response_text.strip().upper()
+            
+            passed = response_text.startswith('YES')
+            
+            return {
+                'rubric': rubric,
+                'passed': passed,
+                'judge_response': response_text,
+                'judge_model': judge_model,
+            }
+        except Exception as e:
+            return {
+                'rubric': rubric,
+                'passed': False,
+                'error': str(e),
+            }
     
     async def _run_invocation(
         self,
