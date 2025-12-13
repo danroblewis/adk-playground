@@ -710,21 +710,6 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
 // Import WatchExpression type from store
 import type { WatchExpression } from '../hooks/useStore';
 
-// jq-web for JSON transforms - loaded lazily to handle WASM loading
-let jq: any = null;
-let jqLoadError: string | null = null;
-
-// Try to load jq-web asynchronously
-(async () => {
-  try {
-    // @ts-ignore - jq-web doesn't have types
-    const jqModule = await import('jq-web');
-    jq = jqModule.default;
-  } catch (e: any) {
-    console.warn('jq-web failed to load:', e.message);
-    jqLoadError = e.message;
-  }
-})();
 
 // Extract clean result text from MCP response
 function extractResultText(result: any): { text: string; isError: boolean } {
@@ -771,9 +756,9 @@ function extractResultText(result: any): { text: string; isError: boolean } {
   };
 }
 
-// Apply transform to result - supports both jq queries and JavaScript expressions
-// jq: default syntax (e.g., ".items[0].name", ".content[].text")
-// JavaScript: starts with "js:" (e.g., "js:value.split('\n')[0]")
+// Apply transform to result - supports JavaScript expressions
+// JavaScript: value is the raw text, data is the parsed JSON (if valid)
+// Examples: "data.items[0].name", "value.split('\n')[0]", "data.length"
 function applyTransform(text: string, transform: string | undefined): string {
   if (!transform || !transform.trim()) return text;
   
@@ -787,75 +772,19 @@ function applyTransform(text: string, transform: string | undefined): string {
     // Keep as string if not valid JSON
   }
   
-  // JavaScript transform (explicit prefix)
-  if (trimmed.startsWith('js:')) {
-    const jsExpr = trimmed.slice(3).trim();
-    try {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function('value', 'data', `return ${jsExpr}`);
-      const result = fn(text, data);
-      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-    } catch (e) {
-      return `[JS error: ${e}]`;
-    }
-  }
+  // Handle "js:" prefix for backwards compatibility
+  const jsExpr = trimmed.startsWith('js:') ? trimmed.slice(3).trim() : trimmed;
   
-  // jq query (default) - but fallback if jq isn't loaded
-  if (jq) {
-    try {
-      const result = jq.json(data, trimmed);
-      if (result === null || result === undefined) {
-        return '[No match]';
-      }
-      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-    } catch (e: any) {
-      // If jq fails and doesn't start with ".", try as JS expression
-      if (!trimmed.startsWith('.')) {
-        try {
-          // eslint-disable-next-line no-new-func
-          const fn = new Function('value', 'data', `return ${trimmed}`);
-          const result = fn(text, data);
-          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        } catch {
-          // Return jq error
-        }
-      }
-      return `[jq error: ${e.message || e}]`;
+  try {
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('value', 'data', `return ${jsExpr}`);
+    const result = fn(text, data);
+    if (result === null || result === undefined) {
+      return '[No match]';
     }
-  } else {
-    // jq not loaded, try as JS expression or return error
-    if (jqLoadError) {
-      // Try simple property access for dot notation
-      if (trimmed.startsWith('.') && !trimmed.includes('|')) {
-        try {
-          const path = trimmed.slice(1).split('.').filter(Boolean);
-          let result: any = data;
-          for (const key of path) {
-            // Handle array index like [0]
-            const match = key.match(/^(\w+)?\[(\d+)\]$/);
-            if (match) {
-              if (match[1]) result = result[match[1]];
-              result = result[parseInt(match[2])];
-            } else {
-              result = result[key];
-            }
-          }
-          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-        } catch {
-          // Fall through to JS
-        }
-      }
-      // Try as JS expression
-      try {
-        // eslint-disable-next-line no-new-func
-        const fn = new Function('value', 'data', `return ${trimmed}`);
-        const result = fn(text, data);
-        return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-      } catch (e: any) {
-        return `[jq not loaded: ${jqLoadError}. JS fallback failed: ${e.message}]`;
-      }
-    }
-    return '[jq loading...]';
+    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  } catch (e: any) {
+    return `[Transform error: ${e.message || e}]`;
   }
 }
 
@@ -1299,17 +1228,15 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
                   type="text"
                   value={formTransform}
                   onChange={e => setFormTransform(e.target.value)}
-                  placeholder="e.g., .items[0].name or .content[].text"
+                  placeholder="e.g., data.items[0].name or value.split('\\n')[0]"
                 />
                 <div className="transform-hints">
-                  <span className="hint-title">jq:</span>
-                  <code onClick={() => setFormTransform('.items[0].name')}>.items[0].name</code>
-                  <code onClick={() => setFormTransform('.content[].text')}>.content[].text</code>
-                  <code onClick={() => setFormTransform('.result.content[0].text')}>.result.content[0].text</code>
-                  <code onClick={() => setFormTransform('.[] | select(.status == "active")')}>.[] | select()</code>
                   <span className="hint-title">JS:</span>
-                  <code onClick={() => setFormTransform("js:value.split('\\n')[0]")}>js:value.split('\n')[0]</code>
-                  <code onClick={() => setFormTransform('js:data.length')}>js:data.length</code>
+                  <code onClick={() => setFormTransform('data.items[0].name')}>data.items[0].name</code>
+                  <code onClick={() => setFormTransform('data.content[0].text')}>data.content[0].text</code>
+                  <code onClick={() => setFormTransform('data.result.content[0].text')}>data.result.content[0].text</code>
+                  <code onClick={() => setFormTransform("value.split('\\n')[0]")}>value.split('\n')[0]</code>
+                  <code onClick={() => setFormTransform('data.length')}>data.length</code>
                 </div>
               </div>
               
