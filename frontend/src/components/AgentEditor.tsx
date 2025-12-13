@@ -800,22 +800,6 @@ Your response (5-10 words only):`;
         )}
         
         {/* Sub-agents */}
-        {isLlmAgent && (
-          <Section
-            id="callbacks"
-            title="Callbacks"
-            icon={<Code size={16} />}
-            expanded={expandedSections.has('callbacks')}
-            onToggle={() => toggleSection('callbacks')}
-          >
-            <CallbacksEditor
-              agent={llmAgent}
-              onUpdate={update}
-              customCallbacks={project.custom_callbacks || []}
-            />
-          </Section>
-        )}
-        
         {'sub_agents' in agent && (
           <Section
             id="subagents"
@@ -851,6 +835,23 @@ Your response (5-10 words only):`;
                 }
               </select>
             </div>
+          </Section>
+        )}
+        
+        {/* Callbacks */}
+        {isLlmAgent && (
+          <Section
+            id="callbacks"
+            title="Callbacks"
+            icon={<Code size={16} />}
+            expanded={expandedSections.has('callbacks')}
+            onToggle={() => toggleSection('callbacks')}
+          >
+            <CallbacksEditor
+              agent={llmAgent}
+              onUpdate={update}
+              customCallbacks={project.custom_callbacks || []}
+            />
           </Section>
         )}
       </div>
