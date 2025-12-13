@@ -1285,6 +1285,23 @@ export default function EvalPanel() {
                   </button>
                   <FolderTree size={14} style={{ color: 'var(--accent-secondary)' }} />
                   <span className="set-name">{evalSet.name}</span>
+                  <button 
+                    className="add-case-btn"
+                    onClick={(e) => { e.stopPropagation(); createEvalCase(evalSet.id); }}
+                    title="Add test case"
+                    style={{ 
+                      padding: '2px 4px', 
+                      marginLeft: 4,
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      opacity: 0.6,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Plus size={12} />
+                  </button>
                   {stats.total > 0 && (
                     <span className="set-stats">
                       {stats.passed > 0 && <span className="stat-passed">{stats.passed}</span>}
@@ -1345,14 +1362,6 @@ export default function EvalPanel() {
                       );
                     })}
                     
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ marginTop: 8, marginLeft: 20 }}
-                      onClick={() => createEvalCase(evalSet.id)}
-                    >
-                      <Plus size={12} />
-                      Add Test Case
-                    </button>
                   </div>
                 )}
               </div>
