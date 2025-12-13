@@ -128,6 +128,8 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [isTestingMcp, setIsTestingMcp] = useState(false);
   const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; tools: { name: string; description: string }[]; message?: string; error?: string } | null>(null);
   const [toolNameError, setToolNameError] = useState<string | null>(null);
+  const [mcpServerStatus, setMcpServerStatus] = useState<Record<string, 'unknown' | 'connected' | 'error' | 'testing'>>({});
+  const [mcpJsonEditorValue, setMcpJsonEditorValue] = useState('');
   
   if (!project) return null;
   
@@ -158,6 +160,114 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       setHasMcpChanges(false);
     }
   }, [selectedMcpServer]);
+  
+  // Sync the full mcp.json editor with project's MCP servers
+  useEffect(() => {
+    if (!project) return;
+    const mcpJson = convertToMcpJson(project.mcp_servers || []);
+    setMcpJsonEditorValue(JSON.stringify(mcpJson, null, 2));
+  }, [project?.mcp_servers]);
+  
+  // Convert our MCP server config to standard mcp.json format
+  function convertToMcpJson(servers: MCPServerConfig[]): { mcpServers: Record<string, any> } {
+    const mcpServers: Record<string, any> = {};
+    for (const server of servers) {
+      const config: any = {};
+      if (server.connection_type === 'stdio') {
+        config.command = server.command || '';
+        config.args = server.args || [];
+        if (Object.keys(server.env || {}).length > 0) {
+          config.env = server.env;
+        }
+      } else if (server.connection_type === 'sse') {
+        config.url = server.url || '';
+        if (Object.keys(server.headers || {}).length > 0) {
+          config.headers = server.headers;
+        }
+      }
+      if (server.timeout && server.timeout !== 30) {
+        config.timeout = server.timeout;
+      }
+      if (server.tool_filter) {
+        config.tool_filter = server.tool_filter;
+      }
+      if (server.tool_name_prefix) {
+        config.tool_name_prefix = server.tool_name_prefix;
+      }
+      mcpServers[server.name] = config;
+    }
+    return { mcpServers };
+  }
+  
+  // Convert standard mcp.json format back to our config
+  function convertFromMcpJson(mcpJson: { mcpServers: Record<string, any> }): MCPServerConfig[] {
+    const servers: MCPServerConfig[] = [];
+    for (const [name, config] of Object.entries(mcpJson.mcpServers || {})) {
+      const server: MCPServerConfig = {
+        name,
+        description: config.description || '',
+        connection_type: config.url ? 'sse' : 'stdio',
+        command: config.command,
+        args: config.args || [],
+        env: config.env || {},
+        url: config.url,
+        headers: config.headers || {},
+        timeout: config.timeout || 30,
+        tool_filter: config.tool_filter || null,
+        tool_name_prefix: config.tool_name_prefix,
+      };
+      servers.push(server);
+    }
+    return servers;
+  }
+  
+  // Handle mcp.json editor changes
+  function handleMcpJsonEditorChange(value: string | undefined) {
+    if (value === undefined) return;
+    setMcpJsonEditorValue(value);
+  }
+  
+  // Save mcp.json changes to project
+  function handleSaveMcpJson() {
+    try {
+      const parsed = JSON.parse(mcpJsonEditorValue);
+      const servers = convertFromMcpJson(parsed);
+      updateProject({ mcp_servers: servers });
+    } catch (e) {
+      alert('Invalid JSON: ' + (e as Error).message);
+    }
+  }
+  
+  // Test a specific MCP server connection
+  async function testMcpServerConnection(serverName: string) {
+    const server = projectMcpServers.find(s => s.name === serverName);
+    if (!server) return;
+    
+    setMcpServerStatus(prev => ({ ...prev, [serverName]: 'testing' }));
+    
+    try {
+      const result = await testMcpServer({
+        connection_type: server.connection_type,
+        command: server.command,
+        args: server.args,
+        env: server.env,
+        url: server.url,
+        headers: server.headers,
+        timeout: server.timeout,
+      });
+      
+      setMcpServerStatus(prev => ({ ...prev, [serverName]: result.success ? 'connected' : 'error' }));
+    } catch (e) {
+      setMcpServerStatus(prev => ({ ...prev, [serverName]: 'error' }));
+    }
+  }
+  
+  // Test all MCP servers
+  async function testAllMcpServers() {
+    for (const server of projectMcpServers) {
+      await testMcpServerConnection(server.name);
+    }
+  }
   
   function handleAddTool() {
     const id = generateId();
@@ -843,6 +953,95 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           to { transform: rotate(360deg); }
         }
         
+        .mcp-servers-list {
+          flex: 1;
+          overflow-y: auto;
+          padding: 8px;
+        }
+        
+        .mcp-server-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 12px;
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-md);
+          margin-bottom: 6px;
+          transition: all 0.15s ease;
+        }
+        
+        .mcp-server-item:hover {
+          background: var(--bg-primary);
+        }
+        
+        .mcp-server-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .mcp-server-name {
+          font-weight: 500;
+        }
+        
+        .mcp-status-badge {
+          width: 8px;
+          height: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 8px;
+        }
+        
+        .mcp-status-badge.unknown {
+          color: var(--text-muted);
+        }
+        
+        .mcp-status-badge.connected {
+          color: var(--accent-primary);
+        }
+        
+        .mcp-status-badge.error {
+          color: var(--error);
+        }
+        
+        .mcp-status-badge.testing {
+          color: var(--accent-secondary);
+        }
+        
+        .mcp-server-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .mcp-server-type {
+          font-size: 11px;
+          color: var(--text-muted);
+          text-transform: uppercase;
+        }
+        
+        .mcp-json-editor {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+        
+        .mcp-json-info {
+          padding: 12px 16px;
+          background: var(--bg-tertiary);
+          border-bottom: 1px solid var(--border-color);
+          font-size: 13px;
+          color: var(--text-secondary);
+        }
+        
+        .mcp-json-info code {
+          background: var(--bg-primary);
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-family: var(--font-mono);
+        }
+        
         .mcp-help {
           padding: 16px;
           border-top: 1px solid var(--border-color);
@@ -1075,72 +1274,48 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           <>
             <div className="sidebar-header">
               <h3>MCP Servers ({projectMcpServers.length})</h3>
-              <button className="btn btn-primary btn-sm" onClick={handleAddMcpServer}>
-                <Plus size={14} />
-                Custom
+              <button className="btn btn-secondary btn-sm" onClick={testAllMcpServers} title="Test all connections">
+                <Loader size={14} />
               </button>
             </div>
-            <div className="tools-tree">
-              {/* Configured Servers */}
-              {projectMcpServers.length > 0 && (
-                <div className="module-group">
-                  <div className="module-header">
-                    <Globe size={14} />
-                    Configured ({projectMcpServers.length})
-                  </div>
-                  {projectMcpServers.map(server => (
-                    <div
-                      key={server.name}
-                      className={`tool-item ${selectedMcpServer === server.name ? 'selected' : ''}`}
-                      onClick={() => {
-                        setSelectedMcpServer(server.name);
-                        setSelectedKnownMcp(null);
-                        selectTool(null);
-                        setSelectedBuiltinTool(null);
-                      }}
-                    >
-                      <Server size={14} />
-                      <span className="tool-name">{server.name}</span>
-                      <span className="tool-type-badge">{server.connection_type}</span>
-                      <button className="delete-btn" onClick={(e) => handleDeleteMcpServer(server.name, e)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {/* Available Known Servers */}
-              {availableKnownServers.length > 0 && (
-                <div className="module-group">
-                  <div className="module-header">
-                    <Package size={14} />
-                    Available Templates ({availableKnownServers.length})
-                  </div>
-                  {availableKnownServers.map(server => (
-                    <div
-                      key={server.name}
-                      className={`tool-item known-server ${selectedKnownMcp?.name === server.name ? 'selected' : ''}`}
-                      onClick={() => {
-                        setSelectedKnownMcp(server);
-                        setSelectedMcpServer(null);
-                        selectTool(null);
-                        setSelectedBuiltinTool(null);
-                      }}
-                    >
-                      <Server size={14} />
-                      <span className="tool-name">{server.name}</span>
-                      <span className="tool-type-badge">{server.connection_type}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {projectMcpServers.length === 0 && availableKnownServers.length === 0 && (
+            <div className="mcp-servers-list">
+              {projectMcpServers.length === 0 ? (
                 <div className="empty-state">
                   <Server size={32} />
-                  <p>No MCP servers available</p>
+                  <p>No MCP servers configured</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Edit the JSON to add servers
+                  </p>
                 </div>
+              ) : (
+                projectMcpServers.map(server => {
+                  const status = mcpServerStatus[server.name] || 'unknown';
+                  return (
+                    <div key={server.name} className="mcp-server-item">
+                      <div className="mcp-server-info">
+                        <Server size={14} />
+                        <span className="mcp-server-name">{server.name}</span>
+                        <span className={`mcp-status-badge ${status}`}>
+                          {status === 'testing' ? <Loader size={10} className="spin" /> : null}
+                          {status === 'unknown' && '●'}
+                          {status === 'connected' && '●'}
+                          {status === 'error' && '●'}
+                        </span>
+                      </div>
+                      <div className="mcp-server-actions">
+                        <span className="mcp-server-type">{server.connection_type}</span>
+                        <button 
+                          className="btn btn-sm" 
+                          onClick={() => testMcpServerConnection(server.name)}
+                          disabled={status === 'testing'}
+                          title="Test connection"
+                        >
+                          {status === 'testing' ? <Loader size={12} className="spin" /> : <Loader size={12} />}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </>
@@ -1478,6 +1653,48 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               </div>
             </div>
           </>
+        ) : activeTab === 'mcp' ? (
+          <div className="mcp-json-editor">
+            <div className="editor-header">
+              <Server size={20} style={{ color: 'var(--accent-primary)' }} />
+              <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>mcp.json</span>
+              <span className="badge badge-muted">Model Context Protocol</span>
+              <button 
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveMcpJson}
+              >
+                <Save size={14} />
+                Apply Changes
+              </button>
+            </div>
+            
+            <div className="mcp-json-info">
+              <p>
+                Configure your MCP servers using the standard <code>mcp.json</code> format.
+                Changes are applied when you click "Apply Changes".
+              </p>
+            </div>
+            
+            <div className="editor-content" style={{ flex: 1 }}>
+              <Editor
+                height="100%"
+                defaultLanguage="json"
+                value={mcpJsonEditorValue}
+                onChange={handleMcpJsonEditorChange}
+                theme="vs-dark"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  tabSize: 2,
+                  formatOnPaste: true,
+                  formatOnType: true,
+                }}
+              />
+            </div>
+          </div>
         ) : (
           <div className="empty-state">
             <Code size={48} />

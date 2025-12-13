@@ -780,8 +780,8 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         }
         
         .insert-indicator {
-          height: 4px;
-          margin: 2px 0;
+          height: 0px;
+          margin: 0px 0;
           border-radius: 2px;
           background: transparent;
           transition: all 0.15s ease;
