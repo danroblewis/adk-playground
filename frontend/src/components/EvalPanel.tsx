@@ -1172,7 +1172,7 @@ export default function EvalPanel() {
               <div key={evalSet.id} className="tree-item">
                 <div 
                   className={`tree-set ${selectedSetId === evalSet.id && !selectedCaseId ? 'selected' : ''}`}
-                  onClick={() => { setSelectedSetId(evalSet.id); setSelectedCaseId(null); }}
+                  onClick={() => selectSet(evalSet.id)}
                 >
                   <button 
                     className="expand-btn"
@@ -1213,7 +1213,7 @@ export default function EvalPanel() {
                         <div
                           key={evalCase.id}
                           className={`tree-case ${selectedCaseId === evalCase.id ? 'selected' : ''}`}
-                          onClick={() => { setSelectedSetId(evalSet.id); setSelectedCaseId(evalCase.id); }}
+                          onClick={() => selectCase(evalSet.id, evalCase.id)}
                         >
                           {isCaseRunning ? (
                             <Clock size={14} className="spinning" style={{ color: 'var(--warning)' }} />
@@ -1342,7 +1342,7 @@ export default function EvalPanel() {
         {selectedHistoryRun ? (
           <TestResultViewer
             run={selectedHistoryRun}
-            onClose={() => setSelectedHistoryRun(null)}
+            onClose={closeHistoryRun}
           />
         ) : selectedCase ? (
           <EvalCaseEditor
