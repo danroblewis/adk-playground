@@ -706,13 +706,16 @@ Respond with ONLY a number between 0.0 and 1.0."""
                 
                 # Extract response text
                 if event_type == "model_response":
+                    # Prefer top-level text field, fall back to parts array
                     text = event_data.get("text", "")
                     if text:
                         actual_response += text
-                    parts = event_data.get("parts", [])
-                    for part in parts:
-                        if part.get("type") == "text" and not part.get("thought"):
-                            actual_response += part.get("text", "")
+                    else:
+                        # Only check parts if there's no top-level text
+                        parts = event_data.get("parts", [])
+                        for part in parts:
+                            if part.get("type") == "text" and not part.get("thought"):
+                                actual_response += part.get("text", "")
                     
                     # Extract token counts
                     token_counts = event_data.get("token_counts", {})
