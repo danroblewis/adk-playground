@@ -381,6 +381,27 @@ def generate_python_code(project: Project) -> str:
             if plugin.type == "ReflectAndRetryToolPlugin":
                 imports.add("from google.adk.plugins import ReflectAndRetryToolPlugin")
     
+    # Scan custom tools and callbacks for common types they might use
+    all_custom_code = ""
+    for tool in project.custom_tools:
+        all_custom_code += tool.code + "\n"
+    for callback in project.custom_callbacks:
+        all_custom_code += callback.code + "\n"
+    
+    # Add imports for types used in custom code
+    if "ToolContext" in all_custom_code:
+        imports.add("from google.adk.tools.tool_context import ToolContext")
+    if "CallbackContext" in all_custom_code:
+        imports.add("from google.adk.agents.callback_context import CallbackContext")
+    if "types.Content" in all_custom_code or "types.Part" in all_custom_code:
+        imports.add("from google.genai import types")
+    if "LlmRequest" in all_custom_code:
+        imports.add("from google.adk.models.llm_request import LlmRequest")
+    if "LlmResponse" in all_custom_code:
+        imports.add("from google.adk.models.llm_response import LlmResponse")
+    if "Optional[" in all_custom_code or "List[" in all_custom_code or "Dict[" in all_custom_code:
+        imports.add("from typing import Optional, List, Dict, Any")
+    
     # Add imports
     for imp in sorted(imports):
         lines.append(imp)
