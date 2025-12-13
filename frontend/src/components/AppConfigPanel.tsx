@@ -484,7 +484,7 @@ export default function AppConfigPanel() {
                 const defaults: Record<string, string> = {
                   'memory': 'memory://',
                   'file': 'file://~/.adk-playground/sessions',
-                  'sqlite': 'sqlite://./sessions.db',
+                  'sqlite': 'sqlite://~/.adk-playground/sessions.db',
                   'postgresql': 'postgresql://user:pass@localhost:5432/adk_sessions',
                   'mysql': 'mysql://user:pass@localhost:3306/adk_sessions',
                   'agentengine': 'agentengine://project/us-central1/engine-id',
@@ -513,7 +513,7 @@ export default function AppConfigPanel() {
                 type="text"
                 value={app.session_service_uri.replace('sqlite://', '')}
                 onChange={(e) => updateApp({ session_service_uri: 'sqlite://' + e.target.value })}
-                placeholder="./sessions.db"
+                placeholder="~/.adk-playground/sessions.db"
                 style={{ marginTop: 8 }}
               />
             )}
@@ -664,7 +664,7 @@ export default function AppConfigPanel() {
                 const type = e.target.value;
                 const defaults: Record<string, string> = {
                   'memory': 'memory://',
-                  'file': 'file://./artifacts',
+                  'file': 'file://~/.adk-playground/artifacts',
                   'gs': 'gs://your-bucket-name',
                 };
                 updateApp({ artifact_service_uri: defaults[type] || type + '://' });
@@ -679,7 +679,7 @@ export default function AppConfigPanel() {
                 type="text"
                 value={app.artifact_service_uri.replace('file://', '')}
                 onChange={(e) => updateApp({ artifact_service_uri: 'file://' + e.target.value })}
-                placeholder="./artifacts"
+                placeholder="~/.adk-playground/artifacts"
                 style={{ marginTop: 8 }}
               />
             )}
