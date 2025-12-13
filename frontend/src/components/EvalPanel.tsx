@@ -302,10 +302,12 @@ export default function EvalPanel() {
   // Listen for test events from header Test button
   useEffect(() => {
     const handleTestsStarted = () => {
-      setRunning(true);
+      // Mark all eval sets as running
+      setRunning(new Set(evalSets.map(es => es.id)));
     };
     const handleTestsCompleted = () => {
-      setRunning(false);
+      // Clear all running states
+      setRunning(new Set());
       loadEvalHistory();
     };
     
@@ -316,7 +318,7 @@ export default function EvalPanel() {
       window.removeEventListener('eval-tests-started', handleTestsStarted);
       window.removeEventListener('eval-tests-completed', handleTestsCompleted);
     };
-  }, []);
+  }, [evalSets]);
   
   // Handle URL deeplinks: ?set=, ?case=, ?run=
   useEffect(() => {
