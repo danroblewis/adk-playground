@@ -3,7 +3,7 @@ import {
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
   CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
-  Download, Upload, Code
+  Download, Upload, Code, TestTube
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
@@ -1589,6 +1589,29 @@ export default function RunPanel() {
     }
   }, [project, clearRunEvents, clearWatchHistories, setCurrentSessionId, addRunEvent]);
   
+  // Handle ?session= query parameter from URL (e.g., from "View Session" in Eval panel)
+  useEffect(() => {
+    if (!project || availableSessions.length === 0 || loadingSessions) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const sessionIdFromUrl = params.get('session');
+    
+    if (sessionIdFromUrl) {
+      // Check if this session exists in available sessions
+      const sessionExists = availableSessions.some(s => s.id === sessionIdFromUrl);
+      if (sessionExists) {
+        // Load the session
+        handleSessionSelect(sessionIdFromUrl);
+        
+        // Clean up the URL by removing the query parameter
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      } else {
+        console.warn(`Session ${sessionIdFromUrl} not found in available sessions`);
+      }
+    }
+  }, [project, availableSessions, loadingSessions, handleSessionSelect]);
+  
   // Auto-scroll to new events
   useEffect(() => {
     if (isRunning && eventListRef.current) {
@@ -1793,6 +1816,67 @@ export default function RunPanel() {
       alert(`Error saving to memory: ${error.message || 'Unknown error'}`);
     }
   }, [currentSessionId, project]);
+  
+  // Create test case from current session
+  const [showTestCaseDialog, setShowTestCaseDialog] = useState(false);
+  const [testCaseEvalSets, setTestCaseEvalSets] = useState<Array<{id: string; name: string}>>([]);
+  const [selectedEvalSetId, setSelectedEvalSetId] = useState<string>('');
+  const [testCaseName, setTestCaseName] = useState('Test Case from Session');
+  const [creatingTestCase, setCreatingTestCase] = useState(false);
+  
+  const handleCreateTestCase = useCallback(async () => {
+    if (!currentSessionId || !project) {
+      alert('No active session to create test case from');
+      return;
+    }
+    
+    // Load eval sets
+    try {
+      const response = await fetchJSON<{eval_sets: Array<{id: string; name: string}>}>(`/projects/${project.id}/eval-sets`);
+      setTestCaseEvalSets(response.eval_sets || []);
+      
+      // If no eval sets, show alert and return
+      if (!response.eval_sets || response.eval_sets.length === 0) {
+        const createNew = confirm('No evaluation sets found. Would you like to create one first?\n\nGo to the Evals tab to create an evaluation set.');
+        if (createNew) {
+          // Navigate to evals tab
+          window.location.href = `/project/${project.id}/evals`;
+        }
+        return;
+      }
+      
+      setSelectedEvalSetId(response.eval_sets[0].id);
+      setShowTestCaseDialog(true);
+    } catch (error: any) {
+      alert(`Error loading eval sets: ${error.message || 'Unknown error'}`);
+    }
+  }, [currentSessionId, project]);
+  
+  const handleConfirmCreateTestCase = useCallback(async () => {
+    if (!currentSessionId || !project || !selectedEvalSetId) {
+      alert('Please select an evaluation set');
+      return;
+    }
+    
+    setCreatingTestCase(true);
+    try {
+      const response = await fetchJSON<{eval_case: any; session_token_count: number}>(`/projects/${project.id}/session-to-eval-case`, {
+        method: 'POST',
+        body: JSON.stringify({
+          session_id: currentSessionId,
+          eval_set_id: selectedEvalSetId,
+          case_name: testCaseName,
+        }),
+      });
+      
+      setShowTestCaseDialog(false);
+      alert(`Test case "${response.eval_case.name}" created successfully!\n\nToken count: ${response.session_token_count.toLocaleString()} tokens\n\nGo to the Evals tab to view and edit the test case.`);
+    } catch (error: any) {
+      alert(`Error creating test case: ${error.message || 'Unknown error'}`);
+    } finally {
+      setCreatingTestCase(false);
+    }
+  }, [currentSessionId, project, selectedEvalSetId, testCaseName]);
   
   // Upload run from JSON file
   const handleUploadRun = useCallback(() => {
@@ -3544,7 +3628,119 @@ export default function RunPanel() {
           <Database size={12} />
           Save to Memory
         </button>
+        <button 
+          className="stats-bar-btn" 
+          onClick={handleCreateTestCase}
+          disabled={!currentSessionId || runEvents.length === 0}
+          title="Create evaluation test case from this session"
+          style={{ background: 'rgba(var(--accent-primary-rgb), 0.15)' }}
+        >
+          <TestTube size={12} />
+          Create Test Case
+        </button>
       </div>
+      
+      {/* Test Case Creation Dialog */}
+      {showTestCaseDialog && (
+        <div 
+          className="dialog-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowTestCaseDialog(false)}
+        >
+          <div 
+            className="dialog-content"
+            style={{
+              background: 'var(--bg-secondary)',
+              borderRadius: 'var(--radius-md)',
+              padding: 24,
+              width: 400,
+              maxWidth: '90vw',
+              border: '1px solid var(--border-color)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <TestTube size={18} />
+              Create Test Case from Session
+            </h3>
+            
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                Test Case Name
+              </label>
+              <input
+                type="text"
+                value={testCaseName}
+                onChange={(e) => setTestCaseName(e.target.value)}
+                placeholder="Enter test case name"
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                Add to Evaluation Set
+              </label>
+              <select
+                value={selectedEvalSetId}
+                onChange={(e) => setSelectedEvalSetId(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {testCaseEvalSets.map(es => (
+                  <option key={es.id} value={es.id}>{es.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+              This will extract user messages and tool calls from the current session
+              to create a replayable test case. You can edit the expected responses
+              and tool calls in the Evals tab after creation.
+            </p>
+            
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowTestCaseDialog(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={handleConfirmCreateTestCase}
+                disabled={creatingTestCase || !selectedEvalSetId}
+              >
+                {creatingTestCase ? 'Creating...' : 'Create Test Case'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

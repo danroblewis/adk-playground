@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -18,7 +23,10 @@ from pydantic import BaseModel
 from models import (
     Project, AppConfig, AgentConfig, LlmAgentConfig, SequentialAgentConfig,
     LoopAgentConfig, ParallelAgentConfig, CustomToolDefinition, MCPServerConfig,
-    EvalTestGroup, EvalResult, RunEvent,
+    RunEvent, EvalSet, EvalCase, EvalInvocation, ExpectedToolCall,
+    EvalSetResult, EvalCaseResult, InvocationResult, ToolTrajectoryMatchType,
+    EvalConfig, EvalMetricConfig, EvalMetricType, EvalCriterion, JudgeModelOptions,
+    MetricResult, Rubric,
 )
 from project_manager import ProjectManager
 from runtime import RuntimeManager
@@ -2310,6 +2318,902 @@ async def check_embeddings_available():
 
 
 # ============================================================================
+# Evaluation API Endpoints
+# ============================================================================
+
+from evaluation_service import create_evaluation_service, ResponseEvaluator, TrajectoryEvaluator
+
+
+# Create evaluation service
+eval_service = None
+
+def get_eval_service():
+    """Get or create the evaluation service."""
+    global eval_service
+    if eval_service is None:
+        eval_service = create_evaluation_service(runtime_manager)
+    return eval_service
+
+
+class CreateEvalSetRequest(BaseModel):
+    """Request to create an evaluation set."""
+    name: str
+    description: str = ""
+    eval_config: Optional[Dict[str, Any]] = None  # Uses EvalConfig structure
+
+
+class CreateEvalCaseRequest(BaseModel):
+    """Request to create an evaluation case."""
+    name: str
+    description: str = ""
+    invocations: List[Dict[str, Any]] = []
+    initial_state: Dict[str, Any] = {}
+    expected_final_state: Optional[Dict[str, Any]] = None
+    rubrics: List[Dict[str, str]] = []
+    tags: List[str] = []
+
+
+class RunEvalSetRequest(BaseModel):
+    """Request to run an evaluation set."""
+    agent_id: Optional[str] = None
+
+
+class RunEvalCaseRequest(BaseModel):
+    """Request to run a single evaluation case."""
+    agent_id: Optional[str] = None
+
+
+class QuickEvalRequest(BaseModel):
+    """Request to run a quick evaluation (single message)."""
+    user_message: str
+    expected_response: Optional[str] = None
+    expected_tool_calls: List[Dict[str, Any]] = []
+    agent_id: Optional[str] = None
+
+
+@app.get("/api/projects/{project_id}/eval-sets")
+async def list_eval_sets(project_id: str):
+    """List all evaluation sets in a project."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {
+        "eval_sets": [es.model_dump(mode="json") for es in project.eval_sets]
+    }
+
+
+@app.post("/api/projects/{project_id}/eval-sets")
+async def create_eval_set(project_id: str, request: CreateEvalSetRequest):
+    """Create a new evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    import time
+    
+    # Parse eval_config if provided
+    eval_config = None
+    if request.eval_config:
+        eval_config = EvalConfig(**request.eval_config)
+    else:
+        eval_config = EvalConfig()  # Use defaults
+    
+    eval_set = EvalSet(
+        id=str(uuid.uuid4())[:8],
+        name=request.name,
+        description=request.description,
+        eval_config=eval_config,
+        created_at=time.time(),
+        updated_at=time.time(),
+    )
+    
+    project.eval_sets.append(eval_set)
+    project_manager.save_project(project)
+    
+    return {"eval_set": eval_set.model_dump(mode="json")}
+
+
+@app.get("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def get_eval_set(project_id: str, eval_set_id: str):
+    """Get an evaluation set by ID."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    return {"eval_set": eval_set.model_dump(mode="json")}
+
+
+@app.put("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def update_eval_set(project_id: str, eval_set_id: str, data: dict):
+    """Update an evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    import time
+    
+    for i, es in enumerate(project.eval_sets):
+        if es.id == eval_set_id:
+            # Handle eval_config specially
+            if "eval_config" in data and isinstance(data["eval_config"], dict):
+                # Parse metrics if present
+                config_data = data["eval_config"]
+                if "metrics" in config_data:
+                    parsed_metrics = []
+                    for m in config_data["metrics"]:
+                        if isinstance(m.get("metric"), str):
+                            try:
+                                m["metric"] = EvalMetricType(m["metric"])
+                            except ValueError:
+                                pass
+                        parsed_metrics.append(m)
+                    config_data["metrics"] = parsed_metrics
+                
+                if "default_trajectory_match_type" in config_data:
+                    try:
+                        config_data["default_trajectory_match_type"] = ToolTrajectoryMatchType(
+                            config_data["default_trajectory_match_type"]
+                        )
+                    except ValueError:
+                        pass
+            
+            # Update fields
+            updated_data = es.model_dump()
+            updated_data.update(data)
+            updated_data["updated_at"] = time.time()
+            
+            project.eval_sets[i] = EvalSet.model_validate(updated_data)
+            project_manager.save_project(project)
+            
+            return {"eval_set": project.eval_sets[i].model_dump(mode="json")}
+    
+    raise HTTPException(status_code=404, detail="Eval set not found")
+
+
+@app.delete("/api/projects/{project_id}/eval-sets/{eval_set_id}")
+async def delete_eval_set(project_id: str, eval_set_id: str):
+    """Delete an evaluation set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    original_len = len(project.eval_sets)
+    project.eval_sets = [es for es in project.eval_sets if es.id != eval_set_id]
+    
+    if len(project.eval_sets) == original_len:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    project_manager.save_project(project)
+    return {"success": True}
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases")
+async def create_eval_case(project_id: str, eval_set_id: str, request: CreateEvalCaseRequest):
+    """Create a new evaluation case in an eval set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    # Parse invocations
+    invocations = []
+    for inv_data in request.invocations:
+        expected_tool_calls = []
+        for tc in inv_data.get("expected_tool_calls", []):
+            expected_tool_calls.append(ExpectedToolCall(
+                name=tc.get("name", ""),
+                args=tc.get("args"),
+                args_match_mode=tc.get("args_match_mode", "ignore"),
+            ))
+        
+        # Parse trajectory match type for invocation
+        try:
+            inv_match_type = ToolTrajectoryMatchType(inv_data.get("tool_trajectory_match_type", "in_order"))
+        except ValueError:
+            inv_match_type = ToolTrajectoryMatchType.IN_ORDER
+        
+        # Parse rubrics
+        inv_rubrics = [Rubric(rubric=r.get("rubric", "")) for r in inv_data.get("rubrics", [])]
+        
+        invocations.append(EvalInvocation(
+            id=inv_data.get("id", str(uuid.uuid4())[:8]),
+            user_message=inv_data.get("user_message", ""),
+            expected_response=inv_data.get("expected_response"),
+            expected_tool_calls=expected_tool_calls,
+            tool_trajectory_match_type=inv_match_type,
+            rubrics=inv_rubrics,
+        ))
+    
+    # Parse case-level rubrics
+    case_rubrics = [Rubric(rubric=r.get("rubric", "")) for r in request.rubrics]
+    
+    eval_case = EvalCase(
+        id=str(uuid.uuid4())[:8],
+        name=request.name,
+        description=request.description,
+        invocations=invocations,
+        initial_state=request.initial_state,
+        expected_final_state=request.expected_final_state,
+        rubrics=case_rubrics,
+        tags=request.tags,
+    )
+    
+    eval_set.eval_cases.append(eval_case)
+    eval_set.updated_at = time.time()
+    project_manager.save_project(project)
+    
+    return {"eval_case": eval_case.model_dump(mode="json")}
+
+
+@app.put("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}")
+async def update_eval_case(project_id: str, eval_set_id: str, case_id: str, data: dict):
+    """Update an evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    for i, case in enumerate(eval_set.eval_cases):
+        if case.id == case_id:
+            # Parse invocations if provided
+            if "invocations" in data:
+                invocations = []
+                for inv_data in data["invocations"]:
+                    expected_tool_calls = []
+                    for tc in inv_data.get("expected_tool_calls", []):
+                        expected_tool_calls.append(ExpectedToolCall(
+                            name=tc.get("name", ""),
+                            args=tc.get("args"),
+                            args_match_mode=tc.get("args_match_mode", "ignore"),
+                        ))
+                    
+                    # Parse trajectory match type
+                    try:
+                        inv_match_type = ToolTrajectoryMatchType(
+                            inv_data.get("tool_trajectory_match_type", "in_order")
+                        )
+                    except ValueError:
+                        inv_match_type = ToolTrajectoryMatchType.IN_ORDER
+                    
+                    # Parse rubrics
+                    inv_rubrics = [Rubric(rubric=r.get("rubric", "")) for r in inv_data.get("rubrics", [])]
+                    
+                    invocations.append(EvalInvocation(
+                        id=inv_data.get("id", str(uuid.uuid4())[:8]),
+                        user_message=inv_data.get("user_message", ""),
+                        expected_response=inv_data.get("expected_response"),
+                        expected_tool_calls=expected_tool_calls,
+                        tool_trajectory_match_type=inv_match_type,
+                        rubrics=inv_rubrics,
+                    ))
+                data["invocations"] = invocations
+            
+            # Parse case-level rubrics if provided
+            if "rubrics" in data:
+                data["rubrics"] = [Rubric(rubric=r.get("rubric", "")) for r in data["rubrics"]]
+            
+            # Update fields
+            updated_data = case.model_dump()
+            updated_data.update(data)
+            
+            eval_set.eval_cases[i] = EvalCase.model_validate(updated_data)
+            eval_set.updated_at = time.time()
+            project_manager.save_project(project)
+            
+            return {"eval_case": eval_set.eval_cases[i].model_dump(mode="json")}
+    
+    raise HTTPException(status_code=404, detail="Eval case not found")
+
+
+@app.delete("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}")
+async def delete_eval_case(project_id: str, eval_set_id: str, case_id: str):
+    """Delete an evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    import time
+    
+    original_len = len(eval_set.eval_cases)
+    eval_set.eval_cases = [c for c in eval_set.eval_cases if c.id != case_id]
+    
+    if len(eval_set.eval_cases) == original_len:
+        raise HTTPException(status_code=404, detail="Eval case not found")
+    
+    eval_set.updated_at = time.time()
+    project_manager.save_project(project)
+    return {"success": True}
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/run")
+async def run_eval_set(project_id: str, eval_set_id: str, request: RunEvalSetRequest):
+    """Run all evaluation cases in an eval set."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    try:
+        service = get_eval_service()
+        result = await service.run_eval_set(
+            project=project,
+            eval_set=eval_set,
+            agent_id=request.agent_id,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases/{case_id}/run")
+async def run_eval_case(
+    project_id: str,
+    eval_set_id: str,
+    case_id: str,
+    request: RunEvalCaseRequest
+):
+    """Run a single evaluation case."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    eval_case = next((c for c in eval_set.eval_cases if c.id == case_id), None)
+    if not eval_case:
+        raise HTTPException(status_code=404, detail="Eval case not found")
+    
+    try:
+        service = get_eval_service()
+        result = await service.run_eval_case(
+            project=project,
+            eval_case=eval_case,
+            eval_config=eval_set.eval_config,
+            agent_id=request.agent_id,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/projects/{project_id}/quick-eval")
+async def quick_eval(project_id: str, request: QuickEvalRequest):
+    """Run a quick evaluation with a single message.
+    
+    This is useful for testing without creating a full eval set.
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        # Create a temporary eval case
+        expected_tool_calls = []
+        for tc in request.expected_tool_calls:
+            expected_tool_calls.append(ExpectedToolCall(
+                name=tc.get("name", ""),
+                args=tc.get("args"),
+                args_match_mode=tc.get("args_match_mode", "ignore"),
+            ))
+        
+        invocation = EvalInvocation(
+            id="quick_eval",
+            user_message=request.user_message,
+            expected_response=request.expected_response,
+            expected_tool_calls=expected_tool_calls,
+            tool_trajectory_match_type=ToolTrajectoryMatchType.IN_ORDER,
+            rubrics=[],
+        )
+        
+        eval_case = EvalCase(
+            id="quick_eval_case",
+            name="Quick Evaluation",
+            invocations=[invocation],
+            rubrics=[],
+            tags=[],
+        )
+        
+        # Create default eval config
+        eval_config = EvalConfig()
+        
+        service = get_eval_service()
+        result = await service.run_eval_case(
+            project=project,
+            eval_case=eval_case,
+            eval_config=eval_config,
+            agent_id=request.agent_id,
+        )
+        
+        return {"result": result.model_dump(mode="json")}
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+# ============================================================================
+# EVAL RUN HISTORY ENDPOINTS
+# ============================================================================
+
+def _get_eval_history_dir(project_id: str) -> Path:
+    """Get the directory for storing eval run history."""
+    project_dir = project_manager.projects_dir / project_id
+    history_dir = project_dir / "eval_history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    return history_dir
+
+
+@app.post("/api/projects/{project_id}/eval-history")
+async def save_eval_run(project_id: str, data: dict):
+    """Save an evaluation run result to history."""
+    history_dir = _get_eval_history_dir(project_id)
+    run_id = data.get("id") or f"{int(time.time() * 1000)}"
+    file_path = history_dir / f"{run_id}.json"
+    
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    return {"success": True, "run_id": run_id}
+
+
+@app.get("/api/projects/{project_id}/eval-history")
+async def list_eval_runs(project_id: str):
+    """List all saved evaluation runs for a project."""
+    history_dir = _get_eval_history_dir(project_id)
+    runs = []
+    
+    for file_path in sorted(history_dir.glob("*.json"), reverse=True):
+        try:
+            with open(file_path) as f:
+                data = json.load(f)
+                runs.append({
+                    "id": data.get("id", file_path.stem),
+                    "eval_set_name": data.get("eval_set_name", "Unknown"),
+                    "started_at": data.get("started_at", 0),
+                    "ended_at": data.get("ended_at", 0),
+                    "total_cases": data.get("total_cases", 0),
+                    "passed_cases": data.get("passed_cases", 0),
+                    "failed_cases": data.get("failed_cases", 0),
+                    "overall_pass_rate": data.get("overall_pass_rate", 0),
+                })
+        except Exception as e:
+            logger.warning(f"Failed to read eval history file {file_path}: {e}")
+    
+    return {"runs": runs}
+
+
+@app.get("/api/projects/{project_id}/eval-history/{run_id}")
+async def get_eval_run(project_id: str, run_id: str):
+    """Get a specific saved evaluation run."""
+    history_dir = _get_eval_history_dir(project_id)
+    file_path = history_dir / f"{run_id}.json"
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Eval run not found")
+    
+    with open(file_path) as f:
+        data = json.load(f)
+    
+    return {"run": data}
+
+
+@app.delete("/api/projects/{project_id}/eval-history/{run_id}")
+async def delete_eval_run(project_id: str, run_id: str):
+    """Delete a saved evaluation run."""
+    history_dir = _get_eval_history_dir(project_id)
+    file_path = history_dir / f"{run_id}.json"
+    
+    if file_path.exists():
+        file_path.unlink()
+    
+    return {"success": True}
+
+
+@app.post("/api/eval/compare-text")
+async def compare_text(data: dict):
+    """Compare two text strings using ROUGE-1 scoring.
+    
+    Useful for testing the fuzzy matching without running an agent.
+    """
+    reference = data.get("reference", "")
+    candidate = data.get("candidate", "")
+    threshold = data.get("threshold", 0.7)
+    
+    evaluator = ResponseEvaluator(threshold=threshold)
+    score, passed = evaluator.evaluate(candidate, reference)
+    
+    return {
+        "score": score,
+        "passed": passed,
+        "threshold": threshold,
+        "reference": reference,
+        "candidate": candidate,
+    }
+
+
+@app.post("/api/eval/compare-tools")
+async def compare_tools(data: dict):
+    """Compare tool call trajectories.
+    
+    Useful for testing trajectory matching without running an agent.
+    """
+    actual = data.get("actual", [])  # [{"name": ..., "args": ...}, ...]
+    expected = data.get("expected", [])  # [{"name": ..., "args": ..., "args_match_mode": ...}, ...]
+    match_type = data.get("match_type", "in_order")
+    
+    try:
+        mt = ToolTrajectoryMatchType(match_type)
+    except ValueError:
+        mt = ToolTrajectoryMatchType.IN_ORDER
+    
+    # Parse expected tool calls
+    expected_calls = []
+    for tc in expected:
+        expected_calls.append(ExpectedToolCall(
+            name=tc.get("name", ""),
+            args=tc.get("args"),
+            args_match_mode=tc.get("args_match_mode", "exact"),
+        ))
+    
+    evaluator = TrajectoryEvaluator(match_type=mt)
+    score, passed = evaluator.evaluate(actual, expected_calls)
+    
+    return {
+        "score": score,
+        "passed": passed,
+        "match_type": match_type,
+        "actual": actual,
+        "expected": expected,
+    }
+
+
+# ============================================================================
+# ============================================================================
+# Session to Eval Case Conversion
+# ============================================================================
+
+class SessionToEvalCaseRequest(BaseModel):
+    """Request to convert a session to an eval case."""
+    session_id: str
+    eval_set_id: str
+    case_name: str = "Test Case from Session"
+    expected_response: Optional[str] = None
+
+
+@app.post("/api/projects/{project_id}/session-to-eval-case")
+async def session_to_eval_case(project_id: str, request: SessionToEvalCaseRequest):
+    """Convert a session into an eval case.
+    
+    This extracts user messages and tool calls from a session and creates
+    an eval case that can be used for regression testing.
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == request.eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    # Load the session
+    session = await runtime_manager.load_session_from_service(project, request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Extract invocations from session events
+    # Group events by invocation (user message to next user message)
+    invocations: List[EvalInvocation] = []
+    current_user_message = None
+    current_tool_calls: List[ExpectedToolCall] = []
+    current_response = None
+    
+    for event in session.events:
+        if event.event_type == "user_message" or (
+            event.event_type == "model_call" and 
+            event.data.get("contents") and 
+            any(c.get("role") == "user" for c in event.data.get("contents", []))
+        ):
+            # If we have a previous user message, save the invocation
+            if current_user_message:
+                invocations.append(EvalInvocation(
+                    id=str(uuid.uuid4())[:8],
+                    user_message=current_user_message,
+                    expected_response=current_response or request.expected_response,
+                    expected_tool_calls=current_tool_calls,
+                    tool_trajectory_match_type=ToolTrajectoryMatchType.IN_ORDER,
+                    rubrics=[],
+                ))
+            
+            # Extract user message from event
+            if event.event_type == "user_message":
+                current_user_message = event.data.get("message", "")
+            else:
+                # Extract from model_call contents
+                contents = event.data.get("contents", [])
+                for content in contents:
+                    if content.get("role") == "user":
+                        parts = content.get("parts", [])
+                        for part in parts:
+                            if isinstance(part, dict) and part.get("text"):
+                                current_user_message = part.get("text", "")
+                                break
+                            elif isinstance(part, str):
+                                current_user_message = part
+                                break
+            
+            current_tool_calls = []
+            current_response = None
+            
+        elif event.event_type == "tool_call":
+            # Record tool call
+            current_tool_calls.append(ExpectedToolCall(
+                name=event.data.get("tool_name", ""),
+                args=event.data.get("args", {}),
+                args_match_mode="subset",  # Default to subset for flexibility
+            ))
+            
+        elif event.event_type == "model_response":
+            # Extract response text
+            parts = event.data.get("response_content", {}).get("parts", [])
+            if not parts:
+                parts = event.data.get("parts", [])
+            for part in parts:
+                if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                    current_response = part.get("text", "")
+                    break
+    
+    # Don't forget the last invocation
+    if current_user_message:
+        invocations.append(EvalInvocation(
+            id=str(uuid.uuid4())[:8],
+            user_message=current_user_message,
+            expected_response=current_response or request.expected_response,
+            expected_tool_calls=current_tool_calls,
+            tool_trajectory_match_type=ToolTrajectoryMatchType.IN_ORDER,
+            rubrics=[],
+        ))
+    
+    if not invocations:
+        raise HTTPException(status_code=400, detail="No user messages found in session")
+    
+    # Calculate token counts from session
+    total_tokens = 0
+    for event in session.events:
+        if event.event_type == "model_response":
+            token_counts = event.data.get("token_counts", {})
+            total_tokens += token_counts.get("input_tokens", 0) + token_counts.get("output_tokens", 0)
+    
+    # Create the eval case
+    import time
+    eval_case = EvalCase(
+        id=str(uuid.uuid4())[:8],
+        name=request.case_name,
+        description=f"Created from session {request.session_id}",
+        invocations=invocations,
+        initial_state={},
+        expected_final_state=session.final_state if session.final_state else None,
+        rubrics=[],
+        tags=["from_session"],
+    )
+    
+    # Add to eval set
+    eval_set.eval_cases.append(eval_case)
+    eval_set.updated_at = time.time()
+    project_manager.save_project(project)
+    
+    return {
+        "eval_case": eval_case.model_dump(mode="json"),
+        "session_token_count": total_tokens,
+    }
+
+
+# ============================================================================
+# Eval Set Export/Import
+# ============================================================================
+
+@app.get("/api/projects/{project_id}/eval-sets/{eval_set_id}/export")
+async def export_eval_set(project_id: str, eval_set_id: str):
+    """Export an eval set as JSON (compatible with `adk eval` format)."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    eval_set = next((es for es in project.eval_sets if es.id == eval_set_id), None)
+    if not eval_set:
+        raise HTTPException(status_code=404, detail="Eval set not found")
+    
+    # Convert to ADK-compatible eval format
+    # ADK expects a list of eval cases with specific structure
+    adk_format = {
+        "name": eval_set.name,
+        "description": eval_set.description,
+        "eval_cases": [],
+        "eval_config": eval_set.eval_config.model_dump(mode="json"),
+    }
+    
+    for case in eval_set.eval_cases:
+        adk_case = {
+            "eval_id": case.id,
+            "name": case.name,
+            "description": case.description,
+            "conversation": [],
+            "session_input": {
+                "state": case.initial_state,
+            } if case.initial_state else None,
+            "final_session_state": case.expected_final_state,
+            "rubrics": [r.model_dump(mode="json") for r in case.rubrics],
+        }
+        
+        for inv in case.invocations:
+            adk_inv = {
+                "user_content": {
+                    "role": "user",
+                    "parts": [{"text": inv.user_message}],
+                },
+                "final_response": {
+                    "role": "model",
+                    "parts": [{"text": inv.expected_response or ""}],
+                } if inv.expected_response else None,
+                "intermediate_data": {
+                    "tool_uses": [
+                        {"name": tc.name, "args": tc.args or {}}
+                        for tc in inv.expected_tool_calls
+                    ],
+                },
+                "rubrics": [r.model_dump(mode="json") for r in inv.rubrics],
+            }
+            adk_case["conversation"].append(adk_inv)
+        
+        adk_format["eval_cases"].append(adk_case)
+    
+    return adk_format
+
+
+@app.post("/api/projects/{project_id}/eval-sets/import")
+async def import_eval_set(project_id: str, data: dict):
+    """Import an eval set from JSON.
+    
+    Accepts both the playground format and ADK eval format.
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    import time
+    
+    # Try to detect format and convert
+    if "eval_cases" in data and isinstance(data.get("eval_cases"), list):
+        # Could be either format, check first case structure
+        first_case = data["eval_cases"][0] if data["eval_cases"] else {}
+        
+        if "invocations" in first_case:
+            # Playground format - parse directly
+            try:
+                eval_set = EvalSet(
+                    id=str(uuid.uuid4())[:8],
+                    name=data.get("name", "Imported Eval Set"),
+                    description=data.get("description", ""),
+                    eval_cases=[EvalCase.model_validate(c) for c in data["eval_cases"]],
+                    eval_config=EvalConfig.model_validate(data.get("eval_config", {})) if data.get("eval_config") else EvalConfig(),
+                    created_at=time.time(),
+                    updated_at=time.time(),
+                )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid playground format: {e}")
+        
+        elif "conversation" in first_case:
+            # ADK format - convert
+            eval_cases = []
+            for adk_case in data["eval_cases"]:
+                invocations = []
+                for adk_inv in adk_case.get("conversation", []):
+                    user_content = adk_inv.get("user_content", {})
+                    user_parts = user_content.get("parts", [])
+                    user_message = ""
+                    for part in user_parts:
+                        if isinstance(part, dict) and part.get("text"):
+                            user_message = part["text"]
+                            break
+                    
+                    final_response = adk_inv.get("final_response", {})
+                    response_parts = final_response.get("parts", []) if final_response else []
+                    expected_response = ""
+                    for part in response_parts:
+                        if isinstance(part, dict) and part.get("text"):
+                            expected_response = part["text"]
+                            break
+                    
+                    intermediate = adk_inv.get("intermediate_data", {})
+                    tool_uses = intermediate.get("tool_uses", [])
+                    expected_tool_calls = [
+                        ExpectedToolCall(
+                            name=tu.get("name", ""),
+                            args=tu.get("args"),
+                            args_match_mode="subset",
+                        )
+                        for tu in tool_uses
+                    ]
+                    
+                    invocations.append(EvalInvocation(
+                        id=str(uuid.uuid4())[:8],
+                        user_message=user_message,
+                        expected_response=expected_response or None,
+                        expected_tool_calls=expected_tool_calls,
+                        tool_trajectory_match_type=ToolTrajectoryMatchType.IN_ORDER,
+                        rubrics=[Rubric.model_validate(r) for r in adk_inv.get("rubrics", [])],
+                    ))
+                
+                session_input = adk_case.get("session_input", {})
+                eval_cases.append(EvalCase(
+                    id=adk_case.get("eval_id", str(uuid.uuid4())[:8]),
+                    name=adk_case.get("name", "Imported Case"),
+                    description=adk_case.get("description", ""),
+                    invocations=invocations,
+                    initial_state=session_input.get("state", {}) if session_input else {},
+                    expected_final_state=adk_case.get("final_session_state"),
+                    rubrics=[Rubric.model_validate(r) for r in adk_case.get("rubrics", [])],
+                    tags=["imported"],
+                ))
+            
+            eval_set = EvalSet(
+                id=str(uuid.uuid4())[:8],
+                name=data.get("name", "Imported Eval Set"),
+                description=data.get("description", ""),
+                eval_cases=eval_cases,
+                eval_config=EvalConfig.model_validate(data.get("eval_config", {})) if data.get("eval_config") else EvalConfig(),
+                created_at=time.time(),
+                updated_at=time.time(),
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Unknown eval format")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid eval set format: missing eval_cases")
+    
+    project.eval_sets.append(eval_set)
+    project_manager.save_project(project)
+    
+    return {"eval_set": eval_set.model_dump(mode="json")}
+
+
 # Static Files (for production)
 # ============================================================================
 

@@ -1,8 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Settings, Bot, Wrench, TestTube, FileCode, Code, Save, Layers, Brain } from 'lucide-react';
+import { ArrowLeft, Settings, Bot, Wrench, TestTube, FileCode, Code, Save, Layers, Brain, Play, Loader2 } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import { getProject, updateProject as apiUpdateProject } from '../utils/api';
+import { getProject, updateProject as apiUpdateProject, api } from '../utils/api';
 import type { AppModelConfig } from '../utils/types';
 import AppConfigPanel from './AppConfigPanel';
 import AgentsPanel from './AgentsPanel';
@@ -35,6 +35,8 @@ export default function ProjectEditor() {
   const { project, setProject, activeTab, setActiveTab, hasUnsavedChanges, setHasUnsavedChanges, selectedAgentId, setSelectedAgentId, selectedToolId, setSelectedToolId } = useStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ passed: number; total: number } | null>(null);
   const initialLoadRef = useRef(true);
   const lastSavedProjectRef = useRef<string | null>(null);
   
@@ -113,13 +115,60 @@ export default function ProjectEditor() {
     
     setSaving(true);
     try {
-      await apiUpdateProject(project.id, project);
+      // Don't send eval_sets - they're managed separately by EvalPanel
+      const { eval_sets, ...projectWithoutEvalSets } = project;
+      await apiUpdateProject(project.id, projectWithoutEvalSets);
       lastSavedProjectRef.current = JSON.stringify(project);
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Failed to save project:', error);
     } finally {
       setSaving(false);
+    }
+  }
+  
+  async function handleTest() {
+    if (!project) return;
+    
+    setTesting(true);
+    setTestResult(null);
+    
+    try {
+      // Run all eval sets
+      let totalPassed = 0;
+      let totalCases = 0;
+      
+      for (const evalSet of project.eval_sets || []) {
+        if (evalSet.eval_cases.length === 0) continue;
+        
+        const response = await api.post(
+          `/projects/${project.id}/eval-sets/${evalSet.id}/run`,
+          {}
+        );
+        
+        if (response.result) {
+          totalPassed += response.result.passed_cases || 0;
+          totalCases += response.result.total_cases || 0;
+          
+          // Save to history
+          try {
+            await api.post(`/projects/${project.id}/eval-history`, response.result);
+          } catch (err) {
+            console.warn('Failed to save eval run to history:', err);
+          }
+        }
+      }
+      
+      setTestResult({ passed: totalPassed, total: totalCases });
+      
+      // Clear result after 5 seconds
+      setTimeout(() => setTestResult(null), 5000);
+    } catch (error) {
+      console.error('Failed to run tests:', error);
+      setTestResult({ passed: 0, total: -1 }); // -1 indicates error
+      setTimeout(() => setTestResult(null), 5000);
+    } finally {
+      setTesting(false);
     }
   }
   
@@ -237,7 +286,9 @@ export default function ProjectEditor() {
         // Auto-save after 500ms of no changes (debounce)
         saveTimeoutRef.current = setTimeout(async () => {
           try {
-            await apiUpdateProject(project.id, project);
+            // Don't send eval_sets - they're managed separately by EvalPanel
+            const { eval_sets, ...projectWithoutEvalSets } = project;
+            await apiUpdateProject(project.id, projectWithoutEvalSets);
             lastSavedProjectRef.current = JSON.stringify(project);
             setHasUnsavedChanges(false);
           } catch (error) {
@@ -402,6 +453,16 @@ export default function ProjectEditor() {
           ))}
         </nav>
         <div className="top-bar-right">
+          <button 
+            className={`btn ${testResult ? (testResult.total === -1 ? 'btn-error' : testResult.passed === testResult.total ? 'btn-success' : 'btn-warning') : 'btn-secondary'}`}
+            onClick={handleTest}
+            disabled={testing || !project?.eval_sets?.some(es => es.eval_cases.length > 0)}
+            title={project?.eval_sets?.some(es => es.eval_cases.length > 0) ? 'Run all evaluation tests' : 'No test cases defined'}
+            style={{ marginRight: 8 }}
+          >
+            {testing ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
+            {testing ? 'Testing...' : testResult ? (testResult.total === -1 ? 'Error' : `${testResult.passed}/${testResult.total}`) : 'Test'}
+          </button>
           <button 
             className="btn btn-primary" 
             onClick={handleSave}

@@ -385,6 +385,9 @@ class Project(BaseModel):
     
     # Tool watches (persisted for the Run2 panel)
     watches: List[WatchExpression] = Field(default_factory=list)
+    
+    # Evaluation sets
+    eval_sets: List["EvalSet"] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -414,44 +417,177 @@ class RunSession(BaseModel):
 
 
 # ============================================================================
-# Evaluation Models
+# Evaluation Models (ADK-Compatible)
 # ============================================================================
 
-class EvalTestCase(BaseModel):
-    """A single test case for evaluation."""
+class EvalMetricType(str, Enum):
+    """ADK prebuilt evaluation metrics."""
+    TOOL_TRAJECTORY_AVG_SCORE = "tool_trajectory_avg_score"
+    RESPONSE_MATCH_SCORE = "response_match_score"
+    RESPONSE_EVALUATION_SCORE = "response_evaluation_score"
+    FINAL_RESPONSE_MATCH_V2 = "final_response_match_v2"
+    SAFETY_V1 = "safety_v1"
+    HALLUCINATIONS_V1 = "hallucinations_v1"
+    RUBRIC_BASED_FINAL_RESPONSE_QUALITY_V1 = "rubric_based_final_response_quality_v1"
+    RUBRIC_BASED_TOOL_USE_QUALITY_V1 = "rubric_based_tool_use_quality_v1"
+
+
+class ToolTrajectoryMatchType(str, Enum):
+    """Match type for tool trajectory evaluation."""
+    EXACT = "exact"
+    IN_ORDER = "in_order"
+    ANY_ORDER = "any_order"
+
+
+class JudgeModelOptions(BaseModel):
+    """Options for LLM-as-judge metrics."""
+    judge_model: str = "gemini-2.5-flash"
+    num_samples: int = 5
+
+
+class EvalCriterion(BaseModel):
+    """A criterion for an evaluation metric."""
+    threshold: float = 0.7
+    judge_model_options: Optional[JudgeModelOptions] = None
+
+
+class EvalMetricConfig(BaseModel):
+    """Configuration for a single evaluation metric."""
+    metric: EvalMetricType
+    enabled: bool = True
+    criterion: EvalCriterion = Field(default_factory=lambda: EvalCriterion())
+
+
+class ExpectedToolCall(BaseModel):
+    """An expected tool call with optional argument matching."""
+    name: str
+    args: Optional[Dict[str, Any]] = None
+    args_match_mode: Literal["exact", "subset", "ignore"] = "ignore"
+
+
+class Rubric(BaseModel):
+    """A custom rubric for evaluation."""
+    rubric: str
+
+
+class EvalInvocation(BaseModel):
+    """A single invocation (turn) in a conversation for evaluation."""
+    id: str = ""
+    user_message: str
+    expected_response: Optional[str] = None
+    expected_tool_calls: List[ExpectedToolCall] = Field(default_factory=list)
+    tool_trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
+    rubrics: List[Rubric] = Field(default_factory=list)
+
+
+class EnabledMetric(BaseModel):
+    """An LLM-judged metric enabled for a test case with its pass threshold."""
+    metric: str  # e.g., 'safety_v1', 'hallucinations_v1', etc.
+    threshold: float  # Score must be >= this to pass
+
+
+class EvalCase(BaseModel):
+    """An evaluation case - a complete conversation to test."""
     id: str
     name: str
     description: str = ""
-    input_message: str
-    expected_output: Optional[str] = None
-    expected_tool_calls: List[str] = Field(default_factory=list)
-    expected_state: Dict[str, Any] = Field(default_factory=dict)
+    invocations: List[EvalInvocation] = Field(default_factory=list)
+    initial_state: Dict[str, Any] = Field(default_factory=dict)
+    expected_final_state: Optional[Dict[str, Any]] = None
+    rubrics: List[Rubric] = Field(default_factory=list)
+    enabled_metrics: List[EnabledMetric] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
+    target_agent: Optional[str] = None  # Optional: test a specific sub-agent instead of root_agent
 
 
-class EvalTestGroup(BaseModel):
-    """A group of test cases."""
+class EvalConfig(BaseModel):
+    """Evaluation configuration - which metrics to use and their thresholds."""
+    metrics: List[EvalMetricConfig] = Field(default_factory=lambda: [
+        EvalMetricConfig(metric=EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE, criterion=EvalCriterion(threshold=1.0)),
+        EvalMetricConfig(metric=EvalMetricType.RESPONSE_MATCH_SCORE, criterion=EvalCriterion(threshold=0.7)),
+    ])
+    default_trajectory_match_type: ToolTrajectoryMatchType = ToolTrajectoryMatchType.IN_ORDER
+    num_runs: int = 1
+    # LLM judge model - if empty, uses the App's default model
+    judge_model: str = ""
+
+
+class EvalSet(BaseModel):
+    """A set of evaluation cases (test suite)."""
     id: str
     name: str
     description: str = ""
-    tests: List[EvalTestCase] = Field(default_factory=list)
-    children: List["EvalTestGroup"] = Field(default_factory=list)
+    eval_cases: List[EvalCase] = Field(default_factory=list)
+    eval_config: EvalConfig = Field(default_factory=EvalConfig)
+    created_at: float = 0.0
+    updated_at: float = 0.0
 
 
-class EvalResult(BaseModel):
-    """Result of running an evaluation."""
-    test_id: str
-    passed: bool
-    session_id: str
+class MetricResult(BaseModel):
+    """Result for a single metric."""
+    metric: str
+    score: Optional[float] = None
+    threshold: float = 0.7
+    passed: bool = True
+    details: Optional[str] = None
     error: Optional[str] = None
-    details: Dict[str, Any] = Field(default_factory=dict)
 
 
-class EvalRunResult(BaseModel):
-    """Results from running a group of evaluations."""
+class InvocationResult(BaseModel):
+    """Result of a single invocation evaluation."""
+    invocation_id: str
+    user_message: str
+    actual_response: Optional[str] = None
+    actual_tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    expected_response: Optional[str] = None
+    expected_tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    metric_results: List[MetricResult] = Field(default_factory=list)
+    rubric_results: List[Dict[str, Any]] = Field(default_factory=list)
+    passed: bool = True
+    error: Optional[str] = None
+    # Token usage for this invocation
+    input_tokens: int = 0
+    output_tokens: int = 0
+    # Session ID from the agent run (for "View Session" functionality)
+    session_id: Optional[str] = None
+
+
+class EvalCaseResult(BaseModel):
+    """Result of running a single evaluation case."""
+    eval_case_id: str
+    eval_case_name: str
+    session_id: str
+    metric_results: List[MetricResult] = Field(default_factory=list)
+    passed: bool = True
+    invocation_results: List[InvocationResult] = Field(default_factory=list)
+    final_state: Dict[str, Any] = Field(default_factory=dict)
+    expected_final_state: Optional[Dict[str, Any]] = None
+    state_matched: Optional[bool] = None
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    duration_ms: float = 0.0
+    error: Optional[str] = None
+    # Token usage
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_tokens: int = 0
+
+
+class EvalSetResult(BaseModel):
+    """Results from running an entire evaluation set."""
     id: str
+    eval_set_id: str
+    eval_set_name: str
     project_id: str
-    started_at: float
-    ended_at: Optional[float] = None
-    results: List[EvalResult] = Field(default_factory=list)
-    summary: Dict[str, int] = Field(default_factory=dict)  # passed, failed, total
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    duration_ms: float = 0.0
+    case_results: List[EvalCaseResult] = Field(default_factory=list)
+    total_cases: int = 0
+    passed_cases: int = 0
+    failed_cases: int = 0
+    error_cases: int = 0
+    metric_pass_rates: Dict[str, float] = Field(default_factory=dict)
+    metric_avg_scores: Dict[str, float] = Field(default_factory=dict)
+    overall_pass_rate: float = 0.0
 

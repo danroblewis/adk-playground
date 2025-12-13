@@ -511,30 +511,6 @@ export function SkillSetsPanel() {
           color: var(--text-primary);
         }
         
-        .btn-primary {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 14px;
-          background: var(--accent);
-          border: none;
-          border-radius: 6px;
-          color: var(--bg-primary);
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.15s;
-        }
-        
-        .btn-primary:hover {
-          opacity: 0.9;
-        }
-        
-        .btn-primary:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        
         .error-banner {
           padding: 8px 12px;
           background: var(--error-muted);
