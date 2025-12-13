@@ -19,47 +19,79 @@ type EvalMetricType =
   | 'rubric_based_final_response_quality_v1'
   | 'rubric_based_tool_use_quality_v1';
 
-const METRIC_INFO: Record<EvalMetricType, { name: string; description: string; requiresJudge: boolean }> = {
+const METRIC_INFO: Record<EvalMetricType, { name: string; description: string; requiresJudge: boolean; scale: [number, number] }> = {
   tool_trajectory_avg_score: { 
     name: 'Tool Trajectory', 
     description: 'Did the agent call the right tools in the expected order?',
-    requiresJudge: false
+    requiresJudge: false,
+    scale: [0, 1],
   },
   response_match_score: { 
     name: 'Response Match (ROUGE-1)', 
     description: 'Does the response contain expected text? (fuzzy word matching)',
-    requiresJudge: false
+    requiresJudge: false,
+    scale: [0, 1],
   },
   response_evaluation_score: { 
     name: 'Response Evaluation (LLM)', 
     description: 'LLM-judged semantic match of final response',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [1, 5],  // 1-5 scale
   },
   final_response_match_v2: { 
     name: 'Response Quality v2 (LLM)', 
     description: 'Enhanced LLM-judged response quality check',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [0, 1],
   },
   safety_v1: { 
     name: 'Safety', 
     description: 'Is the response safe and harmless? (Vertex AI)',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [0, 1],
   },
   hallucinations_v1: { 
     name: 'Hallucination Detection', 
     description: 'Are all claims supported by context? No false information?',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [0, 1],
   },
   rubric_based_final_response_quality_v1: { 
     name: 'Rubric: Response Quality', 
     description: 'Custom rubric-based quality assessment of responses',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [0, 1],
   },
   rubric_based_tool_use_quality_v1: { 
     name: 'Rubric: Tool Use Quality', 
     description: 'Custom rubric-based assessment of tool usage',
-    requiresJudge: true
+    requiresJudge: true,
+    scale: [0, 1],
   },
+};
+
+// Format score based on metric type
+const formatMetricScore = (metric: string, score?: number | null, threshold?: number | null) => {
+  if (score === null || score === undefined) return { value: '-', comparison: '' };
+  
+  const info = METRIC_INFO[metric as EvalMetricType];
+  const scale = info?.scale || [0, 1];
+  
+  if (scale[0] === 1 && scale[1] === 5) {
+    // 1-5 scale - show as raw number
+    const thresholdVal = threshold ?? 3.5;
+    return { 
+      value: score.toFixed(1), 
+      comparison: `${thresholdVal.toFixed(1)} / ${scale[1].toFixed(1)}` 
+    };
+  } else {
+    // 0-1 scale - show as percentage
+    const thresholdVal = threshold ?? 0.7;
+    return { 
+      value: `${Math.round(score * 100)}%`, 
+      comparison: `${Math.round(thresholdVal * 100)}% min` 
+    };
+  }
 };
 
 interface JudgeModelOptions {
@@ -1426,18 +1458,18 @@ export default function EvalPanel() {
                             }}>
                               {run.passed_cases}/{run.total_cases}
                             </span>
-                            <button
+                    <button
                               className="btn btn-icon"
                               onClick={(e) => { e.stopPropagation(); deleteHistoryRun(run.id); }}
                               title="Delete run"
                               style={{ padding: 2 }}
                             >
                               <Trash2 size={12} />
-                            </button>
-                          </div>
+                    </button>
+                  </div>
                         </div>
-                      </div>
-                    );
+              </div>
+            );
                   })
               )}
             </div>
@@ -1712,7 +1744,7 @@ function TestResultViewer({
             <Link2 size={14} />
           </button>
         </div>
-      </div>
+              </div>
               
       <div className="result-summary">
         <div className="summary-stat">
@@ -1748,7 +1780,7 @@ function TestResultViewer({
           </span>
         </div>
               </div>
-      
+              
       {/* Filter toggle */}
       <div style={{ 
         padding: '8px 20px', 
@@ -1759,7 +1791,7 @@ function TestResultViewer({
         background: 'var(--bg-secondary)'
       }}>
         <label className="toggle-switch" style={{ transform: 'scale(0.85)' }}>
-          <input
+                  <input
             type="checkbox"
             checked={showOnlyFailed}
             onChange={(e) => setShowOnlyFailed(e.target.checked)}
@@ -1769,7 +1801,7 @@ function TestResultViewer({
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
           Hide passing results
         </span>
-      </div>
+                </div>
               
       <div className="result-cases">
         {displayedCases.map((caseResult: any, index: number) => {
@@ -1842,7 +1874,7 @@ function TestResultViewer({
                       title="View session in Run panel"
                     >
                       <ExternalLink size={12} /> View Session
-                    </button>
+                  </button>
                   )}
                   <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                     {caseResult.duration_ms ? `${(caseResult.duration_ms / 1000).toFixed(2)}s` : ''}
@@ -1854,7 +1886,9 @@ function TestResultViewer({
                 {/* Metrics - compact horizontal boxes */}
                 {displayMetrics?.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    {displayMetrics.map((metric: any, mIndex: number) => (
+                    {displayMetrics.map((metric: any, mIndex: number) => {
+                      const formatted = formatMetricScore(metric.metric, metric.score, metric.threshold);
+                      return (
                       <div 
                         key={mIndex} 
                         style={{
@@ -1889,17 +1923,16 @@ function TestResultViewer({
                               fontWeight: 600,
                               color: metric.passed ? 'var(--success)' : 'var(--error)',
                             }}>
-                              {metric.score !== null && metric.score !== undefined 
-                                ? metric.score.toFixed(2) 
-                                : (metric.passed ? '✓' : '✗')}
-                            </span>
+                              {formatted.value}
+                    </span>
                             <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
-                              ≥{metric.threshold}
+                              {formatted.comparison}
                             </span>
                           </>
                         )}
-                      </div>
-                    ))}
+                  </div>
+                      );
+                    })}
                     {!isExpanded && passedMetrics.length > 0 && (
                       <div style={{
                         padding: '6px 10px',
@@ -1937,15 +1970,15 @@ function TestResultViewer({
                       fontSize: 11,
                     }}>
                       {metric.metric.replace(/_/g, ' ')} - Why it failed:
-                    </div>
+                          </div>
                     <div style={{ 
                       whiteSpace: 'pre-wrap',
                       color: 'var(--text-secondary)',
                       lineHeight: 1.4,
                     }}>
                       {metric.rationale}
-                    </div>
-                  </div>
+                        </div>
+                      </div>
                 ))}
                 
                 {/* Rubric Results */}
@@ -1973,7 +2006,7 @@ function TestResultViewer({
                             color: 'var(--text-secondary)',
                           }}>
                             <strong style={{ color: 'var(--error)' }}>Why:</strong> {rr.rationale}
-                          </div>
+                      </div>
                         )}
                         {/* Show error if any */}
                         {rr.error && (
@@ -1984,9 +2017,9 @@ function TestResultViewer({
                             color: 'var(--warning)',
                           }}>
                             Error: {rr.error}
-                          </div>
-                        )}
-                      </div>
+                </div>
+              )}
+            </div>
                     ))}
                     {!isExpanded && passedRubrics.length > 0 && (
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
@@ -2001,7 +2034,7 @@ function TestResultViewer({
                   <div className="invocation-summary">
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                       Invocations ({displayInvocations.length}{!isExpanded && caseResult.invocation_results?.length > displayInvocations.length ? ` of ${caseResult.invocation_results.length}` : ''})
-                    </div>
+            </div>
                     {displayInvocations.map((inv: any, iIndex: number) => (
                       <div key={iIndex} className="invocation-item">
                         <div className="invocation-query">
@@ -2739,21 +2772,27 @@ function EvalCaseEditor({
           </div>
           
           <div className="result-scores">
-            {result.metric_results.map((mr, idx) => (
+            {result.metric_results.map((mr, idx) => {
+              const formatted = formatMetricScore(mr.metric, mr.score, mr.threshold);
+              return (
               <div key={idx} className="score-card">
                 <div className={`score-value ${mr.passed ? 'passed' : 'failed'}`}>
-                  {formatScore(mr.score)}
+                  {formatted.value}
               </div>
                 <div className="score-label">
                   {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}
             </div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {formatted.comparison}
+              </div>
                 {mr.error && (
                   <div style={{ fontSize: 10, color: 'var(--error)', marginTop: 4 }}>
                     {mr.error}
-              </div>
+            </div>
                 )}
             </div>
-            ))}
+              );
+            })}
           </div>
           
           {/* Rubric Results */}
@@ -2803,7 +2842,9 @@ function EvalCaseEditor({
               
               {invRes.metric_results.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  {invRes.metric_results.map((mr, mIdx) => (
+                  {invRes.metric_results.map((mr, mIdx) => {
+                    const formatted = formatMetricScore(mr.metric, mr.score, mr.threshold);
+                    return (
                     <span 
                       key={mIdx} 
                       style={{
@@ -2814,9 +2855,10 @@ function EvalCaseEditor({
                         color: mr.passed ? 'var(--success)' : 'var(--error)',
                       }}
                     >
-                      {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}: {formatScore(mr.score)}
+                      {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}: {formatted.value}
                     </span>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               
@@ -3083,16 +3125,19 @@ function EvalSetEditor({
                   </div>
                   <div className="score-label">Pass Rate</div>
                 </div>
-                {Object.entries(result.metric_avg_scores || {}).map(([metric, score]) => (
+                {Object.entries(result.metric_avg_scores || {}).map(([metric, score]) => {
+                  const formatted = formatMetricScore(metric, score as number);
+                  return (
                   <div key={metric} className="score-card">
                   <div className="score-value">
-                      {formatScore(score)}
+                      {formatted.value}
                   </div>
                     <div className="score-label">
                       Avg {METRIC_INFO[metric as EvalMetricType]?.name || metric}
                 </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               
               <div style={{ marginTop: 16 }}>
@@ -3142,7 +3187,9 @@ function EvalSetEditor({
                       <tr key={cr.eval_case_id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '8px 4px' }}>{cr.eval_case_name}</td>
                         <td style={{ textAlign: 'center', padding: '8px 4px' }}>
-                          {cr.metric_results.map((mr, idx) => (
+                          {cr.metric_results.map((mr, idx) => {
+                            const formatted = formatMetricScore(mr.metric, mr.score, mr.threshold);
+                            return (
                             <span 
                               key={idx}
                               style={{
@@ -3154,9 +3201,10 @@ function EvalSetEditor({
                                 color: mr.passed ? 'var(--success)' : 'var(--error)',
                               }}
                             >
-                              {formatScore(mr.score)}
+                              {formatted.value}
                             </span>
-                          ))}
+                            );
+                          })}
                         </td>
                         <td style={{ textAlign: 'center', padding: '8px 4px' }}>
                           {cr.passed ? (
