@@ -132,6 +132,7 @@ export default function ProjectEditor() {
     
     setTesting(true);
     setTestResult(null);
+    window.dispatchEvent(new CustomEvent('eval-tests-started'));
     
     try {
       // Run all eval sets
@@ -160,6 +161,9 @@ export default function ProjectEditor() {
       }
       
       setTestResult({ passed: totalPassed, total: totalCases });
+      
+      // Notify EvalPanel to refresh its state
+      window.dispatchEvent(new CustomEvent('eval-tests-completed'));
       
       // Clear result after 5 seconds
       setTimeout(() => setTestResult(null), 5000);

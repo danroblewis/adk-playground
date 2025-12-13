@@ -299,6 +299,25 @@ export default function EvalPanel() {
     }
   }, [project?.id]);
   
+  // Listen for test events from header Test button
+  useEffect(() => {
+    const handleTestsStarted = () => {
+      setRunning(true);
+    };
+    const handleTestsCompleted = () => {
+      setRunning(false);
+      loadEvalHistory();
+    };
+    
+    window.addEventListener('eval-tests-started', handleTestsStarted);
+    window.addEventListener('eval-tests-completed', handleTestsCompleted);
+    
+    return () => {
+      window.removeEventListener('eval-tests-started', handleTestsStarted);
+      window.removeEventListener('eval-tests-completed', handleTestsCompleted);
+    };
+  }, []);
+  
   // Handle URL deeplinks: ?set=, ?case=, ?run=
   useEffect(() => {
     if (!project?.id || loading) return;
