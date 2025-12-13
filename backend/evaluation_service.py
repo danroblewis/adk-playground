@@ -880,10 +880,10 @@ RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
                         actual_response += text
                     else:
                         # Only check parts if there's no top-level text
-                    parts = event_data.get("parts", [])
-                    for part in parts:
-                        if part.get("type") == "text" and not part.get("thought"):
-                            actual_response += part.get("text", "")
+                        parts = event_data.get("parts", [])
+                        for part in parts:
+                            if part.get("type") == "text" and not part.get("thought"):
+                                actual_response += part.get("text", "")
                     
                     # Extract token counts
                     token_counts = event_data.get("token_counts", {})
@@ -907,11 +907,11 @@ RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
             
             # Evaluate response_match_score if enabled
             if self._get_metric_config(eval_config, EvalMetricType.RESPONSE_MATCH_SCORE):
-            if invocation.expected_response:
-                score, passed = response_evaluator.evaluate(
-                    actual_response=result.actual_response,
-                    expected_response=invocation.expected_response,
-                )
+                if invocation.expected_response:
+                    score, passed = response_evaluator.evaluate(
+                        actual_response=result.actual_response,
+                        expected_response=invocation.expected_response,
+                    )
                     result.metric_results.append(MetricResult(
                         metric=EvalMetricType.RESPONSE_MATCH_SCORE.value,
                         score=score,
@@ -923,15 +923,15 @@ RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
             
             # Evaluate tool_trajectory_avg_score if enabled
             if self._get_metric_config(eval_config, EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE):
-            if invocation.expected_tool_calls:
+                if invocation.expected_tool_calls:
                     # Use per-invocation match type if specified
                     traj_eval = TrajectoryEvaluator(
                         match_type=invocation.tool_trajectory_match_type or trajectory_evaluator.match_type
                     )
                     score, passed = traj_eval.evaluate(
-                    actual_tool_calls=actual_tool_calls,
-                    expected_tool_calls=invocation.expected_tool_calls,
-                )
+                        actual_tool_calls=actual_tool_calls,
+                        expected_tool_calls=invocation.expected_tool_calls,
+                    )
                     result.metric_results.append(MetricResult(
                         metric=EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE.value,
                         score=score,

@@ -43,7 +43,7 @@ def generate_model_code(model: dict, model_name: str = "model") -> str:
     if model.get("top_k") is not None:
         params.append(f'top_k={model["top_k"]}')
     
-    if provider == "litellm":
+    if provider == "litellm" or provider == "openai" or provider == "groq":
         return f"{model_name} = LiteLlm(\n    {','.join(params)}\n)"
     elif provider == "anthropic":
         return f"{model_name} = Claude(\n    {','.join(params)}\n)"
@@ -318,7 +318,7 @@ def generate_python_code(project: Project) -> str:
     for agent in project.agents:
         if hasattr(agent, "model") and agent.model:
             provider = agent.model.provider if hasattr(agent.model, "provider") else agent.model.get("provider", "")
-            if provider == "litellm":
+            if provider in ("litellm", "openai", "groq"):
                 imports.add("from google.adk.models.lite_llm import LiteLlm")
             elif provider == "anthropic":
                 imports.add("from google.adk.models.anthropic import Claude")
