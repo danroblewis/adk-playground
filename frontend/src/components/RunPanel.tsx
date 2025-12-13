@@ -1332,6 +1332,12 @@ export default function RunPanel() {
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   
+  // Column widths for resizable table columns
+  const [columnWidths, setColumnWidths] = useState([60, 80, 100, 80, 1]); // Last one is flex (fr)
+  const [resizingColumn, setResizingColumn] = useState<number | null>(null);
+  const columnResizeStartX = useRef(0);
+  const columnResizeStartWidth = useRef(0);
+  
   // Session selector state
   const [availableSessions, setAvailableSessions] = useState<Array<{
     id: string;
@@ -1430,6 +1436,50 @@ export default function RunPanel() {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing]);
+  
+  // Handle column resize
+  useEffect(() => {
+    if (resizingColumn === null) return;
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - columnResizeStartX.current;
+      const newWidth = Math.max(40, columnResizeStartWidth.current + delta);
+      setColumnWidths(prev => {
+        const updated = [...prev];
+        updated[resizingColumn] = newWidth;
+        return updated;
+      });
+    };
+    
+    const handleMouseUp = () => {
+      setResizingColumn(null);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [resizingColumn]);
+  
+  // Start column resize
+  const handleColumnResizeStart = (columnIndex: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    columnResizeStartX.current = e.clientX;
+    columnResizeStartWidth.current = columnWidths[columnIndex];
+    setResizingColumn(columnIndex);
+  };
+  
+  // Generate grid template from column widths
+  const gridTemplateColumns = columnWidths.map((w, i) => 
+    i === columnWidths.length - 1 ? `minmax(${w}px, 1fr)` : `${w}px`
+  ).join(' ');
   
   // Calculate time bounds
   const timeBounds = useMemo(() => {
@@ -2093,8 +2143,7 @@ export default function RunPanel() {
         
         .event-list-header {
           display: grid;
-          grid-template-columns: 60px 80px 100px 80px 1fr;
-          gap: 1px;
+          gap: 0;
           background: #18181b;
           border-bottom: 1px solid #27272a;
           font-size: 10px;
@@ -2103,9 +2152,36 @@ export default function RunPanel() {
           text-transform: uppercase;
         }
         
-        .event-list-header > div {
+        .event-list-header .header-cell {
           padding: 6px 8px;
           background: #18181b;
+          position: relative;
+          display: flex;
+          align-items: center;
+          min-width: 0;
+          overflow: hidden;
+        }
+        
+        .event-list-header .header-cell span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .column-resize-handle {
+          position: absolute;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 6px;
+          cursor: col-resize;
+          background: transparent;
+          z-index: 1;
+        }
+        
+        .column-resize-handle:hover,
+        .column-resize-handle.active {
+          background: #3b82f6;
         }
         
         .event-list {
@@ -2116,8 +2192,7 @@ export default function RunPanel() {
         
         .event-row {
           display: grid;
-          grid-template-columns: 60px 80px 100px 80px 1fr;
-          gap: 1px;
+          gap: 0;
           border-bottom: 1px solid #18181b;
           cursor: pointer;
           transition: background 0.1s;
@@ -3417,12 +3492,38 @@ export default function RunPanel() {
       <div className="main-content" ref={containerRef}>
         {/* Event List */}
         <div className="event-list-container">
-          <div className="event-list-header">
-            <div>#</div>
-            <div>Time</div>
-            <div>Agent</div>
-            <div>Type</div>
-            <div>Info</div>
+          <div className="event-list-header" style={{ gridTemplateColumns }}>
+            <div className="header-cell">
+              <span>#</span>
+              <div 
+                className={`column-resize-handle ${resizingColumn === 0 ? 'active' : ''}`}
+                onMouseDown={(e) => handleColumnResizeStart(0, e)}
+              />
+            </div>
+            <div className="header-cell">
+              <span>Time</span>
+              <div 
+                className={`column-resize-handle ${resizingColumn === 1 ? 'active' : ''}`}
+                onMouseDown={(e) => handleColumnResizeStart(1, e)}
+              />
+            </div>
+            <div className="header-cell">
+              <span>Agent</span>
+              <div 
+                className={`column-resize-handle ${resizingColumn === 2 ? 'active' : ''}`}
+                onMouseDown={(e) => handleColumnResizeStart(2, e)}
+              />
+            </div>
+            <div className="header-cell">
+              <span>Type</span>
+              <div 
+                className={`column-resize-handle ${resizingColumn === 3 ? 'active' : ''}`}
+                onMouseDown={(e) => handleColumnResizeStart(3, e)}
+              />
+            </div>
+            <div className="header-cell">
+              <span>Info</span>
+            </div>
           </div>
           
           <div className="event-list" ref={eventListRef}>
@@ -3441,7 +3542,7 @@ export default function RunPanel() {
                   <div
                     key={globalIndex}
                     className={`event-row ${selectedEventIndex === globalIndex ? 'selected' : ''}`}
-                    style={{ background: colors.bg }}
+                    style={{ background: colors.bg, gridTemplateColumns }}
                     onClick={() => setSelectedEventIndex(globalIndex)}
                     onDoubleClick={() => {
                       // Switch to Details tab
