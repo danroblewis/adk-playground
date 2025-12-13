@@ -482,6 +482,9 @@ class EvaluationService:
                         ))
                         # LLM judge error means the test fails
                         all_passed = False
+                
+                # Update result.passed after all LLM judges have run
+                result.passed = all_passed
             
             # Aggregate token counts from all invocations
             for inv_result in result.invocation_results:
