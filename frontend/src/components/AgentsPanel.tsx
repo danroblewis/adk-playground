@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig, MCPServerConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig } from '../utils/types';
 import AgentEditor from './AgentEditor';
-import { generateAgentConfig, GeneratedAgentConfig } from '../utils/api';
+import { generateAgentConfig } from '../utils/api';
 
 const AGENT_TYPES = [
   { type: 'LlmAgent', label: 'LLM Agent', icon: Bot, color: '#00f5d4', description: 'AI-powered agent with model reasoning' },
@@ -85,6 +85,8 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const [draggedAgentId, setDraggedAgentId] = useState<string | null>(null);
   const draggedAgentIdRef = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ agentId: string; type: 'sub_agent' | 'tool' } | null>(null);
+  // For reordering: track insert position within a parent's sub_agents
+  const [insertTarget, setInsertTarget] = useState<{ parentId: string; index: number } | null>(null);
   const agentsListRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<number | null>(null);
   
@@ -254,14 +256,13 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   }
   
   function handleAddAgent(type: string) {
-    // Find default model from app config
+    if (!project) return;
     const models = project.app.models || [];
     const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
     
     const agent = createDefaultAgent(type, defaultModel);
     addAgent(agent);
     selectAgent(agent.id);
-    setShowTypeSelector(false);
   }
   
   function handleDeleteAgent(id: string, e: React.MouseEvent) {
@@ -310,13 +311,59 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     draggedAgentIdRef.current = null;
     setDraggedAgentId(null);
     setDropTarget(null);
+    setInsertTarget(null);
     if (scrollIntervalRef.current) {
       cancelAnimationFrame(scrollIntervalRef.current);
       scrollIntervalRef.current = null;
     }
   }
   
+  // Handle insert position for reordering sub-agents
+  function handleInsertDragOver(e: React.DragEvent, parentId: string, index: number) {
+    if (!project) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const currentDraggedId = draggedAgentIdRef.current;
+    if (!currentDraggedId) return;
+    
+    const parentAgent = project.agents.find(a => a.id === parentId);
+    if (!parentAgent || !('sub_agents' in parentAgent)) return;
+    
+    e.dataTransfer.dropEffect = 'move';
+    setInsertTarget({ parentId, index });
+    setDropTarget(null);
+  }
+  
+  function handleInsertDrop(e: React.DragEvent, parentId: string, index: number) {
+    if (!project) return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const sourceAgentId = e.dataTransfer.getData('text/plain');
+    if (!sourceAgentId) return;
+    
+    const parentAgent = project.agents.find(a => a.id === parentId);
+    if (!parentAgent || !('sub_agents' in parentAgent)) return;
+    
+    // Remove from any existing parent
+    project.agents.forEach(a => {
+      if ('sub_agents' in a && a.sub_agents.includes(sourceAgentId)) {
+        updateAgent(a.id, { sub_agents: a.sub_agents.filter(id => id !== sourceAgentId) });
+      }
+    });
+    
+    // Insert at the specified position
+    const newSubAgents = [...parentAgent.sub_agents.filter(id => id !== sourceAgentId)];
+    newSubAgents.splice(index, 0, sourceAgentId);
+    updateAgent(parentId, { sub_agents: newSubAgents });
+    
+    setExpandedAgents(prev => new Set([...prev, parentId]));
+    setDraggedAgentId(null);
+    setInsertTarget(null);
+  }
+  
   function handleDragOver(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
+    if (!project) return;
     const currentDraggedId = draggedAgentIdRef.current;
     e.preventDefault();
     e.stopPropagation();
@@ -330,6 +377,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     
     e.dataTransfer.dropEffect = 'move';
     setDropTarget({ agentId: targetAgentId, type: dropType });
+    setInsertTarget(null);
   }
   
   function handleDragLeave(e: React.DragEvent) {
@@ -340,6 +388,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   }
   
   function handleDrop(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
+    if (!project) return;
     e.preventDefault();
     e.stopPropagation();
     
@@ -381,6 +430,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   
   // Check if childId is a descendant of parentAgent
   function isDescendant(parentAgent: AgentConfig, childId: string): boolean {
+    if (!project) return false;
     if (!('sub_agents' in parentAgent)) return false;
     if (parentAgent.sub_agents.includes(childId)) return true;
     for (const subId of parentAgent.sub_agents) {
@@ -414,7 +464,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       const isDropTargetTool = dropTarget?.agentId === agent.id && dropTarget?.type === 'tool';
       
       // Map over sub_agents to preserve order, not filter which loses order
-      const subAgents = hasSubAgents 
+      const subAgents = hasSubAgents && project
         ? agent.sub_agents.map(id => project.agents.find(a => a.id === id)).filter((a): a is AgentConfig => a !== undefined)
         : [];
       
@@ -488,7 +538,31 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           
           {hasSubAgents && isExpanded && (
             <div className="sub-agents">
-              {renderAgentTree(subAgents, depth + 1)}
+              {/* Insert indicator at the top */}
+              {draggedAgentId && draggedAgentId !== agent.id && (
+                <div 
+                  className={`insert-indicator ${insertTarget?.parentId === agent.id && insertTarget?.index === 0 ? 'active' : ''}`}
+                  style={{ marginLeft: 12 + (depth + 1) * 20 }}
+                  onDragOver={(e) => handleInsertDragOver(e, agent.id, 0)}
+                  onDragLeave={() => setInsertTarget(null)}
+                  onDrop={(e) => handleInsertDrop(e, agent.id, 0)}
+                />
+              )}
+              {subAgents.map((subAgent, idx) => (
+                <React.Fragment key={subAgent.id}>
+                  {renderAgentTree([subAgent], depth + 1)}
+                  {/* Insert indicator after each sub-agent */}
+                  {draggedAgentId && draggedAgentId !== agent.id && draggedAgentId !== subAgent.id && (
+                    <div 
+                      className={`insert-indicator ${insertTarget?.parentId === agent.id && insertTarget?.index === idx + 1 ? 'active' : ''}`}
+                      style={{ marginLeft: 12 + (depth + 1) * 20 }}
+                      onDragOver={(e) => handleInsertDragOver(e, agent.id, idx + 1)}
+                      onDragLeave={() => setInsertTarget(null)}
+                      onDrop={(e) => handleInsertDrop(e, agent.id, idx + 1)}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
             </div>
           )}
         </div>
@@ -705,6 +779,20 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           color: white;
         }
         
+        .insert-indicator {
+          height: 4px;
+          margin: 2px 0;
+          border-radius: 2px;
+          background: transparent;
+          transition: all 0.15s ease;
+        }
+        
+        .insert-indicator:hover,
+        .insert-indicator.active {
+          background: var(--accent-primary);
+          box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
+        }
+
         .agent-editor-area {
           flex: 1;
           min-width: 0;
