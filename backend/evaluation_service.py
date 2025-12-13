@@ -446,6 +446,12 @@ class EvaluationService:
             
             # Add enabled LLM-judged metrics from the EvalCase
             if hasattr(eval_case, 'enabled_metrics') and eval_case.enabled_metrics:
+                # Build combined actual_response from all invocation results
+                combined_response = " ".join(
+                    inv.actual_response for inv in result.invocation_results 
+                    if hasattr(inv, 'actual_response') and inv.actual_response
+                )
+                
                 for em in eval_case.enabled_metrics:
                     # Skip if this metric already has results from standard evaluation
                     if any(mr.metric == em.metric for mr in result.metric_results):
@@ -458,7 +464,7 @@ class EvaluationService:
                             eval_config=eval_config,
                             metric=em.metric,
                             threshold=em.threshold,
-                            actual_response=actual_response,
+                            actual_response=combined_response,
                             invocation_results=result.invocation_results,
                         )
                         result.metric_results.append(judge_result)
