@@ -1597,19 +1597,31 @@ function ToolsEditor({
                 
                 <div className="mcp-tools-grid">
                   {mcpConfigDialog.availableTools.map((tool) => (
-                    <label 
+                    <div 
                       key={tool.name}
-                      className={`mcp-tool-toggle ${mcpConfigDialog.enabledTools.has(tool.name) ? 'enabled' : ''}`}
-                      onClick={() => toggleMcpTool(tool.name)}
+                      className="mcp-tool-row"
                       title={tool.description || tool.name}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={mcpConfigDialog.enabledTools.has(tool.name)}
-                        onChange={() => {}}
-                      />
-                      {tool.name}
-                    </label>
+                      <label className="toggle-switch" style={{ margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={mcpConfigDialog.enabledTools.has(tool.name)}
+                          onChange={() => toggleMcpTool(tool.name)}
+                        />
+                        <span className="toggle-slider" />
+                      </label>
+                      <span 
+                        style={{ 
+                          fontSize: 13, 
+                          opacity: mcpConfigDialog.enabledTools.has(tool.name) ? 1 : 0.5,
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => toggleMcpTool(tool.name)}
+                      >
+                        {tool.name}
+                      </span>
+                    </div>
                   ))}
                 </div>
               </>

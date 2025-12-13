@@ -483,6 +483,7 @@ export default function AppConfigPanel() {
                 const type = e.target.value;
                 const defaults: Record<string, string> = {
                   'memory': 'memory://',
+                  'file': 'file://~/.adk-playground/sessions',
                   'sqlite': 'sqlite://./sessions.db',
                   'postgresql': 'postgresql://user:pass@localhost:5432/adk_sessions',
                   'mysql': 'mysql://user:pass@localhost:3306/adk_sessions',
@@ -492,11 +493,21 @@ export default function AppConfigPanel() {
               }}
             >
               <option value="memory">In-Memory (dev only)</option>
+              <option value="file">File System (JSON)</option>
               <option value="sqlite">SQLite (local)</option>
               <option value="postgresql">PostgreSQL</option>
               <option value="mysql">MySQL</option>
               <option value="agentengine">Vertex AI Agent Engine</option>
             </select>
+            {app.session_service_uri.startsWith('file://') && (
+              <input
+                type="text"
+                value={app.session_service_uri.replace('file://', '')}
+                onChange={(e) => updateApp({ session_service_uri: 'file://' + e.target.value })}
+                placeholder="~/.adk-playground/sessions"
+                style={{ marginTop: 8 }}
+              />
+            )}
             {app.session_service_uri.startsWith('sqlite://') && (
               <input
                 type="text"
@@ -551,6 +562,7 @@ export default function AppConfigPanel() {
             )}
             <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
               {app.session_service_uri.startsWith('memory://') && 'Sessions stored in memory, lost on restart'}
+              {app.session_service_uri.startsWith('file://') && 'Sessions stored as JSON files, preserves UI events'}
               {app.session_service_uri.startsWith('sqlite://') && 'Persists to local SQLite file'}
               {app.session_service_uri.startsWith('postgresql://') && 'Production-ready PostgreSQL backend'}
               {app.session_service_uri.startsWith('mysql://') && 'Production-ready MySQL backend'}
@@ -567,6 +579,7 @@ export default function AppConfigPanel() {
                 const type = e.target.value;
                 const defaults: Record<string, string> = {
                   'memory': 'memory://',
+                  'file': 'file://~/.adk-playground/memory',
                   'rag': 'rag://rag-corpus-id',
                   'agentengine': 'agentengine://project/us-central1/engine-id',
                 };
@@ -574,9 +587,19 @@ export default function AppConfigPanel() {
               }}
             >
               <option value="memory">In-Memory (keyword matching)</option>
+              <option value="file">File System (keyword matching)</option>
               <option value="rag">Vertex AI RAG</option>
               <option value="agentengine">Vertex AI Memory Bank</option>
             </select>
+            {app.memory_service_uri.startsWith('file://') && (
+              <input
+                type="text"
+                value={app.memory_service_uri.replace('file://', '')}
+                onChange={(e) => updateApp({ memory_service_uri: 'file://' + e.target.value })}
+                placeholder="~/.adk-playground/memory"
+                style={{ marginTop: 8 }}
+              />
+            )}
             {app.memory_service_uri.startsWith('rag://') && (
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input
@@ -626,6 +649,7 @@ export default function AppConfigPanel() {
             )}
             <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
               {app.memory_service_uri.startsWith('memory://') && 'Simple keyword matching, good for prototyping'}
+              {app.memory_service_uri.startsWith('file://') && 'Persists memories as JSON files'}
               {app.memory_service_uri.startsWith('rag://') && 'Semantic search using Vertex AI RAG corpus'}
               {app.memory_service_uri.startsWith('agentengine://') && 'Managed memory via Agent Engine Memory Bank'}
             </span>
