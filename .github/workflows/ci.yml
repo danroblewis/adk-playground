@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     name: Run Tests
@@ -40,6 +43,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -74,19 +80,10 @@ jobs:
           fi
 
       - name: Commit updated frontend dist
-        if: steps.check-changes.outputs.changed == 'true' && github.event_name == 'push'
+        if: steps.check-changes.outputs.changed == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add adk_playground/frontend/dist/
           git commit -m "chore: update frontend dist build artifacts"
           git push
-
-      - name: Fail on PR if frontend dist is outdated
-        if: steps.check-changes.outputs.changed == 'true' && github.event_name == 'pull_request'
-        run: |
-          echo "❌ Frontend dist is outdated. Please run './build.sh' and commit the changes."
-          echo ""
-          echo "The following files are different:"
-          git diff --name-only adk_playground/frontend/dist/
-          exit 1
