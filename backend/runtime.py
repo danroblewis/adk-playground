@@ -48,9 +48,13 @@ def create_session_service_from_uri(uri: str):
     if uri.startswith("memory://"):
         return InMemorySessionService()
     elif uri.startswith("sqlite://"):
-        from google.adk.sessions.sqlite_session_service import SqliteSessionService
-        db_path = uri[9:]  # Remove "sqlite://" prefix
-        return SqliteSessionService(db_path=db_path)
+        try:
+            from google.adk.sessions.sqlite_session_service import SqliteSessionService
+            db_path = uri[9:]  # Remove "sqlite://" prefix
+            return SqliteSessionService(db_path=db_path)
+        except ImportError as e:
+            logger.warning(f"SqliteSessionService not available: {e}. Using InMemorySessionService.")
+            return InMemorySessionService()
     elif uri.startswith("postgresql://") or uri.startswith("mysql://"):
         try:
             from google.adk.sessions.database_session_service import DatabaseSessionService
