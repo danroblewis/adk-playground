@@ -1672,31 +1672,62 @@ function TestResultViewer({
               </div>
               
             <div className="result-case-details">
-              {/* Metrics */}
-              {(showOnlyFailed 
-                ? caseResult.metric_results?.filter((m: any) => !m.passed || m.error) 
-                : caseResult.metric_results
-              )?.map((metric: any, mIndex: number) => (
-                <div key={mIndex} className="metric-row">
-                  <span className="metric-name">{metric.metric}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {metric.error ? (
-                      <span className="metric-error">{metric.error}</span>
-                    ) : (
-                      <>
-                        <span className={`metric-value ${metric.passed ? 'passed' : 'failed'}`}>
-                          {metric.score !== null && metric.score !== undefined 
-                            ? metric.score.toFixed(2) 
-                            : (metric.passed ? '✓' : '✗')}
-                    </span>
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          (≥{metric.threshold})
+              {/* Metrics - compact horizontal boxes */}
+              {(() => {
+                const metrics = showOnlyFailed 
+                  ? caseResult.metric_results?.filter((m: any) => !m.passed || m.error) 
+                  : caseResult.metric_results;
+                return metrics?.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {metrics.map((metric: any, mIndex: number) => (
+                      <div 
+                        key={mIndex} 
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          background: metric.error 
+                            ? 'rgba(255, 193, 7, 0.1)' 
+                            : metric.passed 
+                              ? 'rgba(var(--success-rgb), 0.1)' 
+                              : 'rgba(var(--error-rgb), 0.1)',
+                          border: `1px solid ${metric.error ? 'var(--warning)' : metric.passed ? 'var(--success)' : 'var(--error)'}`,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          minWidth: 80,
+                        }}
+                      >
+                        <span style={{ 
+                          fontSize: 10, 
+                          color: 'var(--text-secondary)',
+                          textAlign: 'center',
+                          marginBottom: 2,
+                        }}>
+                          {metric.metric.replace(/_/g, ' ').replace('v1', '').replace('v2', '').trim()}
                         </span>
-                      </>
-                    )}
+                        {metric.error ? (
+                          <span style={{ fontSize: 10, color: 'var(--warning)' }}>Error</span>
+                        ) : (
+                          <>
+                            <span style={{ 
+                              fontSize: 14, 
+                              fontWeight: 600,
+                              color: metric.passed ? 'var(--success)' : 'var(--error)',
+                            }}>
+                              {metric.score !== null && metric.score !== undefined 
+                                ? metric.score.toFixed(2) 
+                                : (metric.passed ? '✓' : '✗')}
+                            </span>
+                            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+                              ≥{metric.threshold}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
+                );
+              })()}
               
               {/* Rubric Results */}
               {(() => {
