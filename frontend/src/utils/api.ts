@@ -266,6 +266,24 @@ export async function generateCallbackCode(
   return data;
 }
 
+// AI-assisted rubric improvement
+export interface ImproveRubricResult {
+  rubric: string | null;
+  success: boolean;
+  error?: string;
+}
+
+export async function improveRubric(
+  projectId: string,
+  rubric: string
+): Promise<ImproveRubricResult> {
+  const data = await fetchJSON<ImproveRubricResult>(`/projects/${projectId}/improve-rubric`, {
+    method: 'POST',
+    body: JSON.stringify({ rubric }),
+  });
+  return data;
+}
+
 // MCP Server Testing
 export interface McpToolInfo {
   name: string;

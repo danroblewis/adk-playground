@@ -7,6 +7,7 @@ import {
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
 import { api } from '../utils/api';
+import RubricEditor from './RubricEditor';
 
 // ADK Prebuilt Metrics
 type EvalMetricType = 
@@ -2552,29 +2553,33 @@ function EvalCaseEditor({
             {/* Custom Rubrics */}
             <div className="form-section">
               <h4>Custom Rubrics</h4>
-              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                Natural language criteria evaluated by an LLM judge. Returns pass/fail per rubric.
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Natural language criteria evaluated by an LLM judge. Returns pass/fail per rubric. 
+                Click to edit, and use the Improve button to enhance your rubric with AI.
               </p>
               {localCase.rubrics.map((rubric, idx) => (
-                <div key={idx} className="tool-call-row" style={{ marginBottom: 8 }}>
-                  <input
-                    type="text"
-                    value={rubric.rubric}
-                onChange={(e) => {
-                      const rubrics = [...localCase.rubrics];
-                      rubrics[idx] = { rubric: e.target.value };
-                      saveCase({ rubrics });
-                }}
-                    placeholder="e.g., The response mentions the return policy"
-                    style={{ flex: 1 }}
-                  />
+                <div key={idx} style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <RubricEditor
+                      value={rubric.rubric}
+                      onChange={(value) => {
+                        const rubrics = [...localCase.rubrics];
+                        rubrics[idx] = { rubric: value };
+                        saveCase({ rubrics });
+                      }}
+                      placeholder="e.g., The response must mention the return policy and include the 30-day timeframe"
+                      projectId={project?.id || ''}
+                    />
+                  </div>
                   <button
                     className="btn btn-danger btn-sm"
                     onClick={() => saveCase({ rubrics: localCase.rubrics.filter((_, i) => i !== idx) })}
+                    style={{ marginTop: 8 }}
+                    title="Delete rubric"
                   >
                     <Trash2 size={12} />
                   </button>
-            </div>
+                </div>
               ))}
               <button
                 className="btn btn-secondary btn-sm"

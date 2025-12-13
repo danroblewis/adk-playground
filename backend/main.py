@@ -1219,6 +1219,147 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
 
 
 # ============================================================================
+# AI-Assisted Rubric Improvement
+# ============================================================================
+
+class ImproveRubricRequest(BaseModel):
+    rubric: str  # The current rubric text to improve
+
+@app.post("/api/projects/{project_id}/improve-rubric")
+async def improve_rubric(project_id: str, request: ImproveRubricRequest):
+    """Improve a rubric criteria using AI to make it more effective for LLM-judged evaluation."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not request.rubric.strip():
+        return {"rubric": "", "success": True}
+    
+    # Build the meta-prompt for rubric improvement
+    meta_prompt = f"""You are an expert at writing evaluation rubrics for AI agent testing. Your task is to improve a rubric that will be used by an LLM judge to evaluate whether an AI agent's response meets specific criteria.
+
+## What is a Rubric?
+A rubric is a yes/no criterion that an LLM judge evaluates. The judge receives:
+- The user's input message
+- The agent's final response
+- The rubric text
+
+The judge then determines if the agent's response passes or fails the rubric.
+
+## Guidelines for Effective Rubrics:
+1. **Be Specific**: Vague rubrics lead to inconsistent evaluation. Define exactly what should be present or absent.
+2. **Be Measurable**: The criterion should be objectively verifiable in the response.
+3. **Be Clear**: Use simple, direct language. Avoid ambiguity.
+4. **Consider Edge Cases**: Address potential variations in how the requirement might be met.
+5. **Use Action Words**: Start with "The response must...", "The agent should...", "Verify that..."
+6. **Include Context**: Explain why this criterion matters if it helps clarify the requirement.
+7. **One Criterion Per Rubric**: Don't combine multiple requirements into one rubric.
+
+## Good Rubric Examples:
+- "The response must include at least one specific example to illustrate the main concept."
+- "Verify that the response mentions the refund policy timeline (30 days)."
+- "The agent should acknowledge the user's frustration before providing a solution."
+- "The response must not recommend any deprecated methods or outdated practices."
+- "Check that all code snippets include proper error handling with try/catch blocks."
+
+## Bad Rubric Examples (and why):
+- "Good response" → Too vague, not measurable
+- "Helpful and accurate" → Combines multiple criteria
+- "Professional" → Subjective and undefined
+
+## Your Task
+Improve the following rubric to make it more effective for LLM-judged evaluation:
+
+**Original Rubric:**
+{request.rubric}
+
+## Output Format
+Return ONLY the improved rubric text, ready to be used directly. Do not include any preamble, explanation, or surrounding text.
+"""
+    
+    # Use the project's configured model, or fall back to a default
+    try:
+        from google.adk import Agent
+        from google.adk.runners import Runner
+        from google.adk.sessions.in_memory_session_service import InMemorySessionService
+        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+        from google.genai import types
+        
+        # Get model config from project
+        model_config = None
+        if project.app.models and len(project.app.models) > 0:
+            if project.app.default_model_id:
+                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+            if not model_config:
+                model_config = project.app.models[0]
+        
+        # Create a simple agent for rubric improvement
+        if model_config and model_config.provider == "litellm":
+            from google.adk.models.lite_llm import LiteLlm
+            model = LiteLlm(
+                model=model_config.model_name,
+                api_base=model_config.api_base,
+            )
+        else:
+            # Default to Gemini if available
+            model = "gemini-2.0-flash"
+        
+        rubric_agent = Agent(
+            name="rubric_improver",
+            model=model,
+            instruction="You are an expert at writing effective evaluation rubrics for AI agent testing.",
+            output_key="improved_rubric",  # Store final response in session state
+        )
+        
+        runner = Runner(
+            app_name="rubric_improver",
+            agent=rubric_agent,
+            session_service=InMemorySessionService(),
+            memory_service=InMemoryMemoryService(),
+            artifact_service=InMemoryArtifactService(),
+        )
+        
+        session = await runner.session_service.create_session(
+            app_name="rubric_improver",
+            user_id="rubric_user",
+        )
+        
+        # Run the rubric improvement
+        async for event in runner.run_async(
+            session_id=session.id,
+            user_id="rubric_user",
+            new_message=types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=meta_prompt)]
+            ),
+        ):
+            # Just consume events - we'll get the result from session state
+            pass
+        
+        # Get the final session to extract the improved rubric from state
+        final_session = await runner.session_service.get_session(
+            app_name="rubric_improver",
+            user_id="rubric_user",
+            session_id=session.id,
+        )
+        
+        # Extract the rubric from session state
+        improved_rubric = final_session.state.get("improved_rubric", "").strip() if final_session else ""
+        
+        return {"rubric": improved_rubric, "success": True}
+        
+    except Exception as e:
+        import traceback
+        return {
+            "rubric": None,
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
+# ============================================================================
 # AI-Assisted Tool Code Generation
 # ============================================================================
 
