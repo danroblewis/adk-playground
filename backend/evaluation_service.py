@@ -606,13 +606,16 @@ Respond with ONLY a number between 0.0 and 1.0, nothing else."""
 Conversation:
 {conversation}
 
-Rate the response quality on a scale of 0.0 to 1.0, where:
-- 1.0 = Excellent, helpful, clear, and comprehensive response
-- 0.0 = Poor, unhelpful, unclear, or irrelevant response
+Rate the response quality on a scale of 1 to 5, where:
+- 5 = Excellent, helpful, clear, and comprehensive response
+- 4 = Good response with minor issues
+- 3 = Acceptable response but could be improved
+- 2 = Poor response with significant issues
+- 1 = Terrible, unhelpful, unclear, or irrelevant response
 
 Consider: helpfulness, clarity, accuracy, completeness, and relevance.
 
-Respond with ONLY a number between 0.0 and 1.0, nothing else."""
+Respond with ONLY a single number from 1 to 5, nothing else."""
 
         elif metric == "final_response_match_v2":
             return f"""You are an AI response evaluator. Evaluate whether the AI assistant's final response effectively addresses the user's needs.
@@ -636,18 +639,55 @@ Respond with ONLY a number between 0.0 and 1.0."""
     def _parse_judge_response(self, response_text: str, metric: str) -> float:
         """Parse the LLM judge response to extract a score."""
         import re
-        # Try to find a number between 0 and 1
-        numbers = re.findall(r'\b(0\.\d+|1\.0|1|0)\b', response_text)
-        if numbers:
-            return float(numbers[0])
-        # Try to find any decimal number
-        decimals = re.findall(r'(\d+\.?\d*)', response_text)
-        if decimals:
-            val = float(decimals[0])
-            # Normalize if it's out of range
+        
+        # Clean up the response text
+        text = response_text.strip()
+        
+        # For response_evaluation_score, look for 1-5 integer
+        if metric == "response_evaluation_score":
+            # Try to find a number 1-5
+            match = re.search(r'\b([1-5])\b', text)
+            if match:
+                return float(match.group(1))
+            # Try to find any number and clamp to 1-5
+            decimals = re.findall(r'(\d+\.?\d*)', text)
+            if decimals:
+                val = float(decimals[0])
+                return max(1.0, min(5.0, val))
+            return 3.0  # Default to middle score
+        
+        # For 0.0-1.0 scale metrics, look for decimal numbers
+        # First try to find explicit decimal like "0.85" or "0.9"
+        decimal_match = re.search(r'(0\.\d+)', text)
+        if decimal_match:
+            return float(decimal_match.group(1))
+        
+        # Try to find "1.0" or "1.00"
+        if re.search(r'\b1\.0+\b', text):
+            return 1.0
+        
+        # Look for percentage-like patterns (e.g., "85%" -> 0.85)
+        percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%', text)
+        if percent_match:
+            return float(percent_match.group(1)) / 100.0
+        
+        # Look for standalone "1" or "0" (but be careful - "1" could mean 100%)
+        standalone = re.search(r'^([01])$', text)
+        if standalone:
+            return float(standalone.group(1))
+        
+        # Try to extract any number and normalize
+        any_number = re.search(r'(\d+\.?\d*)', text)
+        if any_number:
+            val = float(any_number.group(1))
             if val > 1:
-                return val / 10 if val <= 10 else val / 100
+                # Might be a percentage like "85" or "95"
+                if val <= 100:
+                    return val / 100.0
+                # Something else, clamp it
+                return min(1.0, val / 100.0)
             return val
+        
         # Default to 0.5 if we can't parse
         return 0.5
     

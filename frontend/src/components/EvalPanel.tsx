@@ -231,7 +231,7 @@ export default function EvalPanel() {
   };
   
   // Load a specific history run
-  const loadHistoryRun = async (runId: string) => {
+  const loadHistoryRun = async (runId: string, updateUrl = true) => {
     if (!project) return;
     try {
       const response = await api.get(`/projects/${project.id}/eval-history/${runId}`);
@@ -239,9 +239,43 @@ export default function EvalPanel() {
       // Clear other selections to show the result viewer
       setSelectedSetId(null);
       setSelectedCaseId(null);
+      // Update URL for browser history
+      if (updateUrl) {
+        window.history.pushState({ run: runId }, '', `?run=${runId}`);
+      }
     } catch (err) {
       console.warn('Failed to load history run:', err);
     }
+  };
+  
+  // Select a set (with URL update)
+  const selectSet = (setId: string | null, updateUrl = true) => {
+    setSelectedSetId(setId);
+    setSelectedCaseId(null);
+    setSelectedHistoryRun(null);
+    if (updateUrl && setId) {
+      window.history.pushState({ set: setId }, '', `?set=${setId}`);
+    } else if (updateUrl) {
+      window.history.pushState({}, '', window.location.pathname);
+    }
+  };
+  
+  // Select a case (with URL update)
+  const selectCase = (setId: string, caseId: string | null, updateUrl = true) => {
+    setSelectedSetId(setId);
+    setSelectedCaseId(caseId);
+    setSelectedHistoryRun(null);
+    if (updateUrl && caseId) {
+      window.history.pushState({ set: setId, case: caseId }, '', `?set=${setId}&case=${caseId}`);
+    } else if (updateUrl && setId) {
+      window.history.pushState({ set: setId }, '', `?set=${setId}`);
+    }
+  };
+  
+  // Close history run viewer (with URL update)
+  const closeHistoryRun = () => {
+    setSelectedHistoryRun(null);
+    window.history.pushState({}, '', window.location.pathname);
   };
   
   // Delete a history run
@@ -270,31 +304,43 @@ export default function EvalPanel() {
   useEffect(() => {
     if (!project?.id || loading) return;
     
-    const params = new URLSearchParams(window.location.search);
-    const setId = params.get('set');
-    const caseId = params.get('case');
-    const runId = params.get('run');
-    
-    // Clean up URL after reading params
-    if (setId || caseId || runId) {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-    
-    // Handle run deeplink (historical run viewer)
-    if (runId) {
-      loadHistoryRun(runId);
-      return;
-    }
-    
-    // Handle set and case deeplinks
-    if (setId) {
-      setSelectedSetId(setId);
-      setExpandedSets(prev => new Set([...prev, setId]));
+    const handleUrlParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      const setId = params.get('set');
+      const caseId = params.get('case');
+      const runId = params.get('run');
       
-      if (caseId) {
-        setSelectedCaseId(caseId);
+      // Handle run deeplink (historical run viewer)
+      if (runId) {
+        loadHistoryRun(runId, false); // Don't update URL again
+        return;
       }
-    }
+      
+      // Handle set and case deeplinks
+      if (setId) {
+        setSelectedSetId(setId);
+        setSelectedCaseId(caseId);
+        setSelectedHistoryRun(null);
+        setExpandedSets(prev => new Set([...prev, setId]));
+      } else {
+        // No params - clear selections
+        if (!selectedSetId && !selectedCaseId && !selectedHistoryRun) return; // Already cleared
+        setSelectedSetId(null);
+        setSelectedCaseId(null);
+        setSelectedHistoryRun(null);
+      }
+    };
+    
+    // Handle initial load
+    handleUrlParams();
+    
+    // Handle browser back/forward
+    const handlePopState = () => {
+      handleUrlParams();
+    };
+    
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, [project?.id, loading, evalSets.length]);
   
   const loadEvalSets = async () => {
