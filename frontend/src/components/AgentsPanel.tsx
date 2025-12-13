@@ -282,59 +282,34 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   
   // Auto-scroll while dragging near edges
   function handleListDragOver(e: React.DragEvent) {
-    console.log('[DRAG] handleListDragOver called, draggedAgentIdRef:', draggedAgentIdRef.current);
-    if (!agentsListRef.current) {
-      console.log('[DRAG] No agentsListRef');
-      return;
-    }
-    if (!draggedAgentIdRef.current) {
-      console.log('[DRAG] No draggedAgentIdRef.current');
-      return;
-    }
+    if (!agentsListRef.current || !draggedAgentIdRef.current) return;
     
     const rect = agentsListRef.current.getBoundingClientRect();
     const y = e.clientY - rect.top;
-    const scrollZone = 60; // pixels from edge to trigger scroll
+    const scrollZone = 60;
     const scrollSpeed = 8;
     
-    console.log('[DRAG] y position:', y, 'rect.height:', rect.height, 'scrollTop:', agentsListRef.current.scrollTop);
-    
     if (y < scrollZone) {
-      // Scroll up
       const speed = Math.max(1, scrollSpeed * (1 - y / scrollZone));
-      console.log('[DRAG] Scrolling UP, speed:', speed);
       agentsListRef.current.scrollTop -= speed;
     } else if (y > rect.height - scrollZone) {
-      // Scroll down
       const speed = Math.max(1, scrollSpeed * (1 - (rect.height - y) / scrollZone));
-      console.log('[DRAG] Scrolling DOWN, speed:', speed);
       agentsListRef.current.scrollTop += speed;
     }
   }
   
   // Drag and drop handlers
   function handleDragStart(e: React.DragEvent, agentId: string) {
-    console.log('[DRAG] handleDragStart called for agent:', agentId);
     e.dataTransfer.setData('text/plain', agentId);
     e.dataTransfer.effectAllowed = 'move';
-    
-    // Use ref immediately, defer state update to avoid re-render cancelling drag
     draggedAgentIdRef.current = agentId;
-    
-    // Defer state update to next frame so drag operation is established first
-    requestAnimationFrame(() => {
-      console.log('[DRAG] Setting draggedAgentId state (deferred):', agentId);
-      setDraggedAgentId(agentId);
-    });
+    requestAnimationFrame(() => setDraggedAgentId(agentId));
   }
   
   function handleDragEnd() {
-    console.log('[DRAG] handleDragEnd called');
     draggedAgentIdRef.current = null;
     setDraggedAgentId(null);
     setDropTarget(null);
-    
-    // Clear scroll interval
     if (scrollIntervalRef.current) {
       cancelAnimationFrame(scrollIntervalRef.current);
       scrollIntervalRef.current = null;
@@ -343,33 +318,21 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   
   function handleDragOver(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
     const currentDraggedId = draggedAgentIdRef.current;
-    console.log('[DRAG] handleDragOver called for target:', targetAgentId, 'type:', dropType, 'dragging:', currentDraggedId);
     e.preventDefault();
     e.stopPropagation();
     
-    // Can't drop on itself
-    if (currentDraggedId === targetAgentId) {
-      console.log('[DRAG] Rejecting: cannot drop on self');
-      return;
-    }
+    if (currentDraggedId === targetAgentId) return;
     
-    // Can't drop a parent onto its child (would create circular reference)
     const draggedAgent = project.agents.find(a => a.id === currentDraggedId);
     if (draggedAgent && 'sub_agents' in draggedAgent) {
-      if (isDescendant(draggedAgent, targetAgentId)) {
-        console.log('[DRAG] Rejecting: would create circular reference');
-        return;
-      }
+      if (isDescendant(draggedAgent, targetAgentId)) return;
     }
     
     e.dataTransfer.dropEffect = 'move';
     setDropTarget({ agentId: targetAgentId, type: dropType });
-    console.log('[DRAG] dropTarget set to:', targetAgentId, dropType);
   }
   
   function handleDragLeave(e: React.DragEvent) {
-    console.log('[DRAG] handleDragLeave called');
-    // Only clear if leaving the drop zone entirely
     const relatedTarget = e.relatedTarget as HTMLElement;
     if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
       setDropTarget(null);
@@ -377,68 +340,41 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   }
   
   function handleDrop(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
-    console.log('[DRAG] handleDrop called for target:', targetAgentId, 'type:', dropType);
     e.preventDefault();
     e.stopPropagation();
     
     const sourceAgentId = e.dataTransfer.getData('text/plain');
-    console.log('[DRAG] sourceAgentId from dataTransfer:', sourceAgentId);
-    if (!sourceAgentId || sourceAgentId === targetAgentId) {
-      console.log('[DRAG] Rejecting drop: no source or same target');
-      return;
-    }
+    if (!sourceAgentId || sourceAgentId === targetAgentId) return;
     
     const targetAgent = project.agents.find(a => a.id === targetAgentId);
     const sourceAgent = project.agents.find(a => a.id === sourceAgentId);
-    
-    if (!targetAgent || !sourceAgent) {
-      console.log('[DRAG] Rejecting: target or source agent not found');
-      return;
-    }
-    
-    console.log('[DRAG] Processing drop - source:', sourceAgent.name, 'target:', targetAgent.name, 'type:', dropType);
+    if (!targetAgent || !sourceAgent) return;
     
     if (dropType === 'sub_agent') {
-      // Add to sub_agents list
       if ('sub_agents' in targetAgent) {
-        // Remove from any existing parent's sub_agents
         project.agents.forEach(a => {
           if ('sub_agents' in a && a.sub_agents.includes(sourceAgentId)) {
-            console.log('[DRAG] Removing from existing parent:', a.name);
             updateAgent(a.id, { sub_agents: a.sub_agents.filter(id => id !== sourceAgentId) });
           }
         });
         
-        // Add to new parent if not already there
         if (!targetAgent.sub_agents.includes(sourceAgentId)) {
-          console.log('[DRAG] Adding as sub_agent to:', targetAgent.name);
           updateAgent(targetAgentId, { sub_agents: [...targetAgent.sub_agents, sourceAgentId] });
-          // Auto-expand the target
           setExpandedAgents(prev => new Set([...prev, targetAgentId]));
         }
-      } else {
-        console.log('[DRAG] Target does not support sub_agents');
       }
     } else if (dropType === 'tool') {
-      // Add as agent tool
       if ('tools' in targetAgent) {
         const llmAgent = targetAgent as LlmAgentConfig;
-        // Check if already added as tool
         const alreadyAdded = llmAgent.tools.some(t => t.type === 'agent' && t.agent_id === sourceAgentId);
         if (!alreadyAdded) {
-          console.log('[DRAG] Adding as tool to:', targetAgent.name);
           updateAgent(targetAgentId, {
             tools: [...llmAgent.tools, { type: 'agent', agent_id: sourceAgentId, name: sourceAgent.name }]
           });
-        } else {
-          console.log('[DRAG] Already added as tool');
         }
-      } else {
-        console.log('[DRAG] Target does not support tools');
       }
     }
     
-    console.log('[DRAG] Drop complete, clearing state');
     setDraggedAgentId(null);
     setDropTarget(null);
   }
@@ -484,10 +420,6 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       
       const showDropOverlay = draggedAgentId && draggedAgentId !== agent.id && (canHaveSubAgents || canHaveTools);
       
-      if (draggedAgentId) {
-        console.log('[DRAG] Rendering agent:', agent.name, 'draggedAgentId:', draggedAgentId, 'showDropOverlay:', showDropOverlay, 'canHaveSubAgents:', canHaveSubAgents, 'canHaveTools:', canHaveTools);
-      }
-      
       return (
         <div key={agent.id} className="agent-tree-item">
           <div 
@@ -521,7 +453,6 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
               <Icon size={14} />
             </div>
             <span className="agent-name">{agent.name}</span>
-            <span className="agent-type">{agent.type}</span>
             <button className="delete-btn" onClick={(e) => handleDeleteAgent(agent.id, e)}>
               <Trash2 size={14} />
             </button>
