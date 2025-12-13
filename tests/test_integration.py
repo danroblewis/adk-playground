@@ -23,6 +23,7 @@ from models import (
     LlmAgentConfig,
     SequentialAgentConfig,
     LoopAgentConfig,
+    ParallelAgentConfig,
     ModelConfig,
     BuiltinToolConfig,
     FunctionToolConfig,
@@ -282,6 +283,312 @@ def set_after_flag(callback_context: CallbackContext) -> Optional[types.Content]
             # State changes should be captured (from output_key or callbacks)
             state_change_events = [e for e in events if e.event_type == "state_change"]
             # The agent may or may not produce state changes depending on configuration
+
+
+class TestNonLlmAgentCallbacks:
+    """Test callbacks on SequentialAgent, LoopAgent, and ParallelAgent."""
+    
+    @pytest.fixture
+    def projects_dir(self, tmp_path):
+        """Create a temporary projects directory."""
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir(parents=True)
+        return projects_dir
+    
+    @pytest.fixture
+    def sequential_callback_project(self, projects_dir) -> Project:
+        """Create a project with a SequentialAgent that has callbacks."""
+        callback_code = '''
+from google.adk.agents.callback_context import CallbackContext
+from typing import Optional
+from google.genai import types
+
+def mark_sequential_ran(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Sets a flag when SequentialAgent callback runs."""
+    callback_context.state['sequential_callback_ran'] = True
+    return None
+'''
+        return Project(
+            id="test_sequential_callbacks",
+            name="Sequential Agent Callbacks Test",
+            app=AppConfig(
+                id="app",
+                name="test_app",
+                root_agent_id="seq_agent",
+                session_service_uri="memory://",
+                state_keys=[
+                    StateKeyConfig(name="sequential_callback_ran", type="boolean", default_value=False),
+                ],
+            ),
+            agents=[
+                SequentialAgentConfig(
+                    id="seq_agent",
+                    name="sequential_agent",
+                    description="Sequential agent with callbacks",
+                    sub_agents=["child_llm"],
+                    before_agent_callbacks=[
+                        CallbackConfig(module_path="callbacks.custom.mark_sequential_ran"),
+                    ],
+                    after_agent_callbacks=[],
+                ),
+                LlmAgentConfig(
+                    id="child_llm",
+                    name="child_agent",
+                    instruction="Say OK",
+                    model=ModelConfig(provider="gemini", model_name="gemini-2.0-flash"),
+                ),
+            ],
+            custom_callbacks=[
+                CustomCallbackDefinition(
+                    id="cb_seq",
+                    name="mark_sequential_ran",
+                    description="Marks that sequential callback ran",
+                    module_path="callbacks.custom",
+                    code=callback_code,
+                ),
+            ],
+        )
+    
+    @pytest.fixture
+    def loop_callback_project(self, projects_dir) -> Project:
+        """Create a project with a LoopAgent that has callbacks."""
+        callback_code = '''
+from google.adk.agents.callback_context import CallbackContext
+from typing import Optional
+from google.genai import types
+
+def mark_loop_ran(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Sets a flag when LoopAgent callback runs."""
+    callback_context.state['loop_callback_ran'] = True
+    return None
+'''
+        return Project(
+            id="test_loop_callbacks",
+            name="Loop Agent Callbacks Test",
+            app=AppConfig(
+                id="app",
+                name="test_app",
+                root_agent_id="loop_agent",
+                session_service_uri="memory://",
+                state_keys=[
+                    StateKeyConfig(name="loop_callback_ran", type="boolean", default_value=False),
+                ],
+            ),
+            agents=[
+                LoopAgentConfig(
+                    id="loop_agent",
+                    name="loop_agent",
+                    description="Loop agent with callbacks",
+                    sub_agents=["child_llm"],
+                    max_iterations=1,  # Just run once for testing
+                    before_agent_callbacks=[
+                        CallbackConfig(module_path="callbacks.custom.mark_loop_ran"),
+                    ],
+                    after_agent_callbacks=[],
+                ),
+                LlmAgentConfig(
+                    id="child_llm",
+                    name="child_agent",
+                    instruction="Say OK and use exit_loop to exit.",
+                    model=ModelConfig(provider="gemini", model_name="gemini-2.0-flash"),
+                    tools=[BuiltinToolConfig(type="builtin", name="exit_loop")],
+                ),
+            ],
+            custom_callbacks=[
+                CustomCallbackDefinition(
+                    id="cb_loop",
+                    name="mark_loop_ran",
+                    description="Marks that loop callback ran",
+                    module_path="callbacks.custom",
+                    code=callback_code,
+                ),
+            ],
+        )
+    
+    @pytest.fixture
+    def parallel_callback_project(self, projects_dir) -> Project:
+        """Create a project with a ParallelAgent that has callbacks."""
+        callback_code = '''
+from google.adk.agents.callback_context import CallbackContext
+from typing import Optional
+from google.genai import types
+
+def mark_parallel_ran(callback_context: CallbackContext) -> Optional[types.Content]:
+    """Sets a flag when ParallelAgent callback runs."""
+    callback_context.state['parallel_callback_ran'] = True
+    return None
+'''
+        return Project(
+            id="test_parallel_callbacks",
+            name="Parallel Agent Callbacks Test",
+            app=AppConfig(
+                id="app",
+                name="test_app",
+                root_agent_id="parallel_agent",
+                session_service_uri="memory://",
+                state_keys=[
+                    StateKeyConfig(name="parallel_callback_ran", type="boolean", default_value=False),
+                ],
+            ),
+            agents=[
+                ParallelAgentConfig(
+                    id="parallel_agent",
+                    name="parallel_agent",
+                    description="Parallel agent with callbacks",
+                    sub_agents=["child_llm"],
+                    before_agent_callbacks=[
+                        CallbackConfig(module_path="callbacks.custom.mark_parallel_ran"),
+                    ],
+                    after_agent_callbacks=[],
+                ),
+                LlmAgentConfig(
+                    id="child_llm",
+                    name="child_agent",
+                    instruction="Say OK",
+                    model=ModelConfig(provider="gemini", model_name="gemini-2.0-flash"),
+                ),
+            ],
+            custom_callbacks=[
+                CustomCallbackDefinition(
+                    id="cb_parallel",
+                    name="mark_parallel_ran",
+                    description="Marks that parallel callback ran",
+                    module_path="callbacks.custom",
+                    code=callback_code,
+                ),
+            ],
+        )
+    
+    @pytest.mark.asyncio
+    async def test_sequential_agent_callback_executed(self, projects_dir, sequential_callback_project):
+        """Test that SequentialAgent before_agent_callback is executed."""
+        manager = RuntimeManager(projects_dir=str(projects_dir))
+        events: List[RunEvent] = []
+        
+        async def event_collector(event: RunEvent):
+            events.append(event)
+        
+        with patch("google.adk.models.google_llm.Gemini.generate_content_async") as mock_llm:
+            async def mock_generate(*args, **kwargs):
+                from google.adk.models.llm_response import LlmResponse
+                from google.genai import types
+                
+                response = LlmResponse(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text="OK")]
+                    ),
+                    partial=False,
+                )
+                yield response
+            
+            mock_llm.side_effect = lambda *args, **kwargs: mock_generate()
+            
+            async for event in manager.run_agent(
+                project=sequential_callback_project,
+                user_message="Hello",
+                event_callback=event_collector,
+            ):
+                pass
+            
+            # Verify agent events occurred
+            event_types = [e.event_type for e in events]
+            assert "agent_start" in event_types, "Should have agent_start event"
+            
+            # Check for sequential_agent start event specifically
+            agent_start_events = [e for e in events if e.event_type == "agent_start"]
+            agent_names = [e.agent_name for e in agent_start_events]
+            assert "sequential_agent" in agent_names, f"Should have sequential_agent start, got: {agent_names}"
+    
+    @pytest.mark.asyncio
+    async def test_loop_agent_callback_executed(self, projects_dir, loop_callback_project):
+        """Test that LoopAgent before_agent_callback is executed."""
+        manager = RuntimeManager(projects_dir=str(projects_dir))
+        events: List[RunEvent] = []
+        
+        async def event_collector(event: RunEvent):
+            events.append(event)
+        
+        with patch("google.adk.models.google_llm.Gemini.generate_content_async") as mock_llm:
+            async def mock_generate(*args, **kwargs):
+                from google.adk.models.llm_response import LlmResponse
+                from google.genai import types
+                
+                # Return a tool call to exit_loop to avoid infinite looping
+                response = LlmResponse(
+                    content=types.Content(
+                        role="model",
+                        parts=[
+                            types.Part.from_function_call(
+                                function_call=types.FunctionCall(
+                                    name="exit_loop",
+                                    args={},
+                                )
+                            )
+                        ]
+                    ),
+                    partial=False,
+                )
+                yield response
+            
+            mock_llm.side_effect = lambda *args, **kwargs: mock_generate()
+            
+            async for event in manager.run_agent(
+                project=loop_callback_project,
+                user_message="Hello",
+                event_callback=event_collector,
+            ):
+                pass
+            
+            # Verify agent events occurred
+            event_types = [e.event_type for e in events]
+            assert "agent_start" in event_types, "Should have agent_start event"
+            
+            # Check for loop_agent start event specifically
+            agent_start_events = [e for e in events if e.event_type == "agent_start"]
+            agent_names = [e.agent_name for e in agent_start_events]
+            assert "loop_agent" in agent_names, f"Should have loop_agent start, got: {agent_names}"
+    
+    @pytest.mark.asyncio
+    async def test_parallel_agent_callback_executed(self, projects_dir, parallel_callback_project):
+        """Test that ParallelAgent before_agent_callback is executed."""
+        manager = RuntimeManager(projects_dir=str(projects_dir))
+        events: List[RunEvent] = []
+        
+        async def event_collector(event: RunEvent):
+            events.append(event)
+        
+        with patch("google.adk.models.google_llm.Gemini.generate_content_async") as mock_llm:
+            async def mock_generate(*args, **kwargs):
+                from google.adk.models.llm_response import LlmResponse
+                from google.genai import types
+                
+                response = LlmResponse(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text="OK")]
+                    ),
+                    partial=False,
+                )
+                yield response
+            
+            mock_llm.side_effect = lambda *args, **kwargs: mock_generate()
+            
+            async for event in manager.run_agent(
+                project=parallel_callback_project,
+                user_message="Hello",
+                event_callback=event_collector,
+            ):
+                pass
+            
+            # Verify agent events occurred
+            event_types = [e.event_type for e in events]
+            assert "agent_start" in event_types, "Should have agent_start event"
+            
+            # Check for parallel_agent start event specifically
+            agent_start_events = [e for e in events if e.event_type == "agent_start"]
+            agent_names = [e.agent_name for e in agent_start_events]
+            assert "parallel_agent" in agent_names, f"Should have parallel_agent start, got: {agent_names}"
 
 
 class TestToolExecution:
