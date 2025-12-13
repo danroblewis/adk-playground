@@ -2288,18 +2288,33 @@ async def check_embeddings_available():
 # Evaluation API Endpoints
 # ============================================================================
 
+# Try to use ADK-based evaluation, fall back to custom implementation
+try:
+    from adk_evaluation_service import AdkEvaluationService
+    USE_ADK_EVAL = True
+except ImportError:
+    USE_ADK_EVAL = False
+
 from evaluation_service import create_evaluation_service, ResponseEvaluator, TrajectoryEvaluator
 
 
 # Create evaluation service
 eval_service = None
+adk_eval_service = None
 
 def get_eval_service():
-    """Get or create the evaluation service."""
+    """Get or create the evaluation service (legacy)."""
     global eval_service
     if eval_service is None:
         eval_service = create_evaluation_service(runtime_manager)
     return eval_service
+
+def get_adk_eval_service():
+    """Get or create the ADK-based evaluation service."""
+    global adk_eval_service
+    if adk_eval_service is None and USE_ADK_EVAL:
+        adk_eval_service = AdkEvaluationService(runtime_manager)
+    return adk_eval_service
 
 
 class CreateEvalSetRequest(BaseModel):
@@ -2623,6 +2638,19 @@ async def run_eval_set(project_id: str, eval_set_id: str, request: RunEvalSetReq
         raise HTTPException(status_code=404, detail="Eval set not found")
     
     try:
+        # Try ADK-based evaluation first
+        adk_service = get_adk_eval_service()
+        if adk_service:
+            try:
+                result = await adk_service.run_eval_set(
+                    project=project,
+                    eval_set=eval_set,
+                )
+                return {"result": result.model_dump(mode="json")}
+            except Exception as adk_err:
+                logger.warning(f"ADK evaluation failed, falling back to custom: {adk_err}")
+        
+        # Fall back to custom evaluation service
         service = get_eval_service()
         result = await service.run_eval_set(
             project=project,
@@ -2661,6 +2689,20 @@ async def run_eval_case(
         raise HTTPException(status_code=404, detail="Eval case not found")
     
     try:
+        # Try ADK-based evaluation first
+        adk_service = get_adk_eval_service()
+        if adk_service:
+            try:
+                result = await adk_service.run_eval_case(
+                    project=project,
+                    eval_case=eval_case,
+                    eval_config=eval_set.eval_config,
+                )
+                return {"result": result.model_dump(mode="json")}
+            except Exception as adk_err:
+                logger.warning(f"ADK evaluation failed, falling back to custom: {adk_err}")
+        
+        # Fall back to custom evaluation service
         service = get_eval_service()
         result = await service.run_eval_case(
             project=project,
