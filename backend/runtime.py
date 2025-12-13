@@ -721,17 +721,8 @@ class RuntimeManager:
             ):
                 if not self._running.get(session_id, False):
                     break
-                
-                # Extract text from event
-                if event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            yield RunEvent(
-                                timestamp=time.time(),
-                                event_type="model_response",
-                                agent_name=event.author,
-                                data={"text": part.text},
-                            )
+                # Note: TrackingPlugin already emits model_response events via _emit()
+                # Don't yield duplicate events here
             
             
             # Get final state
