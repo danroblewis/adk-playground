@@ -103,7 +103,7 @@ interface EvalConfig {
   num_runs: number;
 }
 
-// LLM Judge metrics that can be enabled per test case
+// LLM Judges that can be enabled per test case
 interface EnabledMetric {
   metric: EvalMetricType;
   threshold: number;
@@ -1358,7 +1358,7 @@ function EvalCaseEditor({
           onClick={() => setActiveTab('rubrics')}
         >
           <Target size={14} style={{ marginRight: 6 }} />
-          LLM Judge
+          LLM Judges
         </div>
         <div 
           className={`tab ${activeTab === 'docs' ? 'active' : ''}`}
@@ -1621,13 +1621,13 @@ function EvalCaseEditor({
         
         {activeTab === 'rubrics' && (
           <>
-            {/* LLM Judge Metrics */}
+            {/* LLM Judges */}
             <div className="form-section" style={{ marginBottom: 16 }}>
               {[
-                { metric: 'safety_v1', label: 'Safety', default: 0.8, max: 1 },
-                { metric: 'hallucinations_v1', label: 'Hallucinations', default: 0.8, max: 1 },
-                { metric: 'response_evaluation_score', label: 'Coherence', default: 3.5, max: 5 },
-                { metric: 'final_response_match_v2', label: 'Semantic Match', default: 0.7, max: 1 },
+                { metric: 'safety_v1', label: 'safety_v1', default: 0.8, max: 1 },
+                { metric: 'hallucinations_v1', label: 'hallucinations_v1', default: 0.8, max: 1 },
+                { metric: 'response_evaluation_score', label: 'response_evaluation_score', default: 3.5, max: 5 },
+                { metric: 'final_response_match_v2', label: 'final_response_match_v2', default: 0.7, max: 1 },
               ].map(({ metric, label, default: defaultVal, max }) => {
                 const enabled = (localCase.enabled_metrics || []).find(em => em.metric === metric);
                 const threshold = enabled?.threshold ?? defaultVal;
@@ -1668,7 +1668,7 @@ function EvalCaseEditor({
                           saveCase({ enabled_metrics: metrics });
                         }
                       }}
-                      style={{ width: 45, textAlign: 'center', opacity: enabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
+                      style={{ width: 60, textAlign: 'center', opacity: enabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
                     />
                   </div>
                 );
