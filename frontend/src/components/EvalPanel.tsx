@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
   CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
-  MessageSquare, RefreshCw, Download, Upload, ExternalLink
+  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
@@ -265,6 +265,37 @@ export default function EvalPanel() {
       loadEvalHistory();
     }
   }, [project?.id]);
+  
+  // Handle URL deeplinks: ?set=, ?case=, ?run=
+  useEffect(() => {
+    if (!project?.id || loading) return;
+    
+    const params = new URLSearchParams(window.location.search);
+    const setId = params.get('set');
+    const caseId = params.get('case');
+    const runId = params.get('run');
+    
+    // Clean up URL after reading params
+    if (setId || caseId || runId) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    
+    // Handle run deeplink (historical run viewer)
+    if (runId) {
+      loadHistoryRun(runId);
+      return;
+    }
+    
+    // Handle set and case deeplinks
+    if (setId) {
+      setSelectedSetId(setId);
+      setExpandedSets(prev => new Set([...prev, setId]));
+      
+      if (caseId) {
+        setSelectedCaseId(caseId);
+      }
+    }
+  }, [project?.id, loading, evalSets.length]);
   
   const loadEvalSets = async () => {
     if (!project?.id) return;
@@ -1493,11 +1524,25 @@ function TestResultViewer({
       
       <div className="result-header">
         <h2>{run.eval_set_name || 'Test Run Results'}</h2>
-        <button className="btn btn-secondary btn-sm" onClick={onClose}>
-          ← Back to Editor
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button 
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              if (project) {
+                const url = `${window.location.origin}/project/${project.id}/evaluate?run=${run.id}`;
+                navigator.clipboard.writeText(url);
+              }
+            }}
+            title="Copy link to this run"
+          >
+            <Link2 size={14} />
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={onClose}>
+            ← Back to Editor
+          </button>
+        </div>
       </div>
-      
+              
       <div className="result-summary">
         <div className="summary-stat">
           <span className="label">Status</span>
@@ -1531,8 +1576,8 @@ function TestResultViewer({
             {run.started_at ? new Date(run.started_at * 1000).toLocaleString() : '-'}
           </span>
         </div>
-      </div>
-      
+              </div>
+              
       <div className="result-cases">
         {caseResults.map((caseResult: any, index: number) => (
           <div key={caseResult.case_id || index} className="result-case">
@@ -1544,7 +1589,7 @@ function TestResultViewer({
                   <XCircle size={16} style={{ color: 'var(--error)' }} />
                 )}
                 {caseResult.case_name || `Case ${index + 1}`}
-              </div>
+                </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {caseResult.session_id && (
                   <button
@@ -1558,9 +1603,9 @@ function TestResultViewer({
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                   {caseResult.duration_ms ? `${(caseResult.duration_ms / 1000).toFixed(2)}s` : ''}
                 </span>
+                </div>
               </div>
-            </div>
-            
+              
             <div className="result-case-details">
               {/* Metrics */}
               {caseResult.metric_results?.map((metric: any, mIndex: number) => (
@@ -1575,7 +1620,7 @@ function TestResultViewer({
                           {metric.score !== null && metric.score !== undefined 
                             ? metric.score.toFixed(2) 
                             : (metric.passed ? '✓' : '✗')}
-                        </span>
+                    </span>
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                           (≥{metric.threshold})
                         </span>
@@ -1590,21 +1635,21 @@ function TestResultViewer({
                 <div className="invocation-summary">
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
                     Invocations ({caseResult.invocation_results.length})
-                  </div>
+                          </div>
                   {caseResult.invocation_results.map((inv: any, iIndex: number) => (
                     <div key={iIndex} className="invocation-item">
                       <div className="invocation-query">
                         Turn {iIndex + 1}: {inv.user_message || '(no message)'}
-                      </div>
+                        </div>
                       {inv.actual_response && (
                         <div className="invocation-response">
                           Response: {inv.actual_response.substring(0, 200)}
                           {inv.actual_response.length > 200 ? '...' : ''}
-                        </div>
+                      </div>
                       )}
-                    </div>
+                        </div>
                   ))}
-                </div>
+                      </div>
               )}
               
               {/* Error message if case failed with error */}
@@ -1638,8 +1683,8 @@ function TestResultViewer({
 // Eval Case Editor Component
 function EvalCaseEditor({
   evalCase,
-  evalSetId: _evalSetId,
-  projectId: _projectId,
+  evalSetId,
+  projectId,
   result,
   isRunning,
   onUpdate,
@@ -1737,6 +1782,16 @@ function EvalCaseEditor({
           onChange={(e) => saveCase({ name: e.target.value })}
           placeholder="Test case name"
         />
+        <button 
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            const url = `${window.location.origin}/project/${projectId}/evaluate?set=${evalSetId}&case=${evalCase.id}`;
+            navigator.clipboard.writeText(url);
+          }}
+          title="Copy link to this test case"
+        >
+          <Link2 size={14} />
+        </button>
         <button 
           className="btn btn-primary btn-sm"
           onClick={onRun}
@@ -2377,7 +2432,7 @@ function EvalCaseEditor({
 // Eval Set Editor Component
 function EvalSetEditor({
   evalSet,
-  projectId: _projectId,
+  projectId,
   result,
   isRunning,
   caseResults,
@@ -2426,6 +2481,16 @@ function EvalSetEditor({
           onBlur={handleNameBlur}
           placeholder="Eval set name"
         />
+        <button 
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            const url = `${window.location.origin}/project/${projectId}/evaluate?set=${evalSet.id}`;
+            navigator.clipboard.writeText(url);
+          }}
+          title="Copy link to this eval set"
+        >
+          <Link2 size={14} />
+        </button>
         <button 
           className="btn btn-secondary btn-sm"
           onClick={onExport}
@@ -2518,11 +2583,11 @@ function EvalSetEditor({
                   {info.requiresJudge && <span style={{ fontSize: 9, marginLeft: 4, color: 'var(--accent-primary)' }}>LLM</span>}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', opacity: isEnabled ? 1 : 0.4 }}>≥</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.1}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
                   value={threshold}
                   disabled={!isEnabled}
                   onChange={(e) => {
@@ -2537,8 +2602,8 @@ function EvalSetEditor({
                     }
                   }}
                   style={{ width: 60, textAlign: 'center', opacity: isEnabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
-                />
-              </div>
+              />
+            </div>
             );
           })}
           
