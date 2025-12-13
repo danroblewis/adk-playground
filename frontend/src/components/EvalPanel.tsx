@@ -1431,9 +1431,13 @@ function TestResultViewer({
   onClose: () => void;
 }) {
   const { project } = useStore();
+  const [showOnlyFailed, setShowOnlyFailed] = useState(false);
   const caseResults = run.case_results || [];
   const passedCases = caseResults.filter((c: any) => c.passed).length;
   const failedCases = caseResults.filter((c: any) => !c.passed).length;
+  const displayedCases = showOnlyFailed 
+    ? caseResults.filter((c: any) => !c.passed) 
+    : caseResults;
   
   const viewSession = (sessionId: string) => {
     if (sessionId && project) {
@@ -1616,9 +1620,33 @@ function TestResultViewer({
           </span>
         </div>
               </div>
+      
+      {/* Filter toggle */}
+      {failedCases > 0 && (
+        <div style={{ 
+          padding: '8px 20px', 
+          borderBottom: '1px solid var(--border-color)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: 'var(--bg-secondary)'
+        }}>
+          <label className="toggle-switch" style={{ transform: 'scale(0.85)' }}>
+            <input
+              type="checkbox"
+              checked={showOnlyFailed}
+              onChange={(e) => setShowOnlyFailed(e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Show only failing tests ({failedCases})
+          </span>
+        </div>
+      )}
               
       <div className="result-cases">
-        {caseResults.map((caseResult: any, index: number) => (
+        {displayedCases.map((caseResult: any, index: number) => (
           <div key={caseResult.case_id || index} className="result-case">
             <div className="result-case-header">
               <div className="result-case-name">
