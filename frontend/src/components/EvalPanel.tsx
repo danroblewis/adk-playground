@@ -213,11 +213,52 @@ export default function EvalPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Quick eval state
-  // Load eval sets when project changes
+  // Eval history state
+  const [evalHistory, setEvalHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedHistoryRun, setSelectedHistoryRun] = useState<any>(null);
+  
+  // Load eval history
+  const loadEvalHistory = async () => {
+    if (!project) return;
+    try {
+      const response = await api.get(`/projects/${project.id}/eval-history`);
+      setEvalHistory(response.runs || []);
+    } catch (err) {
+      console.warn('Failed to load eval history:', err);
+    }
+  };
+  
+  // Load a specific history run
+  const loadHistoryRun = async (runId: string) => {
+    if (!project) return;
+    try {
+      const response = await api.get(`/projects/${project.id}/eval-history/${runId}`);
+      setSelectedHistoryRun(response.run);
+    } catch (err) {
+      console.warn('Failed to load history run:', err);
+    }
+  };
+  
+  // Delete a history run
+  const deleteHistoryRun = async (runId: string) => {
+    if (!project) return;
+    try {
+      await api.delete(`/projects/${project.id}/eval-history/${runId}`);
+      setEvalHistory(prev => prev.filter(r => r.id !== runId));
+      if (selectedHistoryRun?.id === runId) {
+        setSelectedHistoryRun(null);
+      }
+    } catch (err) {
+      console.warn('Failed to delete history run:', err);
+    }
+  };
+  
+  // Load eval sets and history when project changes
   useEffect(() => {
     if (project?.id) {
       loadEvalSets();
+      loadEvalHistory();
     }
   }, [project?.id]);
   
@@ -458,6 +499,15 @@ export default function EvalPanel() {
       // Store individual case results
       for (const caseResult of response.result.case_results) {
         setCaseResultsMap(prev => new Map(prev).set(caseResult.eval_case_id, caseResult));
+      }
+      
+      // Save to history
+      try {
+        await api.post(`/projects/${project.id}/eval-history`, response.result);
+        // Refresh history list
+        loadEvalHistory();
+      } catch (histErr) {
+        console.warn('Failed to save eval run to history:', histErr);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to run eval set');
@@ -1176,6 +1226,69 @@ export default function EvalPanel() {
             );
           })}
         </div>
+        
+        {/* Previous Runs Section */}
+        <div className="history-section">
+          <div 
+            className="history-header"
+            onClick={() => setShowHistory(!showHistory)}
+            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}
+          >
+            <span style={{ fontWeight: 500, fontSize: 13 }}>
+              {showHistory ? '▼' : '▶'} Previous Runs ({evalHistory.length})
+            </span>
+          </div>
+          
+          {showHistory && (
+            <div className="history-list" style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {evalHistory.length === 0 ? (
+                <div style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: 12, textAlign: 'center' }}>
+                  No previous runs
+                </div>
+              ) : (
+                evalHistory.map(run => (
+                  <div
+                    key={run.id}
+                    className={`history-item ${selectedHistoryRun?.id === run.id ? 'selected' : ''}`}
+                    onClick={() => loadHistoryRun(run.id)}
+                    style={{
+                      padding: '8px 12px',
+                      borderBottom: '1px solid var(--border-color)',
+                      cursor: 'pointer',
+                      background: selectedHistoryRun?.id === run.id ? 'var(--bg-tertiary)' : 'transparent',
+                      fontSize: 12
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{run.eval_set_name || 'Unnamed'}</div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                          {new Date(run.started_at * 1000).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ 
+                          color: run.passed_cases === run.total_cases ? 'var(--success-color)' : 'var(--error-color)',
+                          fontWeight: 500
+                        }}>
+                          {run.passed_cases}/{run.total_cases}
+                        </span>
+                        <button
+                          className="btn btn-icon"
+                          onClick={(e) => { e.stopPropagation(); deleteHistoryRun(run.id); }}
+                          title="Delete run"
+                          style={{ padding: 2 }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </aside>
       
       <div className="eval-editor">
@@ -1479,25 +1592,25 @@ function EvalCaseEditor({
                   
                   <div className="invocation-content">
                     <div className="invocation-row">
-                      <div className="form-section">
+                  <div className="form-section">
                         <label>User Query</label>
-                        <textarea
-                          value={inv.user_message}
-                          onChange={(e) => updateInvocation(idx, { user_message: e.target.value })}
-                          placeholder="The message to send to the agent..."
-                        />
-                      </div>
-                      
-                      <div className="form-section">
-                        <label>Expected Response <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(ROUGE-1)</span></label>
-                        <textarea
-                          value={inv.expected_response || ''}
-                          onChange={(e) => updateInvocation(idx, { expected_response: e.target.value || undefined })}
-                          placeholder="Expected text (partial match)..."
-                        />
-                      </div>
-                    </div>
+                    <textarea
+                      value={inv.user_message}
+                      onChange={(e) => updateInvocation(idx, { user_message: e.target.value })}
+                      placeholder="The message to send to the agent..."
+                    />
+                  </div>
                   
+                  <div className="form-section">
+                        <label>Expected Response <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(ROUGE-1)</span></label>
+                    <textarea
+                      value={inv.expected_response || ''}
+                      onChange={(e) => updateInvocation(idx, { expected_response: e.target.value || undefined })}
+                          placeholder="Expected text (partial match)..."
+                    />
+                      </div>
+                  </div>
+                    
                     {inv.expected_tool_calls.map((tc, tcIdx) => (
                       <div key={tcIdx} className="tool-call-compact">
                         <input
@@ -1653,11 +1766,11 @@ function EvalCaseEditor({
                     </label>
                     <span style={{ fontSize: 12, opacity: enabled ? 1 : 0.5, minWidth: 100 }}>{label}</span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', opacity: enabled ? 1 : 0.4 }}>≥</span>
-                    <input
-                      type="number"
+                <input
+                  type="number"
                       min={max === 5 ? 1 : 0}
                       max={max}
-                      step={0.1}
+                  step={0.1}
                       value={threshold}
                       disabled={!enabled}
                       onChange={(e) => {
@@ -1670,7 +1783,7 @@ function EvalCaseEditor({
                       }}
                       style={{ width: 60, textAlign: 'center', opacity: enabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
                     />
-                  </div>
+              </div>
                 );
               })}
             </div>
@@ -1688,7 +1801,7 @@ function EvalCaseEditor({
                   <input
                     type="text"
                     value={rubric.rubric}
-                    onChange={(e) => {
+                onChange={(e) => {
                       const rubrics = [...localCase.rubrics];
                       rubrics[idx] = { rubric: e.target.value };
                       saveCase({ rubrics });
@@ -1877,8 +1990,8 @@ function EvalCaseEditor({
                 </span>
               ) : null}
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                {result.duration_ms.toFixed(0)}ms
-              </span>
+              {result.duration_ms.toFixed(0)}ms
+            </span>
               {result.session_id && (
                 <button
                   className="btn btn-secondary btn-sm"
@@ -1901,16 +2014,16 @@ function EvalCaseEditor({
               <div key={idx} className="score-card">
                 <div className={`score-value ${mr.passed ? 'passed' : 'failed'}`}>
                   {formatScore(mr.score)}
-                </div>
+              </div>
                 <div className="score-label">
                   {METRIC_INFO[mr.metric as EvalMetricType]?.name || mr.metric}
-                </div>
+            </div>
                 {mr.error && (
                   <div style={{ fontSize: 10, color: 'var(--error)', marginTop: 4 }}>
                     {mr.error}
-                  </div>
-                )}
               </div>
+                )}
+            </div>
             ))}
           </div>
           
@@ -2006,7 +2119,7 @@ function EvalSetEditor({
     if (score === null || score === undefined) return '-';
     return `${Math.round(score * 100)}%`;
   };
-
+  
   return (
     <>
       <div className="editor-header">
@@ -2106,11 +2219,11 @@ function EvalSetEditor({
                 {isEnabled && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <label style={{ fontSize: 11 }}>Threshold:</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.1}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
                       value={threshold}
                       onChange={(e) => {
                         const metrics = [...(evalSet.eval_config?.metrics || [])];
@@ -2124,8 +2237,8 @@ function EvalSetEditor({
                         }
                       }}
                       style={{ width: 60 }}
-                    />
-                  </div>
+              />
+            </div>
                 )}
                 {info.requiresJudge && isEnabled && (
                   <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4 }}>
@@ -2144,7 +2257,7 @@ function EvalSetEditor({
                 onChange={(e) => onUpdate({ 
                   eval_config: { 
                     ...evalSet.eval_config, 
-                    default_trajectory_match_type: e.target.value as 'exact' | 'in_order' | 'any_order' 
+                  default_trajectory_match_type: e.target.value as 'exact' | 'in_order' | 'any_order' 
                   }
                 })}
               >
@@ -2194,12 +2307,12 @@ function EvalSetEditor({
                 </div>
                 {Object.entries(result.metric_avg_scores || {}).map(([metric, score]) => (
                   <div key={metric} className="score-card">
-                    <div className="score-value">
+                  <div className="score-value">
                       {formatScore(score)}
-                    </div>
+                  </div>
                     <div className="score-label">
                       Avg {METRIC_INFO[metric as EvalMetricType]?.name || metric}
-                    </div>
+                </div>
                   </div>
                 ))}
               </div>
