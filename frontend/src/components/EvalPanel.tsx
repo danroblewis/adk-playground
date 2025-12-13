@@ -234,10 +234,32 @@ export default function EvalPanel() {
     if (!project) return;
     try {
       const response = await api.get(`/projects/${project.id}/eval-history/${runId}`);
-      setSelectedHistoryRun(response.run);
-      // Clear other selections to show the result viewer
-      setSelectedSetId(null);
+      const run = response.run;
+      setSelectedHistoryRun(run);
+      
+      // Populate caseResultsMap and setResultsMap from the history run
+      // so the tree items show pass/fail status from this run
+      if (run?.case_results) {
+        const newCaseResults = new Map<string, EvalCaseResult>();
+        for (const caseResult of run.case_results) {
+          newCaseResults.set(caseResult.eval_case_id, caseResult);
+        }
+        setCaseResultsMap(newCaseResults);
+      }
+      
+      if (run?.eval_set_id) {
+        const newSetResults = new Map<string, EvalSetResult>();
+        newSetResults.set(run.eval_set_id, run);
+        setSetResultsMap(newSetResults);
+        
+        // Also select and expand the related eval set
+        setSelectedSetId(run.eval_set_id);
+        setExpandedSets(prev => new Set([...prev, run.eval_set_id]));
+      }
+      
+      // Clear case selection - the viewer will show full run results
       setSelectedCaseId(null);
+      
       // Update URL for browser history
       if (updateUrl) {
         window.history.pushState({ run: runId }, '', `?run=${runId}`);
@@ -274,6 +296,9 @@ export default function EvalPanel() {
   // Close history run viewer (with URL update)
   const closeHistoryRun = () => {
     setSelectedHistoryRun(null);
+    // Clear the result maps that were populated from history
+    setCaseResultsMap(new Map());
+    setSetResultsMap(new Map());
     window.history.pushState({}, '', window.location.pathname);
   };
   
