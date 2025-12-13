@@ -558,6 +558,7 @@ class EvalCaseResult(BaseModel):
     eval_case_name: str
     session_id: str
     metric_results: List[MetricResult] = Field(default_factory=list)
+    rubric_results: List[Dict[str, Any]] = Field(default_factory=list)
     passed: bool = True
     invocation_results: List[InvocationResult] = Field(default_factory=list)
     final_state: Dict[str, Any] = Field(default_factory=dict)
