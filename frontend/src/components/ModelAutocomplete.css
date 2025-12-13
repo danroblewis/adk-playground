@@ -35,6 +35,13 @@
   margin-top: 4px;
 }
 
+/* Portal version - rendered at document body level */
+.model-autocomplete-dropdown-portal {
+  position: fixed;
+  z-index: 99999;
+  margin-top: 0;
+}
+
 .model-autocomplete-loading,
 .model-autocomplete-error,
 .model-autocomplete-empty {

@@ -72,6 +72,7 @@ export function ModelConfigForm({
             projectId={projectId}
             value={values.model_name || ''}
             provider={values.provider}
+            apiBase={values.api_base}
             onChange={(modelId, provider) => {
               const detectedProvider = detectProvider(modelId, provider);
               onChange({ 

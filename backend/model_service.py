@@ -20,6 +20,8 @@ class ModelInfo(BaseModel):
     context_window: Optional[int] = None
     supports_tools: bool = True
     supports_vision: bool = False
+    supports_json_mode: bool = False  # Structured output / JSON mode
+    supports_streaming: bool = True  # Streaming responses
 
 
 class ProviderModels(BaseModel):
@@ -65,9 +67,11 @@ async def list_gemini_models(api_key: Optional[str] = None) -> ProviderModels:
             display_name = getattr(m, "display_name", short_name)
             description = getattr(m, "description", "")
             
-            # Check capabilities
-            supports_tools = True  # Most Gemini models support tools
-            supports_vision = "vision" in short_name.lower() or "pro" in short_name.lower() or "flash" in short_name.lower()
+            # Check capabilities based on model name
+            is_chat_model = "gemini" in short_name.lower() and not any(x in short_name.lower() for x in ["embedding", "imagen", "veo"])
+            supports_tools = is_chat_model  # Chat models support tools
+            supports_vision = is_chat_model and any(x in short_name.lower() for x in ["pro", "flash", "vision"])
+            supports_json_mode = is_chat_model  # Most Gemini chat models support JSON mode
             
             # Get context window if available
             context_window = None
@@ -82,6 +86,7 @@ async def list_gemini_models(api_key: Optional[str] = None) -> ProviderModels:
                 context_window=context_window,
                 supports_tools=supports_tools,
                 supports_vision=supports_vision,
+                supports_json_mode=supports_json_mode,
             ))
         
         # Sort by name, putting newer models first
@@ -136,6 +141,7 @@ async def list_anthropic_models(api_key: Optional[str] = None) -> ProviderModels
                 context_window=200000,
                 supports_tools=True,
                 supports_vision=True,
+                supports_json_mode=True,
             ),
             ModelInfo(
                 id="claude-3-7-sonnet-latest",
@@ -145,6 +151,7 @@ async def list_anthropic_models(api_key: Optional[str] = None) -> ProviderModels
                 context_window=200000,
                 supports_tools=True,
                 supports_vision=True,
+                supports_json_mode=True,
             ),
             ModelInfo(
                 id="claude-3-5-sonnet-latest",
@@ -154,6 +161,7 @@ async def list_anthropic_models(api_key: Optional[str] = None) -> ProviderModels
                 context_window=200000,
                 supports_tools=True,
                 supports_vision=True,
+                supports_json_mode=True,
             ),
             ModelInfo(
                 id="claude-3-5-haiku-latest",
@@ -163,6 +171,7 @@ async def list_anthropic_models(api_key: Optional[str] = None) -> ProviderModels
                 context_window=200000,
                 supports_tools=True,
                 supports_vision=True,
+                supports_json_mode=True,
             ),
             ModelInfo(
                 id="claude-3-opus-latest",
@@ -172,6 +181,7 @@ async def list_anthropic_models(api_key: Optional[str] = None) -> ProviderModels
                 context_window=200000,
                 supports_tools=True,
                 supports_vision=True,
+                supports_json_mode=True,
             ),
         ]
         
@@ -223,6 +233,7 @@ async def list_openai_models(api_key: Optional[str] = None) -> ProviderModels:
                 continue
                 
             supports_vision = "vision" in model_id or "4o" in model_id or "o1" in model_id
+            supports_json_mode = "gpt-4" in model_id or "o1" in model_id or "o3" in model_id
             
             models.append(ModelInfo(
                 id=f"openai/{model_id}",  # LiteLLM format
@@ -230,6 +241,7 @@ async def list_openai_models(api_key: Optional[str] = None) -> ProviderModels:
                 provider="openai",
                 supports_tools=True,
                 supports_vision=supports_vision,
+                supports_json_mode=supports_json_mode,
             ))
         
         # Sort by model generation
@@ -288,6 +300,7 @@ async def list_groq_models(api_key: Optional[str] = None) -> ProviderModels:
                 provider="groq",
                 supports_tools=True,
                 supports_vision="vision" in model_id.lower(),
+                supports_json_mode=True,  # Groq supports JSON mode
             ))
         
         models.sort(key=lambda m: m.id)
@@ -343,6 +356,7 @@ async def list_all_models(
     openai_api_key: Optional[str] = None,
     groq_api_key: Optional[str] = None,
     check_ollama: bool = True,
+    ollama_base_url: Optional[str] = None,
 ) -> Dict[str, ProviderModels]:
     """List models from all configured providers in parallel."""
     
@@ -354,7 +368,7 @@ async def list_all_models(
     ]
     
     if check_ollama:
-        tasks.append(list_ollama_models())
+        tasks.append(list_ollama_models(ollama_base_url or "http://localhost:11434"))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
     

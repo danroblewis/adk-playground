@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig, MCPServerConfig } from '../utils/types';
 import AgentEditor from './AgentEditor';
@@ -74,11 +74,51 @@ interface AgentsPanelProps {
 
 export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const { project, addAgent, removeAgent, updateAgent, selectedAgentId, setSelectedAgentId, mcpServers } = useStore();
-  const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [showQuickSetup, setShowQuickSetup] = useState(false);
   const [quickSetupDescription, setQuickSetupDescription] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Track multiple concurrent generations: Map of temp ID -> description
+  const [generatingAgents, setGeneratingAgents] = useState<Map<string, string>>(new Map());
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<HTMLDivElement>(null);
+  const [draggedAgentId, setDraggedAgentId] = useState<string | null>(null);
+  const draggedAgentIdRef = useRef<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ agentId: string; type: 'sub_agent' | 'tool' } | null>(null);
+  const agentsListRef = useRef<HTMLDivElement>(null);
+  const scrollIntervalRef = useRef<number | null>(null);
+  
+  // Handle sidebar resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+  
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = Math.min(Math.max(200, e.clientX), 600);
+      setSidebarWidth(newWidth);
+    };
+    
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
   
   // Expand all agents by default when project loads or agents change
   useEffect(() => {
@@ -92,110 +132,118 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   
   if (!project) return null;
   
-  async function handleQuickSetup() {
+  // Start quick setup - runs in background, can be called multiple times concurrently
+  function startQuickSetup() {
     if (!quickSetupDescription.trim() || !project) return;
     
-    setIsGenerating(true);
-    try {
-      const result = await generateAgentConfig(project.id, quickSetupDescription);
-      
-      if (result.success && result.config) {
-        const config = result.config;
-        
-        // Build tools array from the generated config
-        const tools: ToolConfig[] = [];
-        
-        // Add builtin tools
-        if (config.tools?.builtin) {
-          for (const toolName of config.tools.builtin) {
-            tools.push({ type: 'builtin', name: toolName });
-          }
-        }
-        
-        // Add MCP server tools
-        if (config.tools?.mcp) {
-          for (const mcpConfig of config.tools.mcp) {
-            // Find the matching MCP server config
-            const serverConfig = mcpServers.find(s => s.name === mcpConfig.server);
-            if (serverConfig) {
-              tools.push({
-                type: 'mcp',
-                server: {
-                  ...serverConfig,
-                  tool_filter: mcpConfig.tools
-                }
-              });
+    const tempId = `generating_${Date.now()}`;
+    const description = quickSetupDescription;
+    
+    // Add to generating list and close modal immediately
+    setGeneratingAgents(prev => new Map(prev).set(tempId, description));
+    setShowQuickSetup(false);
+    setQuickSetupDescription('');
+    
+    // Run generation in background
+    generateAgentConfig(project.id, description)
+      .then(result => {
+        if (result.success && result.config) {
+          const config = result.config;
+          
+          // Build tools array from the generated config
+          const tools: ToolConfig[] = [];
+          
+          // Add builtin tools
+          if (config.tools?.builtin) {
+            for (const toolName of config.tools.builtin) {
+              tools.push({ type: 'builtin', name: toolName });
             }
           }
-        }
-        
-        // Add custom tools
-        if (config.tools?.custom) {
-          for (const toolName of config.tools.custom) {
-            const customTool = project.custom_tools.find(t => t.name === toolName);
-            if (customTool) {
-              tools.push({ type: 'function', name: toolName, module_path: customTool.module_path });
+          
+          // Add MCP server tools
+          if (config.tools?.mcp) {
+            for (const mcpConfig of config.tools.mcp) {
+              const serverConfig = mcpServers.find(s => s.name === mcpConfig.server);
+              if (serverConfig) {
+                tools.push({
+                  type: 'mcp',
+                  server: { ...serverConfig, tool_filter: mcpConfig.tools }
+                });
+              }
             }
           }
-        }
-        
-        // Add agent tools
-        if (config.tools?.agents) {
-          for (const agentId of config.tools.agents) {
-            const targetAgent = project.agents.find(a => a.id === agentId);
-            if (targetAgent) {
-              tools.push({ type: 'agent', agent_id: agentId, name: targetAgent.name });
+          
+          // Add custom tools
+          if (config.tools?.custom) {
+            for (const toolName of config.tools.custom) {
+              const customTool = project.custom_tools.find(t => t.name === toolName);
+              if (customTool) {
+                tools.push({ type: 'function', name: toolName, module_path: customTool.module_path });
+              }
             }
           }
+          
+          // Add agent tools
+          if (config.tools?.agents) {
+            for (const agentId of config.tools.agents) {
+              const targetAgent = project.agents.find(a => a.id === agentId);
+              if (targetAgent) {
+                tools.push({ type: 'agent', agent_id: agentId, name: targetAgent.name });
+              }
+            }
+          }
+          
+          // Get default model
+          const models = project.app.models || [];
+          const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
+          
+          // Create the new agent
+          const newAgent: LlmAgentConfig = {
+            id: `agent_${Date.now().toString(36)}`,
+            type: 'LlmAgent',
+            name: config.name || 'new_agent',
+            description: config.description || '',
+            instruction: config.instruction || '',
+            model: defaultModel ? {
+              provider: defaultModel.provider,
+              model_name: defaultModel.model_name,
+              api_base: defaultModel.api_base,
+              temperature: defaultModel.temperature,
+              max_output_tokens: defaultModel.max_output_tokens,
+              top_p: defaultModel.top_p,
+              top_k: defaultModel.top_k,
+              fallbacks: []
+            } : { provider: 'gemini', model_name: 'gemini-2.0-flash', fallbacks: [] },
+            include_contents: 'default',
+            disallow_transfer_to_parent: false,
+            disallow_transfer_to_peers: false,
+            tools,
+            sub_agents: config.sub_agents || [],
+            before_agent_callbacks: [],
+            after_agent_callbacks: [],
+            before_model_callbacks: [],
+            after_model_callbacks: [],
+            before_tool_callbacks: [],
+            after_tool_callbacks: [],
+          };
+          
+          addAgent(newAgent);
+          setSelectedAgentId(newAgent.id);
+          onSelectAgent?.(newAgent.id);
+        } else {
+          console.error('Failed to generate agent:', result.error);
         }
-        
-        // Get default model
-        const models = project.app.models || [];
-        const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
-        
-        // Create the new agent
-        const newAgent: LlmAgentConfig = {
-          id: `agent_${Date.now().toString(36)}`,
-          type: 'LlmAgent',
-          name: config.name || 'new_agent',
-          description: config.description || '',
-          instruction: config.instruction || '',
-          model: defaultModel ? {
-            provider: defaultModel.provider,
-            model_name: defaultModel.model_name,
-            api_base: defaultModel.api_base,
-            temperature: defaultModel.temperature,
-            max_output_tokens: defaultModel.max_output_tokens,
-            top_p: defaultModel.top_p,
-            top_k: defaultModel.top_k,
-            fallbacks: []
-          } : { provider: 'gemini', model_name: 'gemini-2.0-flash', fallbacks: [] },
-          include_contents: 'default',
-          disallow_transfer_to_parent: false,
-          disallow_transfer_to_peers: false,
-          tools,
-          sub_agents: config.sub_agents || [],
-          before_agent_callbacks: [],
-          after_agent_callbacks: [],
-          before_model_callbacks: [],
-          after_model_callbacks: [],
-          before_tool_callbacks: [],
-          after_tool_callbacks: [],
-        };
-        
-        addAgent(newAgent);
-        setSelectedAgentId(newAgent.id);
-        onSelectAgent?.(newAgent.id);
-        setShowQuickSetup(false);
-        setQuickSetupDescription('');
-      } else {
-        alert('Failed to generate agent: ' + (result.error || 'Unknown error'));
-      }
-    } catch (e) {
-      alert('Error generating agent: ' + (e as Error).message);
-    } finally {
-      setIsGenerating(false);
-    }
+      })
+      .catch(e => {
+        console.error('Error generating agent:', e);
+      })
+      .finally(() => {
+        setGeneratingAgents(prev => {
+          const next = new Map(prev);
+          next.delete(tempId);
+          return next;
+        });
+      });
   }
   
   const selectedAgent = project.agents.find(a => a.id === selectedAgentId);
@@ -232,6 +280,180 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     setExpandedAgents(next);
   }
   
+  // Auto-scroll while dragging near edges
+  function handleListDragOver(e: React.DragEvent) {
+    console.log('[DRAG] handleListDragOver called, draggedAgentIdRef:', draggedAgentIdRef.current);
+    if (!agentsListRef.current) {
+      console.log('[DRAG] No agentsListRef');
+      return;
+    }
+    if (!draggedAgentIdRef.current) {
+      console.log('[DRAG] No draggedAgentIdRef.current');
+      return;
+    }
+    
+    const rect = agentsListRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const scrollZone = 60; // pixels from edge to trigger scroll
+    const scrollSpeed = 8;
+    
+    console.log('[DRAG] y position:', y, 'rect.height:', rect.height, 'scrollTop:', agentsListRef.current.scrollTop);
+    
+    if (y < scrollZone) {
+      // Scroll up
+      const speed = Math.max(1, scrollSpeed * (1 - y / scrollZone));
+      console.log('[DRAG] Scrolling UP, speed:', speed);
+      agentsListRef.current.scrollTop -= speed;
+    } else if (y > rect.height - scrollZone) {
+      // Scroll down
+      const speed = Math.max(1, scrollSpeed * (1 - (rect.height - y) / scrollZone));
+      console.log('[DRAG] Scrolling DOWN, speed:', speed);
+      agentsListRef.current.scrollTop += speed;
+    }
+  }
+  
+  // Drag and drop handlers
+  function handleDragStart(e: React.DragEvent, agentId: string) {
+    console.log('[DRAG] handleDragStart called for agent:', agentId);
+    e.dataTransfer.setData('text/plain', agentId);
+    e.dataTransfer.effectAllowed = 'move';
+    
+    // Use ref immediately, defer state update to avoid re-render cancelling drag
+    draggedAgentIdRef.current = agentId;
+    
+    // Defer state update to next frame so drag operation is established first
+    requestAnimationFrame(() => {
+      console.log('[DRAG] Setting draggedAgentId state (deferred):', agentId);
+      setDraggedAgentId(agentId);
+    });
+  }
+  
+  function handleDragEnd() {
+    console.log('[DRAG] handleDragEnd called');
+    draggedAgentIdRef.current = null;
+    setDraggedAgentId(null);
+    setDropTarget(null);
+    
+    // Clear scroll interval
+    if (scrollIntervalRef.current) {
+      cancelAnimationFrame(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+  }
+  
+  function handleDragOver(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
+    const currentDraggedId = draggedAgentIdRef.current;
+    console.log('[DRAG] handleDragOver called for target:', targetAgentId, 'type:', dropType, 'dragging:', currentDraggedId);
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Can't drop on itself
+    if (currentDraggedId === targetAgentId) {
+      console.log('[DRAG] Rejecting: cannot drop on self');
+      return;
+    }
+    
+    // Can't drop a parent onto its child (would create circular reference)
+    const draggedAgent = project.agents.find(a => a.id === currentDraggedId);
+    if (draggedAgent && 'sub_agents' in draggedAgent) {
+      if (isDescendant(draggedAgent, targetAgentId)) {
+        console.log('[DRAG] Rejecting: would create circular reference');
+        return;
+      }
+    }
+    
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget({ agentId: targetAgentId, type: dropType });
+    console.log('[DRAG] dropTarget set to:', targetAgentId, dropType);
+  }
+  
+  function handleDragLeave(e: React.DragEvent) {
+    console.log('[DRAG] handleDragLeave called');
+    // Only clear if leaving the drop zone entirely
+    const relatedTarget = e.relatedTarget as HTMLElement;
+    if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
+      setDropTarget(null);
+    }
+  }
+  
+  function handleDrop(e: React.DragEvent, targetAgentId: string, dropType: 'sub_agent' | 'tool') {
+    console.log('[DRAG] handleDrop called for target:', targetAgentId, 'type:', dropType);
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const sourceAgentId = e.dataTransfer.getData('text/plain');
+    console.log('[DRAG] sourceAgentId from dataTransfer:', sourceAgentId);
+    if (!sourceAgentId || sourceAgentId === targetAgentId) {
+      console.log('[DRAG] Rejecting drop: no source or same target');
+      return;
+    }
+    
+    const targetAgent = project.agents.find(a => a.id === targetAgentId);
+    const sourceAgent = project.agents.find(a => a.id === sourceAgentId);
+    
+    if (!targetAgent || !sourceAgent) {
+      console.log('[DRAG] Rejecting: target or source agent not found');
+      return;
+    }
+    
+    console.log('[DRAG] Processing drop - source:', sourceAgent.name, 'target:', targetAgent.name, 'type:', dropType);
+    
+    if (dropType === 'sub_agent') {
+      // Add to sub_agents list
+      if ('sub_agents' in targetAgent) {
+        // Remove from any existing parent's sub_agents
+        project.agents.forEach(a => {
+          if ('sub_agents' in a && a.sub_agents.includes(sourceAgentId)) {
+            console.log('[DRAG] Removing from existing parent:', a.name);
+            updateAgent(a.id, { sub_agents: a.sub_agents.filter(id => id !== sourceAgentId) });
+          }
+        });
+        
+        // Add to new parent if not already there
+        if (!targetAgent.sub_agents.includes(sourceAgentId)) {
+          console.log('[DRAG] Adding as sub_agent to:', targetAgent.name);
+          updateAgent(targetAgentId, { sub_agents: [...targetAgent.sub_agents, sourceAgentId] });
+          // Auto-expand the target
+          setExpandedAgents(prev => new Set([...prev, targetAgentId]));
+        }
+      } else {
+        console.log('[DRAG] Target does not support sub_agents');
+      }
+    } else if (dropType === 'tool') {
+      // Add as agent tool
+      if ('tools' in targetAgent) {
+        const llmAgent = targetAgent as LlmAgentConfig;
+        // Check if already added as tool
+        const alreadyAdded = llmAgent.tools.some(t => t.type === 'agent' && t.agent_id === sourceAgentId);
+        if (!alreadyAdded) {
+          console.log('[DRAG] Adding as tool to:', targetAgent.name);
+          updateAgent(targetAgentId, {
+            tools: [...llmAgent.tools, { type: 'agent', agent_id: sourceAgentId, name: sourceAgent.name }]
+          });
+        } else {
+          console.log('[DRAG] Already added as tool');
+        }
+      } else {
+        console.log('[DRAG] Target does not support tools');
+      }
+    }
+    
+    console.log('[DRAG] Drop complete, clearing state');
+    setDraggedAgentId(null);
+    setDropTarget(null);
+  }
+  
+  // Check if childId is a descendant of parentAgent
+  function isDescendant(parentAgent: AgentConfig, childId: string): boolean {
+    if (!('sub_agents' in parentAgent)) return false;
+    if (parentAgent.sub_agents.includes(childId)) return true;
+    for (const subId of parentAgent.sub_agents) {
+      const subAgent = project.agents.find(a => a.id === subId);
+      if (subAgent && isDescendant(subAgent, childId)) return true;
+    }
+    return false;
+  }
+  
   function getAgentIcon(type: string) {
     const config = AGENT_TYPES.find(t => t.type === type);
     return config ? config.icon : Bot;
@@ -248,19 +470,43 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       const Icon = getAgentIcon(agent.type);
       const color = getAgentColor(agent.type);
       const hasSubAgents = 'sub_agents' in agent && agent.sub_agents.length > 0;
+      const canHaveSubAgents = 'sub_agents' in agent;
+      const canHaveTools = agent.type === 'LlmAgent';
       const isExpanded = expandedAgents.has(agent.id);
+      const isDragging = draggedAgentId === agent.id;
+      const isDropTargetSubAgent = dropTarget?.agentId === agent.id && dropTarget?.type === 'sub_agent';
+      const isDropTargetTool = dropTarget?.agentId === agent.id && dropTarget?.type === 'tool';
+      
       // Map over sub_agents to preserve order, not filter which loses order
       const subAgents = hasSubAgents 
         ? agent.sub_agents.map(id => project.agents.find(a => a.id === id)).filter((a): a is AgentConfig => a !== undefined)
         : [];
       
+      const showDropOverlay = draggedAgentId && draggedAgentId !== agent.id && (canHaveSubAgents || canHaveTools);
+      
+      if (draggedAgentId) {
+        console.log('[DRAG] Rendering agent:', agent.name, 'draggedAgentId:', draggedAgentId, 'showDropOverlay:', showDropOverlay, 'canHaveSubAgents:', canHaveSubAgents, 'canHaveTools:', canHaveTools);
+      }
+      
       return (
         <div key={agent.id} className="agent-tree-item">
           <div 
-            className={`agent-item ${selectedAgentId === agent.id ? 'selected' : ''}`}
+            className={`agent-item ${selectedAgentId === agent.id ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${showDropOverlay ? 'drop-target' : ''}`}
             onClick={() => selectAgent(agent.id)}
             style={{ paddingLeft: 12 + depth * 20 }}
+            draggable
+            onDragStart={(e) => handleDragStart(e, agent.id)}
+            onDragEnd={handleDragEnd}
+            onDragOver={(e) => {
+              if (showDropOverlay) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}
           >
+            <div className="drag-handle">
+              <GripVertical size={12} />
+            </div>
             {hasSubAgents ? (
               <button 
                 className="expand-btn"
@@ -279,7 +525,36 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
             <button className="delete-btn" onClick={(e) => handleDeleteAgent(agent.id, e)}>
               <Trash2 size={14} />
             </button>
+            
+            {/* Overlay drop zones - only show when hovering while dragging */}
+            {showDropOverlay && (
+              <div className="drop-overlay">
+                {canHaveSubAgents && (
+                  <div 
+                    className={`drop-zone-overlay ${isDropTargetSubAgent ? 'active' : ''}`}
+                    onDragOver={(e) => handleDragOver(e, agent.id, 'sub_agent')}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, agent.id, 'sub_agent')}
+                  >
+                    <Users size={12} />
+                    <span>Sub-agent</span>
+                  </div>
+                )}
+                {canHaveTools && (
+                  <div 
+                    className={`drop-zone-overlay ${isDropTargetTool ? 'active' : ''}`}
+                    onDragOver={(e) => handleDragOver(e, agent.id, 'tool')}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, agent.id, 'tool')}
+                  >
+                    <Wrench size={12} />
+                    <span>Tool</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+          
           {hasSubAgents && isExpanded && (
             <div className="sub-agents">
               {renderAgentTree(subAgents, depth + 1)}
@@ -304,7 +579,6 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         }
         
         .agents-sidebar {
-          width: 320px;
           flex-shrink: 0;
           display: flex;
           flex-direction: column;
@@ -312,6 +586,37 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           border: 1px solid var(--border-color);
           border-radius: var(--radius-lg);
           overflow: hidden;
+        }
+        
+        .sidebar-resizer {
+          width: 6px;
+          flex-shrink: 0;
+          cursor: col-resize;
+          background: transparent;
+          transition: background 0.15s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .sidebar-resizer:hover,
+        .sidebar-resizer.resizing {
+          background: var(--accent-primary);
+        }
+        
+        .sidebar-resizer::after {
+          content: '';
+          width: 2px;
+          height: 40px;
+          background: var(--border-color);
+          border-radius: 1px;
+          opacity: 0.5;
+          transition: opacity 0.15s ease;
+        }
+        
+        .sidebar-resizer:hover::after,
+        .sidebar-resizer.resizing::after {
+          opacity: 0;
         }
         
         .sidebar-header {
@@ -399,6 +704,75 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           color: var(--error);
         }
         
+        .drag-handle {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-muted);
+          opacity: 0.4;
+          cursor: grab;
+          padding: 4px;
+          margin-right: 4px;
+          border-radius: var(--radius-sm);
+          transition: all 0.15s ease;
+        }
+        
+        .agent-item:hover .drag-handle {
+          opacity: 0.8;
+          background: var(--bg-tertiary);
+        }
+        
+        .agent-item:active .drag-handle {
+          cursor: grabbing;
+        }
+        
+        .agent-item.dragging {
+          opacity: 0.5;
+          background: var(--bg-tertiary);
+          border: 1px dashed var(--accent-primary);
+        }
+        
+        .agent-item.drop-target {
+          position: relative;
+        }
+        
+        .drop-overlay {
+          position: absolute;
+          top: 0;
+          right: 8px;
+          bottom: 0;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          opacity: 1;
+          pointer-events: auto;
+          z-index: 10;
+        }
+        
+        .drop-zone-overlay {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 8px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          color: var(--text-muted);
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        
+        .drop-zone-overlay:hover,
+        .drop-zone-overlay.active {
+          border-color: var(--accent-primary);
+          background: var(--accent-primary);
+          color: white;
+        }
+        
         .agent-editor-area {
           flex: 1;
           min-width: 0;
@@ -445,7 +819,39 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         
         .header-buttons {
           display: flex;
-          gap: 8px;
+          gap: 4px;
+        }
+        
+        .quick-add-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          border-radius: var(--radius-sm);
+          color: white;
+          border: none;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          opacity: 0.85;
+        }
+        
+        .quick-add-btn:hover {
+          opacity: 1;
+          transform: scale(1.05);
+        }
+        
+        .generating-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          margin-left: 8px;
+          padding: 2px 6px;
+          background: var(--accent-primary);
+          color: white;
+          border-radius: 10px;
+          font-size: 11px;
+          font-weight: 500;
         }
         
         .quick-setup-content {
@@ -566,25 +972,35 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         }
       `}</style>
       
-      <aside className="agents-sidebar">
+      <aside className="agents-sidebar" style={{ width: sidebarWidth }}>
         <div className="sidebar-header">
-          <h3>Agents ({project.agents.length})</h3>
+          <h3>Agents ({project.agents.length}){generatingAgents.size > 0 && <span className="generating-badge"><Loader size={12} className="spin" /> {generatingAgents.size}</span>}</h3>
           <div className="header-buttons">
+            {AGENT_TYPES.map(({ type, icon: Icon, color }) => (
+              <button 
+                key={type}
+                className="quick-add-btn"
+                style={{ background: color }}
+                onClick={() => handleAddAgent(type)}
+                title={`Add ${type}`}
+              >
+                <Icon size={14} />
+              </button>
+            ))}
             <button 
               className="btn btn-secondary btn-sm" 
               onClick={() => setShowQuickSetup(true)}
               title="AI-powered agent setup"
             >
               <Wand2 size={14} />
-              Quick
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => setShowTypeSelector(true)}>
-              <Plus size={14} />
-              Add
             </button>
           </div>
         </div>
-        <div className="agents-list">
+        <div 
+          className="agents-list" 
+          ref={agentsListRef}
+          onDragOver={handleListDragOver}
+        >
           {project.agents.length === 0 ? (
             <div className="empty-state">
               <Bot size={32} />
@@ -595,6 +1011,12 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           )}
         </div>
       </aside>
+      
+      <div 
+        ref={resizeRef}
+        className={`sidebar-resizer ${isResizing ? 'resizing' : ''}`}
+        onMouseDown={handleMouseDown}
+      />
       
       <div className="agent-editor-area">
         {selectedAgent ? (
@@ -607,38 +1029,12 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         )}
       </div>
       
-      {showTypeSelector && (
-        <div className="type-selector" onClick={() => setShowTypeSelector(false)}>
-          <div className="type-selector-content" onClick={e => e.stopPropagation()}>
-            <h2>Add Agent</h2>
-            <div className="type-options">
-              {AGENT_TYPES.map(({ type, label, icon: Icon, color, description }) => (
-                <button 
-                  key={type}
-                  className="type-option"
-                  onClick={() => handleAddAgent(type)}
-                >
-                  <div className="type-option-icon" style={{ background: color }}>
-                    <Icon size={20} />
-                  </div>
-                  <div className="type-option-info">
-                    <h4>{label}</h4>
-                    <p>{description}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      
       {showQuickSetup && (
-        <div className="type-selector" onClick={() => !isGenerating && setShowQuickSetup(false)}>
+        <div className="type-selector" onClick={() => setShowQuickSetup(false)}>
           <div className="quick-setup-content" onClick={e => e.stopPropagation()}>
             <h2><Wand2 size={20} /> Quick Agent Setup</h2>
             <p className="quick-setup-desc">
-              Describe what you want this agent to do, and AI will configure everything:
-              name, description, instruction, tools, and sub-agents.
+              Describe what you want this agent to do. Runs in the background - you can start multiple!
             </p>
             
             <div className="quick-setup-form">
@@ -647,8 +1043,12 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
                 onChange={(e) => setQuickSetupDescription(e.target.value)}
                 placeholder="Example: An agent that searches the web for information and summarizes the results. It should be able to search Google and handle multiple queries in parallel."
                 rows={5}
-                disabled={isGenerating}
                 autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && quickSetupDescription.trim()) {
+                    startQuickSetup();
+                  }
+                }}
               />
               
               <div className="quick-setup-info">
@@ -665,26 +1065,16 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
                 <button 
                   className="btn btn-secondary"
                   onClick={() => setShowQuickSetup(false)}
-                  disabled={isGenerating}
                 >
                   Cancel
                 </button>
                 <button 
                   className="btn btn-primary"
-                  onClick={handleQuickSetup}
-                  disabled={isGenerating || !quickSetupDescription.trim()}
+                  onClick={startQuickSetup}
+                  disabled={!quickSetupDescription.trim()}
                 >
-                  {isGenerating ? (
-                    <>
-                      <Loader size={14} className="spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 size={14} />
-                      Create Agent
-                    </>
-                  )}
+                  <Wand2 size={14} />
+                  Generate (⌘↵)
                 </button>
               </div>
             </div>

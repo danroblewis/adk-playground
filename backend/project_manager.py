@@ -302,11 +302,11 @@ class ProjectManager:
                 module_dir = callbacks_dir
                 for part in module_parts:
                     module_dir = module_dir / part
-                module_dir.mkdir(parents=True, exist_ok=True)
-                # Create __init__.py
-                init_file = module_dir / "__init__.py"
-                if not init_file.exists():
-                    init_file.write_text("")
+                    module_dir.mkdir(parents=True, exist_ok=True)
+                    # Create __init__.py
+                    init_file = module_dir / "__init__.py"
+                    if not init_file.exists():
+                        init_file.write_text("")
             
             # For each callback, determine the filename from the module_path
             # If module_path is "callbacks.custom", save as "callbacks/custom.py"

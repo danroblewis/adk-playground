@@ -510,9 +510,22 @@ async def list_available_models(request: ListModelsRequest):
 
 
 @app.get("/api/models/{project_id}")
-async def list_models_for_project(project_id: str):
-    """List available models using the project's configured API keys."""
-    from model_service import list_all_models
+async def list_models_for_project(
+    project_id: str, 
+    provider: Optional[str] = None,
+    api_base: Optional[str] = None
+):
+    """List available models for a specific provider using project's API keys.
+    
+    Args:
+        project_id: The project ID
+        provider: Which provider to fetch models from (gemini, anthropic, openai, groq, litellm/ollama)
+        api_base: Optional API base URL for Ollama/LiteLLM
+    """
+    from model_service import (
+        list_gemini_models, list_anthropic_models, list_openai_models,
+        list_groq_models, list_ollama_models, ProviderModels
+    )
     
     project = project_manager.get_project(project_id)
     if not project:
@@ -521,15 +534,37 @@ async def list_models_for_project(project_id: str):
     # Get API keys from project's env_vars
     env_vars = project.app.env_vars or {}
     
-    providers = await list_all_models(
-        google_api_key=env_vars.get("GOOGLE_API_KEY") or env_vars.get("GEMINI_API_KEY"),
-        anthropic_api_key=env_vars.get("ANTHROPIC_API_KEY"),
-        openai_api_key=env_vars.get("OPENAI_API_KEY"),
-        groq_api_key=env_vars.get("GROQ_API_KEY"),
-        check_ollama=True,
-    )
+    providers: dict = {}
     
-    return {"providers": {k: v.model_dump() for k, v in providers.items()}}
+    # If no provider specified, return empty (user should select a provider first)
+    if not provider:
+        return {"providers": {}}
+    
+    provider = provider.lower()
+    
+    if provider == "gemini":
+        key = env_vars.get("GOOGLE_API_KEY") or env_vars.get("GEMINI_API_KEY")
+        result = await list_gemini_models(key)
+        providers["gemini"] = result.model_dump()
+    elif provider == "anthropic":
+        key = env_vars.get("ANTHROPIC_API_KEY")
+        result = await list_anthropic_models(key)
+        providers["anthropic"] = result.model_dump()
+    elif provider == "openai":
+        key = env_vars.get("OPENAI_API_KEY")
+        result = await list_openai_models(key)
+        providers["openai"] = result.model_dump()
+    elif provider == "groq":
+        key = env_vars.get("GROQ_API_KEY")
+        result = await list_groq_models(key)
+        providers["groq"] = result.model_dump()
+    elif provider in ("litellm", "ollama"):
+        # For LiteLLM, we fetch from Ollama using the provided api_base
+        base_url = api_base or "http://localhost:11434"
+        result = await list_ollama_models(base_url)
+        providers["ollama"] = result.model_dump()
+    
+    return {"providers": providers}
 
 
 # ============================================================================

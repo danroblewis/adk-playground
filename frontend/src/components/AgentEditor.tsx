@@ -719,22 +719,22 @@ Your response (5-10 words only):`;
               <div className="form-row" style={{ gap: 24 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                   <span className="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={llmAgent.disallow_transfer_to_parent}
-                      onChange={(e) => update({ disallow_transfer_to_parent: e.target.checked } as Partial<LlmAgentConfig>)}
-                    />
+                  <input
+                    type="checkbox"
+                    checked={llmAgent.disallow_transfer_to_parent}
+                    onChange={(e) => update({ disallow_transfer_to_parent: e.target.checked } as Partial<LlmAgentConfig>)}
+                  />
                     <span className="toggle-slider" />
                   </span>
                   Disallow transfer to parent
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                   <span className="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={llmAgent.disallow_transfer_to_peers}
-                      onChange={(e) => update({ disallow_transfer_to_peers: e.target.checked } as Partial<LlmAgentConfig>)}
-                    />
+                  <input
+                    type="checkbox"
+                    checked={llmAgent.disallow_transfer_to_peers}
+                    onChange={(e) => update({ disallow_transfer_to_peers: e.target.checked } as Partial<LlmAgentConfig>)}
+                  />
                     <span className="toggle-slider" />
                   </span>
                   Disallow transfer to peers
@@ -1607,13 +1607,13 @@ function ToolsEditor({
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}
                     >
                       <label className="toggle-switch" style={{ margin: 0 }}>
-                        <input
-                          type="checkbox"
-                          checked={mcpConfigDialog.enabledTools.has(tool.name)}
+                      <input
+                        type="checkbox"
+                        checked={mcpConfigDialog.enabledTools.has(tool.name)}
                           onChange={() => toggleMcpTool(tool.name)}
-                        />
+                      />
                         <span className="toggle-slider" />
-                      </label>
+                    </label>
                       <span 
                         style={{ 
                           fontSize: 13, 
