@@ -216,7 +216,6 @@ export default function EvalPanel() {
   
   // Eval history state
   const [evalHistory, setEvalHistory] = useState<any[]>([]);
-  const [showHistory, setShowHistory] = useState(true);
   const [selectedHistoryRun, setSelectedHistoryRun] = useState<any>(null);
   
   // Load eval history
@@ -1265,16 +1264,14 @@ export default function EvalPanel() {
         <div className="history-section">
           <div 
             className="history-header"
-            onClick={() => setShowHistory(!showHistory)}
-            style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}
           >
             <span style={{ fontWeight: 500, fontSize: 13 }}>
-              {showHistory ? '▼' : '▶'} Previous Runs ({evalHistory.length})
+              Previous Runs ({evalHistory.length})
             </span>
           </div>
           
-          {showHistory && (
-            <div className="history-list" style={{ maxHeight: 200, overflowY: 'auto' }}>
+          <div className="history-list" style={{ maxHeight: 200, overflowY: 'auto' }}>
               {evalHistory.length === 0 ? (
                 <div style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: 12, textAlign: 'center' }}>
                   No previous runs
@@ -1334,7 +1331,6 @@ export default function EvalPanel() {
                   })
               )}
             </div>
-          )}
         </div>
       </aside>
       
