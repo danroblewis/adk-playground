@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
   CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
-  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2
+  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
@@ -2104,7 +2104,7 @@ function EvalCaseEditor({
 }) {
   const { project } = useStore();
   const [localCase, setLocalCase] = useState(evalCase);
-  const [activeTab, setActiveTab] = useState<'assertions' | 'rubrics' | 'docs'>('assertions');
+  const [activeTab, setActiveTab] = useState<'assertions' | 'rubrics' | 'docs' | 'json'>('assertions');
   // Update local state when evalCase changes (from external source)
   useEffect(() => {
     setLocalCase(evalCase);
@@ -2231,6 +2231,13 @@ function EvalCaseEditor({
         >
           <AlertCircle size={14} style={{ marginRight: 6 }} />
           Docs
+        </div>
+        <div 
+          className={`tab ${activeTab === 'json' ? 'active' : ''}`}
+          onClick={() => setActiveTab('json')}
+        >
+          <Code size={14} style={{ marginRight: 6 }} />
+          JSON
         </div>
       </div>
       
@@ -2725,6 +2732,79 @@ function EvalCaseEditor({
             </section>
           </div>
         )}
+        
+        {activeTab === 'json' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0' }}>
+              <p style={{ margin: 0 }}>
+                This is the ADK-compatible JSON format for this test case. You can use this with <code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>adk eval</code>.
+              </p>
+            </div>
+            <div style={{ flex: 1, minHeight: 300, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+              <Editor
+                height="100%"
+                language="json"
+                theme="vs-dark"
+                value={JSON.stringify({
+                  name: localCase.name,
+                  description: localCase.description || undefined,
+                  tags: localCase.tags?.length ? localCase.tags : undefined,
+                  target_agent: localCase.target_agent !== 'root_agent' ? localCase.target_agent : undefined,
+                  invocations: localCase.invocations.map(inv => ({
+                    user_message: inv.user_message,
+                    expected_response: inv.expected_response || undefined,
+                    expected_tool_calls: inv.expected_tool_calls?.length ? inv.expected_tool_calls.map(tc => ({
+                      tool_name: tc.tool_name,
+                      args: tc.match_type !== 'name_only' && Object.keys(tc.args || {}).length ? tc.args : undefined,
+                    })) : undefined,
+                  })),
+                  session_input: Object.keys(localCase.session_input || {}).length ? { state: localCase.session_input } : undefined,
+                  final_session_state: Object.keys(localCase.final_session_state || {}).length ? localCase.final_session_state : undefined,
+                  rubrics: localCase.rubrics?.length ? localCase.rubrics.map(r => r.rubric) : undefined,
+                }, null, 2)}
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  wordWrap: 'on',
+                  padding: { top: 12 },
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const json = JSON.stringify({
+                    name: localCase.name,
+                    description: localCase.description || undefined,
+                    tags: localCase.tags?.length ? localCase.tags : undefined,
+                    target_agent: localCase.target_agent !== 'root_agent' ? localCase.target_agent : undefined,
+                    invocations: localCase.invocations.map(inv => ({
+                      user_message: inv.user_message,
+                      expected_response: inv.expected_response || undefined,
+                      expected_tool_calls: inv.expected_tool_calls?.length ? inv.expected_tool_calls.map(tc => ({
+                        tool_name: tc.tool_name,
+                        args: tc.match_type !== 'name_only' && Object.keys(tc.args || {}).length ? tc.args : undefined,
+                      })) : undefined,
+                    })),
+                    session_input: Object.keys(localCase.session_input || {}).length ? { state: localCase.session_input } : undefined,
+                    final_session_state: Object.keys(localCase.final_session_state || {}).length ? localCase.final_session_state : undefined,
+                    rubrics: localCase.rubrics?.length ? localCase.rubrics.map(r => r.rubric) : undefined,
+                  }, null, 2);
+                  navigator.clipboard.writeText(json);
+                }}
+              >
+                <Copy size={14} /> Copy JSON
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       
       {result && (
@@ -2914,6 +2994,7 @@ function EvalSetEditor({
   onExport: () => void;
 }) {
   const [localName, setLocalName] = useState(evalSet.name);
+  const [showJson, setShowJson] = useState(false);
   
   // Update local name when evalSet changes (from external source)
   useEffect(() => {
@@ -2954,6 +3035,14 @@ function EvalSetEditor({
           <Link2 size={14} />
         </button>
         <button 
+          className={`btn btn-sm ${showJson ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setShowJson(!showJson)}
+          title="View/Hide JSON"
+        >
+          <Code size={14} />
+          JSON
+        </button>
+        <button 
           className="btn btn-secondary btn-sm"
           onClick={onExport}
           title="Export as JSON (compatible with adk eval)"
@@ -2977,18 +3066,109 @@ function EvalSetEditor({
       </div>
       
       <div className="editor-content">
-        <div className="form-section">
-          <h4>Description</h4>
-          <textarea
-            value={evalSet.description}
-            onChange={(e) => onUpdate({ description: e.target.value })}
-            placeholder="Description of this evaluation set..."
-            style={{ minHeight: 40 }}
-          />
-        </div>
-        
-        <div className="form-section">
-          <h4>LLM Judge Model</h4>
+        {showJson ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0' }}>
+              <p style={{ margin: 0 }}>
+                This is the ADK-compatible JSON format for this evaluation set. Save this file and use with <code style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>adk eval &lt;agent_path&gt; &lt;eval_file.json&gt;</code>
+              </p>
+            </div>
+            <div style={{ flex: 1, minHeight: 400, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+              <Editor
+                height="100%"
+                language="json"
+                theme="vs-dark"
+                value={JSON.stringify([{
+                  id: evalSet.id,
+                  name: evalSet.name,
+                  description: evalSet.description || undefined,
+                  eval_cases: evalSet.eval_cases.map(ec => ({
+                    name: ec.name,
+                    description: ec.description || undefined,
+                    tags: ec.tags?.length ? ec.tags : undefined,
+                    target_agent: ec.target_agent !== 'root_agent' ? ec.target_agent : undefined,
+                    invocations: ec.invocations.map(inv => ({
+                      user_message: inv.user_message,
+                      expected_response: inv.expected_response || undefined,
+                      expected_tool_calls: inv.expected_tool_calls?.length ? inv.expected_tool_calls.map(tc => ({
+                        tool_name: tc.tool_name,
+                        args: tc.match_type !== 'name_only' && Object.keys(tc.args || {}).length ? tc.args : undefined,
+                      })) : undefined,
+                    })),
+                    session_input: Object.keys(ec.session_input || {}).length ? { state: ec.session_input } : undefined,
+                    final_session_state: Object.keys(ec.final_session_state || {}).length ? ec.final_session_state : undefined,
+                    rubrics: ec.rubrics?.length ? ec.rubrics.map(r => r.rubric) : undefined,
+                  })),
+                  eval_config: evalSet.eval_config ? {
+                    judge_model: evalSet.eval_config.judge_model || undefined,
+                    metrics: evalSet.eval_config.metrics?.filter(m => m.enabled) || undefined,
+                  } : undefined,
+                }], null, 2)}
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  fontSize: 12,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  wordWrap: 'on',
+                  padding: { top: 12 },
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button 
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  const json = JSON.stringify([{
+                    id: evalSet.id,
+                    name: evalSet.name,
+                    description: evalSet.description || undefined,
+                    eval_cases: evalSet.eval_cases.map(ec => ({
+                      name: ec.name,
+                      description: ec.description || undefined,
+                      tags: ec.tags?.length ? ec.tags : undefined,
+                      target_agent: ec.target_agent !== 'root_agent' ? ec.target_agent : undefined,
+                      invocations: ec.invocations.map(inv => ({
+                        user_message: inv.user_message,
+                        expected_response: inv.expected_response || undefined,
+                        expected_tool_calls: inv.expected_tool_calls?.length ? inv.expected_tool_calls.map(tc => ({
+                          tool_name: tc.tool_name,
+                          args: tc.match_type !== 'name_only' && Object.keys(tc.args || {}).length ? tc.args : undefined,
+                        })) : undefined,
+                      })),
+                      session_input: Object.keys(ec.session_input || {}).length ? { state: ec.session_input } : undefined,
+                      final_session_state: Object.keys(ec.final_session_state || {}).length ? ec.final_session_state : undefined,
+                      rubrics: ec.rubrics?.length ? ec.rubrics.map(r => r.rubric) : undefined,
+                    })),
+                    eval_config: evalSet.eval_config ? {
+                      judge_model: evalSet.eval_config.judge_model || undefined,
+                      metrics: evalSet.eval_config.metrics?.filter(m => m.enabled) || undefined,
+                    } : undefined,
+                  }], null, 2);
+                  navigator.clipboard.writeText(json);
+                }}
+              >
+                <Copy size={14} /> Copy JSON
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="form-section">
+              <h4>Description</h4>
+              <textarea
+                value={evalSet.description}
+                onChange={(e) => onUpdate({ description: e.target.value })}
+                placeholder="Description of this evaluation set..."
+                style={{ minHeight: 40 }}
+              />
+            </div>
+            
+            <div className="form-section">
+              <h4>LLM Judge Model</h4>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
             Model used for LLM-judged metrics (safety, hallucinations, etc.).
           </p>
@@ -3277,6 +3457,8 @@ function EvalSetEditor({
             </ul>
           )}
         </div>
+          </>
+        )}
       </div>
     </>
   );
