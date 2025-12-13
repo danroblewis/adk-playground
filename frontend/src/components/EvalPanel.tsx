@@ -1341,6 +1341,40 @@ export default function EvalPanel() {
   );
 }
 
+// Judge Model Selector Component
+function JudgeModelSelector({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { project } = useStore();
+  const appModels = project?.app?.models || [];
+  const defaultModelId = project?.app?.default_model_id;
+  const defaultModel = appModels.find(m => m.id === defaultModelId);
+  
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{ width: '100%', maxWidth: 400 }}
+    >
+      <option value="">
+        {defaultModel ? `App Default (${defaultModel.model_name})` : 'App Default'}
+      </option>
+      {appModels.map(model => (
+        <option key={model.id} value={model.model_name}>
+          {model.model_name}
+        </option>
+      ))}
+      <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+      <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+    </select>
+  );
+}
+
 // Eval Case Editor Component
 function EvalCaseEditor({
   evalCase,
@@ -2169,26 +2203,23 @@ function EvalSetEditor({
         <div className="form-section">
           <h4>LLM Judge Model</h4>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-            Model used for LLM-judged metrics (safety, hallucinations, etc.). Leave empty to use App's default model.
+            Model used for LLM-judged metrics (safety, hallucinations, etc.).
           </p>
-          <input
-            type="text"
+          <JudgeModelSelector
             value={evalSet.eval_config?.judge_model || ''}
-            onChange={(e) => onUpdate({ 
+            onChange={(value) => onUpdate({ 
               eval_config: { 
                 ...evalSet.eval_config, 
-                judge_model: e.target.value 
+                judge_model: value 
               } 
             })}
-            placeholder="e.g., gemini-2.0-flash (leave empty for App default)"
-            style={{ width: '100%', maxWidth: 400 }}
           />
         </div>
         
         <div className="form-section">
           <h4><Settings size={14} /> Evaluation Metrics</h4>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-            Configure which metrics to use for this eval set and their pass thresholds.
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Configure which metrics to use and their pass thresholds.
           </p>
           
           {(Object.keys(METRIC_INFO) as EvalMetricType[]).map(metric => {
@@ -2198,73 +2229,55 @@ function EvalSetEditor({
             const threshold = config?.criterion?.threshold ?? 0.7;
             
             return (
-              <div 
-                key={metric} 
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '8px 12px',
-                  background: isEnabled ? 'var(--bg-tertiary)' : 'transparent',
-                  borderRadius: 'var(--radius-sm)',
-                  marginBottom: 8,
-                  border: '1px solid',
-                  borderColor: isEnabled ? 'var(--border-color)' : 'transparent',
-                }}
-              >
+              <div key={metric} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <label className="toggle-switch" style={{ margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={isEnabled}
+                    onChange={(e) => {
+                      const metrics = [...(evalSet.eval_config?.metrics || [])];
+                      const idx = metrics.findIndex(m => m.metric === metric);
+                      if (e.target.checked) {
+                        if (idx === -1) {
+                          metrics.push({ metric, enabled: true, criterion: { threshold: 0.7 } });
+                        } else {
+                          metrics[idx] = { ...metrics[idx], enabled: true };
+                        }
+                      } else {
+                        if (idx !== -1) {
+                          metrics[idx] = { ...metrics[idx], enabled: false };
+                        }
+                      }
+                      onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
+                    }}
+                  />
+                  <span className="toggle-slider" />
+                </label>
+                <span style={{ fontSize: 12, opacity: isEnabled ? 1 : 0.5, minWidth: 140, fontWeight: isEnabled ? 500 : 400 }}>
+                  {info.name}
+                  {info.requiresJudge && <span style={{ fontSize: 9, marginLeft: 4, color: 'var(--accent-primary)' }}>LLM</span>}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', opacity: isEnabled ? 1 : 0.4 }}>≥</span>
                 <input
-                  type="checkbox"
-                  checked={isEnabled}
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={threshold}
+                  disabled={!isEnabled}
                   onChange={(e) => {
                     const metrics = [...(evalSet.eval_config?.metrics || [])];
                     const idx = metrics.findIndex(m => m.metric === metric);
-                    if (e.target.checked) {
-                      if (idx === -1) {
-                        metrics.push({ metric, enabled: true, criterion: { threshold: 0.7 } });
-                      } else {
-                        metrics[idx] = { ...metrics[idx], enabled: true };
-                      }
-                    } else {
-                      if (idx !== -1) {
-                        metrics[idx] = { ...metrics[idx], enabled: false };
-                      }
+                    if (idx !== -1) {
+                      metrics[idx] = { 
+                        ...metrics[idx], 
+                        criterion: { ...metrics[idx].criterion, threshold: parseFloat(e.target.value) || 0.7 }
+                      };
+                      onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
                     }
-                    onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
                   }}
+                  style={{ width: 60, textAlign: 'center', opacity: isEnabled ? 1 : 0.3, padding: '2px 4px', fontSize: 11 }}
                 />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 500, fontSize: 13 }}>{info.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{info.description}</div>
-                </div>
-                {isEnabled && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <label style={{ fontSize: 11 }}>Threshold:</label>
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.1}
-                      value={threshold}
-                      onChange={(e) => {
-                        const metrics = [...(evalSet.eval_config?.metrics || [])];
-                        const idx = metrics.findIndex(m => m.metric === metric);
-                        if (idx !== -1) {
-                          metrics[idx] = { 
-                            ...metrics[idx], 
-                            criterion: { ...metrics[idx].criterion, threshold: parseFloat(e.target.value) || 0.7 }
-                          };
-                          onUpdate({ eval_config: { ...evalSet.eval_config, metrics } });
-                        }
-                      }}
-                      style={{ width: 60 }}
-              />
-            </div>
-                )}
-                {info.requiresJudge && isEnabled && (
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 4 }}>
-                    LLM Judge
-                  </span>
-                )}
               </div>
             );
           })}
