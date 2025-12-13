@@ -23,6 +23,7 @@ from models import (
     ToolConfig, FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinToolConfig,
     SkillSetToolConfig, ModelConfig,
 )
+from code_generator import generate_python_code
 
 
 # =============================================================================
@@ -603,8 +604,9 @@ class RuntimeManager:
             # Create tracking plugin BEFORE building agents so callbacks can be wrapped
             tracking = TrackingPlugin(session, event_callback)
             
-            # Build agents from config - NOW with tracking plugin so callbacks can be wrapped
-            agents = self._build_agents(project, tracking_plugin=tracking)
+            # Build agents from generated code - this executes the same code shown in Code tab
+            # Falls back to manual building if code execution fails
+            agents = self._build_agents_from_code(project, tracking_plugin=tracking)
             
             # Determine which agent to run
             target_agent_id = agent_id or project.app.root_agent_id
@@ -1020,6 +1022,376 @@ class RuntimeManager:
                     agent.sub_agents = sub_agents
         
         return agents
+    
+    def _build_agents_from_code(self, project: Project, tracking_plugin=None) -> Dict[str, Any]:
+        """Build ADK agents by executing the generated Python code.
+        
+        This method generates Python code (same as shown in Code tab),
+        writes custom tools/callbacks to temp files, and executes the code.
+        This ensures what you see in the Code tab is exactly what runs.
+        
+        Args:
+            project: The project configuration
+            tracking_plugin: Optional tracking plugin for callback wrapping
+            
+        Returns:
+            Dict mapping agent_id to agent instance
+        """
+        import tempfile
+        import functools
+        import inspect
+        
+        # Generate the Python code
+        generated_code = generate_python_code(project)
+        logger.info(f"Generated Python code ({len(generated_code)} chars)")
+        logger.debug(f"Generated code:\n{generated_code[:1000]}...")
+        
+        # Create temp directory for project files
+        temp_dir = tempfile.mkdtemp(prefix=f"adk_playground_{project.id}_")
+        temp_path = Path(temp_dir)
+        logger.info(f"Created temp directory: {temp_path}")
+        
+        # Write custom tools
+        if project.custom_tools:
+            tools_lines = [
+                '"""Custom tools for the project."""',
+                "",
+                "from typing import Any, Optional",
+                "",
+            ]
+            for tool in project.custom_tools:
+                tools_lines.append(tool.code)
+                tools_lines.append("")
+            (temp_path / "tools.py").write_text("\n".join(tools_lines))
+            logger.debug("Wrote tools.py")
+        
+        # Write custom callbacks
+        if project.custom_callbacks:
+            callbacks_lines = [
+                '"""Custom callbacks for the project."""',
+                "",
+                "from typing import Any, Optional",
+                "from google.adk.agents.callback_context import CallbackContext",
+                "from google.genai import types",
+                "",
+            ]
+            for callback in project.custom_callbacks:
+                callbacks_lines.append(callback.code)
+                callbacks_lines.append("")
+            (temp_path / "callbacks.py").write_text("\n".join(callbacks_lines))
+            
+            # Also create callbacks package for backwards compat
+            callbacks_pkg = temp_path / "callbacks"
+            callbacks_pkg.mkdir(exist_ok=True)
+            (callbacks_pkg / "__init__.py").write_text("")
+            (callbacks_pkg / "custom.py").write_text("\n".join(callbacks_lines))
+            logger.debug("Wrote callbacks modules")
+        
+        # Create __init__.py
+        (temp_path / "__init__.py").write_text("")
+        
+        # Add temp dir to sys.path
+        backend_dir = Path(__file__).parent
+        if str(temp_path) not in sys.path:
+            sys.path.insert(0, str(temp_path))
+        if str(backend_dir) not in sys.path:
+            sys.path.insert(0, str(backend_dir))
+        
+        # Clear module caches
+        for mod_name in list(sys.modules.keys()):
+            if mod_name in ["tools", "callbacks"] or mod_name.startswith("callbacks."):
+                del sys.modules[mod_name]
+        
+        # Build execution namespace
+        namespace = {"__builtins__": __builtins__, "__name__": "__main__"}
+        
+        # Pre-import ADK modules
+        try:
+            from google.adk.agents import Agent
+            from google.adk.apps import App
+            namespace["Agent"] = Agent
+            namespace["App"] = App
+        except ImportError as e:
+            logger.warning(f"Could not import ADK core: {e}")
+        
+        try:
+            from google.adk.agents import SequentialAgent, LoopAgent, ParallelAgent
+            namespace["SequentialAgent"] = SequentialAgent
+            namespace["LoopAgent"] = LoopAgent
+            namespace["ParallelAgent"] = ParallelAgent
+        except ImportError:
+            pass
+        
+        try:
+            from google.adk.tools import exit_loop, google_search, AgentTool
+            namespace["exit_loop"] = exit_loop
+            namespace["google_search"] = google_search
+            namespace["AgentTool"] = AgentTool
+        except ImportError:
+            pass
+        
+        try:
+            from google.adk.models.lite_llm import LiteLlm
+            namespace["LiteLlm"] = LiteLlm
+        except ImportError:
+            pass
+        
+        try:
+            from google.adk.plugins import ReflectAndRetryToolPlugin
+            namespace["ReflectAndRetryToolPlugin"] = ReflectAndRetryToolPlugin
+        except ImportError:
+            pass
+        
+        # MCP imports
+        try:
+            from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+            from google.adk.tools.mcp_tool.mcp_session_manager import (
+                StdioConnectionParams, SseConnectionParams
+            )
+            namespace["McpToolset"] = McpToolset
+            namespace["StdioConnectionParams"] = StdioConnectionParams
+            namespace["SseConnectionParams"] = SseConnectionParams
+        except ImportError:
+            pass
+        
+        try:
+            from mcp import StdioServerParameters
+            namespace["StdioServerParameters"] = StdioServerParameters
+        except ImportError:
+            pass
+        
+        # SkillSet imports
+        try:
+            from skillset import SkillSet
+            from knowledge_service import KnowledgeServiceManager
+            namespace["SkillSet"] = SkillSet
+            namespace["KnowledgeServiceManager"] = KnowledgeServiceManager
+        except ImportError:
+            pass
+        
+        # Pre-define custom tools in namespace
+        if project.custom_tools:
+            for tool in project.custom_tools:
+                tool_namespace = {"__builtins__": __builtins__}
+                try:
+                    # Add common imports for tools
+                    exec("from typing import Any, Optional", tool_namespace)
+                except Exception:
+                    pass
+                
+                try:
+                    exec(compile(tool.code, f"<tool:{tool.name}>", "exec"), tool_namespace)
+                    if tool.name in tool_namespace:
+                        namespace[tool.name] = tool_namespace[tool.name]
+                        logger.debug(f"Added tool {tool.name} to namespace")
+                except Exception as e:
+                    logger.warning(f"Could not pre-define tool {tool.name}: {e}")
+        
+        # Pre-wrap custom callbacks and add to namespace BEFORE executing generated code
+        # This ensures callbacks referenced in the generated code use the wrapped versions
+        if project.custom_callbacks and tracking_plugin:
+            for callback in project.custom_callbacks:
+                # Execute callback code to define the function
+                callback_namespace = {"__builtins__": __builtins__}
+                try:
+                    # Add necessary imports for callbacks
+                    exec("from google.adk.agents.callback_context import CallbackContext", callback_namespace)
+                    exec("from google.genai import types", callback_namespace)
+                    exec("from typing import Optional", callback_namespace)
+                except Exception:
+                    pass
+                
+                try:
+                    exec(compile(callback.code, f"<callback:{callback.name}>", "exec"), callback_namespace)
+                    if callback.name in callback_namespace:
+                        callback_func = callback_namespace[callback.name]
+                        # Determine callback type from name or default to "agent"
+                        callback_type = getattr(callback, "callback_type", "agent")
+                        if not callback_type:
+                            # Infer from name if possible
+                            name_lower = callback.name.lower()
+                            if "model" in name_lower:
+                                callback_type = "model"
+                            elif "tool" in name_lower:
+                                callback_type = "tool"
+                            else:
+                                callback_type = "agent"
+                        # Wrap with tracking
+                        wrapped_func = self._wrap_callback(
+                            callback_func,
+                            callback.name,
+                            callback_type,
+                            callback.module_path,
+                            tracking_plugin
+                        )
+                        namespace[callback.name] = wrapped_func
+                        logger.debug(f"Added wrapped callback {callback.name} to namespace")
+                except Exception as e:
+                    logger.warning(f"Could not pre-wrap callback {callback.name}: {e}")
+        
+        # Strip imports and inline callback definitions from generated code
+        # (we pre-imported and pre-wrapped everything in namespace)
+        code_lines = []
+        skip_until_next_section = False
+        callback_names = {cb.name for cb in project.custom_callbacks}
+        tool_names = {t.name for t in project.custom_tools}
+        
+        for line in generated_code.split("\n"):
+            stripped = line.strip()
+            
+            # Skip import statements
+            if stripped.startswith("from ") or stripped.startswith("import "):
+                continue
+            
+            # Skip "# Custom Callbacks" section header
+            if stripped == "# Custom Callbacks":
+                skip_until_next_section = True
+                continue
+            
+            # Skip "# Custom Tools" section header
+            if stripped == "# Custom Tools":
+                skip_until_next_section = True
+                continue
+            
+            # Stop skipping when we hit next section header
+            if stripped.startswith("# ") and stripped not in ("# Custom Callbacks", "# Custom Tools"):
+                skip_until_next_section = False
+            
+            if skip_until_next_section:
+                continue
+            
+            code_lines.append(line)
+        
+        executable_code = "\n".join(code_lines)
+        
+        # Execute the code
+        try:
+            exec(compile(executable_code, "<generated>", "exec"), namespace)
+        except Exception as e:
+            logger.error(f"Error executing generated code: {e}", exc_info=True)
+            # Fall back to old method
+            logger.warning("Falling back to manual agent building")
+            return self._build_agents(project, tracking_plugin=tracking_plugin)
+        
+        # Extract agents - map by agent_id
+        from google.adk.agents.base_agent import BaseAgent
+        agents = {}
+        
+        for agent_config in project.agents:
+            # Look for the agent in namespace by variable name
+            var_name = f"{agent_config.name}_agent" if not agent_config.name.endswith("_agent") else agent_config.name
+            
+            if var_name in namespace and isinstance(namespace[var_name], BaseAgent):
+                agents[agent_config.id] = namespace[var_name]
+            else:
+                # Try to find by name attribute
+                for name, obj in namespace.items():
+                    if isinstance(obj, BaseAgent) and obj.name == agent_config.name:
+                        agents[agent_config.id] = obj
+                        break
+        
+        logger.info(f"Built {len(agents)} agents from generated code")
+        return agents
+    
+    def _wrap_callback(self, callback_func, name: str, callback_type: str, module_path: str, tracking_plugin) -> Any:
+        """Wrap a callback function to emit tracking events."""
+        import functools
+        import inspect
+        import traceback
+        
+        if inspect.iscoroutinefunction(callback_func):
+            @functools.wraps(callback_func)
+            async def wrapped_async(*args, **kwargs):
+                await tracking_plugin._emit(RunEvent(
+                    timestamp=time.time(),
+                    event_type="callback_start",
+                    agent_name="",
+                    data={
+                        "callback_name": name,
+                        "callback_type": callback_type,
+                        "module_path": module_path,
+                    },
+                ))
+                
+                try:
+                    result = await callback_func(*args, **kwargs)
+                    await tracking_plugin._emit(RunEvent(
+                        timestamp=time.time(),
+                        event_type="callback_end",
+                        agent_name="",
+                        data={
+                            "callback_name": name,
+                            "callback_type": callback_type,
+                            "module_path": module_path,
+                        },
+                    ))
+                    return result
+                except Exception as e:
+                    await tracking_plugin._emit(RunEvent(
+                        timestamp=time.time(),
+                        event_type="callback_end",
+                        agent_name="",
+                        data={
+                            "callback_name": name,
+                            "callback_type": callback_type,
+                            "module_path": module_path,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "stack_trace": traceback.format_exc(),
+                        },
+                    ))
+                    raise
+            
+            return wrapped_async
+        else:
+            # Sync callback - wrap in async wrapper for tracking
+            # ADK can handle both sync and async callbacks
+            @functools.wraps(callback_func)
+            async def wrapped_sync_as_async(*args, **kwargs):
+                await tracking_plugin._emit(RunEvent(
+                    timestamp=time.time(),
+                    event_type="callback_start",
+                    agent_name="",
+                    data={
+                        "callback_name": name,
+                        "callback_type": callback_type,
+                        "module_path": module_path,
+                    },
+                ))
+                
+                try:
+                    # Call sync callback synchronously
+                    result = callback_func(*args, **kwargs)
+                    
+                    await tracking_plugin._emit(RunEvent(
+                        timestamp=time.time(),
+                        event_type="callback_end",
+                        agent_name="",
+                        data={
+                            "callback_name": name,
+                            "callback_type": callback_type,
+                            "module_path": module_path,
+                        },
+                    ))
+                    
+                    return result
+                except Exception as e:
+                    await tracking_plugin._emit(RunEvent(
+                        timestamp=time.time(),
+                        event_type="callback_end",
+                        agent_name="",
+                        data={
+                            "callback_name": name,
+                            "callback_type": callback_type,
+                            "module_path": module_path,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "stack_trace": traceback.format_exc(),
+                        },
+                    ))
+                    raise
+            
+            return wrapped_sync_as_async
     
     def _build_single_agent(self, config: AgentConfig, project: Project, tracking_plugin=None) -> Any:
         """Build a single agent from config."""
