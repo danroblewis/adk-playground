@@ -1953,11 +1953,39 @@ function TestResultViewer({
                   <div style={{ marginTop: 8 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Custom Rubrics</div>
                     {displayRubrics.map((rr: any, rIndex: number) => (
-                      <div key={rIndex} className="metric-row">
-                        <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
-                        <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
-                          {rr.passed ? '✓ Pass' : '✗ Fail'}
-                        </span>
+                      <div key={rIndex} style={{ marginBottom: rr.rationale && !rr.passed ? 8 : 4 }}>
+                        <div className="metric-row">
+                          <span className="metric-name" style={{ flex: 1 }}>{rr.rubric}</span>
+                          <span className={`metric-value ${rr.passed ? 'passed' : 'failed'}`}>
+                            {rr.passed ? '✓ Pass' : '✗ Fail'}
+                          </span>
+                        </div>
+                        {/* Show rationale for failed rubrics */}
+                        {!rr.passed && rr.rationale && (
+                          <div style={{
+                            marginTop: 4,
+                            marginLeft: 8,
+                            padding: '6px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'rgba(var(--error-rgb), 0.05)',
+                            border: '1px solid rgba(var(--error-rgb), 0.2)',
+                            fontSize: 11,
+                            color: 'var(--text-secondary)',
+                          }}>
+                            <strong style={{ color: 'var(--error)' }}>Why:</strong> {rr.rationale}
+                          </div>
+                        )}
+                        {/* Show error if any */}
+                        {rr.error && (
+                          <div style={{
+                            marginTop: 4,
+                            marginLeft: 8,
+                            fontSize: 11,
+                            color: 'var(--warning)',
+                          }}>
+                            Error: {rr.error}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {!isExpanded && passedRubrics.length > 0 && (

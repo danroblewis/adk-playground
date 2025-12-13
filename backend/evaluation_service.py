@@ -762,7 +762,7 @@ Respond with ONLY a number between 0.0 and 1.0."""
             resp = getattr(inv, 'actual_response', '') or ''
             conversation += f"User: {user_msg}\nAssistant: {resp}\n\n"
         
-        # Build the prompt
+        # Build the prompt - ask for verdict and rationale
         prompt = f"""You are an AI evaluator. Evaluate whether the following AI assistant conversation satisfies the given rubric criterion.
 
 Conversation:
@@ -773,7 +773,9 @@ Rubric to evaluate:
 
 Does the assistant's response satisfy this rubric criterion?
 
-Respond with ONLY one of these two words: YES or NO"""
+Respond in EXACTLY this format:
+VERDICT: YES or NO
+RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
         
         try:
             client = genai.Client()
@@ -783,13 +785,30 @@ Respond with ONLY one of these two words: YES or NO"""
             )
             
             response_text = response.text if hasattr(response, 'text') else str(response)
-            response_text = response_text.strip().upper()
+            response_text = response_text.strip()
             
-            passed = response_text.startswith('YES')
+            # Parse verdict and rationale
+            passed = False
+            rationale = ""
+            
+            lines = response_text.split('\n')
+            for line in lines:
+                line_upper = line.strip().upper()
+                if line_upper.startswith('VERDICT:'):
+                    verdict_part = line.split(':', 1)[1].strip().upper() if ':' in line else ''
+                    passed = verdict_part.startswith('YES')
+                elif line_upper.startswith('RATIONALE:'):
+                    rationale = line.split(':', 1)[1].strip() if ':' in line else ''
+            
+            # Fallback: if no structured format, check for YES/NO at start
+            if not rationale and not any('VERDICT' in l.upper() for l in lines):
+                passed = response_text.upper().startswith('YES')
+                rationale = response_text
             
             return {
                 'rubric': rubric,
                 'passed': passed,
+                'rationale': rationale,
                 'judge_response': response_text,
                 'judge_model': judge_model,
             }
