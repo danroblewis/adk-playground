@@ -188,11 +188,22 @@ class AdkEvaluationService:
             
             # Add metric results for this invocation
             for mr in per_inv.eval_metric_results:
+                # Extract rationale from rubric_scores if available
+                rationale = None
+                if mr.details and mr.details.rubric_scores:
+                    rationales = [
+                        rs.rationale for rs in mr.details.rubric_scores 
+                        if rs.rationale
+                    ]
+                    if rationales:
+                        rationale = "\n".join(rationales)
+                
                 inv_result.metric_results.append(MetricResult(
                     metric=mr.metric_name,
                     score=mr.score or 0.0,
                     threshold=mr.threshold or 0.0,
                     passed=mr.eval_status == EvalStatus.PASSED,
+                    rationale=rationale,
                 ))
             
             invocation_results.append(inv_result)
@@ -200,11 +211,22 @@ class AdkEvaluationService:
         # Extract overall metric results
         metric_results = []
         for mr in adk_result.overall_eval_metric_results:
+            # Extract rationale from rubric_scores if available
+            rationale = None
+            if mr.details and mr.details.rubric_scores:
+                rationales = [
+                    rs.rationale for rs in mr.details.rubric_scores 
+                    if rs.rationale
+                ]
+                if rationales:
+                    rationale = "\n".join(rationales)
+            
             metric_results.append(MetricResult(
                 metric=mr.metric_name,
                 score=mr.score or 0.0,
                 threshold=mr.threshold or 0.0,
                 passed=mr.eval_status == EvalStatus.PASSED,
+                rationale=rationale,
             ))
         
         return EvalCaseResult(

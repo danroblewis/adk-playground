@@ -139,6 +139,7 @@ interface MetricResult {
   threshold: number;
   passed: boolean;
   details?: string;
+  rationale?: string;  // LLM judge reasoning/explanation
   error?: string;
 }
 
@@ -1915,6 +1916,37 @@ function TestResultViewer({
                     )}
                   </div>
                 )}
+                
+                {/* Show rationales for failed metrics */}
+                {displayMetrics?.filter((m: MetricResult) => !m.passed && m.rationale).map((metric: MetricResult, idx: number) => (
+                  <div 
+                    key={`rationale-${idx}`}
+                    style={{
+                      marginTop: 8,
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'rgba(var(--error-rgb), 0.05)',
+                      border: '1px solid rgba(var(--error-rgb), 0.2)',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ 
+                      fontWeight: 500, 
+                      marginBottom: 4,
+                      color: 'var(--error)',
+                      fontSize: 11,
+                    }}>
+                      {metric.metric.replace(/_/g, ' ')} - Why it failed:
+                    </div>
+                    <div style={{ 
+                      whiteSpace: 'pre-wrap',
+                      color: 'var(--text-secondary)',
+                      lineHeight: 1.4,
+                    }}>
+                      {metric.rationale}
+                    </div>
+                  </div>
+                ))}
                 
                 {/* Rubric Results */}
                 {displayRubrics?.length > 0 && (

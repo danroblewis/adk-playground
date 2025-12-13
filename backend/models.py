@@ -530,6 +530,7 @@ class MetricResult(BaseModel):
     threshold: float = 0.7
     passed: bool = True
     details: Optional[str] = None
+    rationale: Optional[str] = None  # LLM judge reasoning/explanation
     error: Optional[str] = None
 
 
