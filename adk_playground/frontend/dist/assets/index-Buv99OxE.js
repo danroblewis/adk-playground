@@ -1689,8 +1689,8 @@ Your response (5-10 words only):`,M=await Vs(t.id,e.id,D);if(M.success&&M.prompt
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 28px;
-          height: 28px;
+          width: 25px;
+          height: 25px;
           border-radius: var(--radius-sm);
           color: white;
         }
@@ -1735,6 +1735,7 @@ Your response (5-10 words only):`,M=await Vs(t.id,e.id,D);if(M.success&&M.prompt
           opacity: 0.4;
           cursor: grab;
           padding: 4px;
+          margin-left: -10px;
           margin-right: 4px;
           border-radius: var(--radius-sm);
           transition: all 0.15s ease;
