@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import sys
 import uuid
@@ -2731,6 +2735,84 @@ async def quick_eval(project_id: str, request: QuickEvalRequest):
             status_code=500,
             detail=f"Evaluation failed: {str(e)}\n{traceback.format_exc()}"
         )
+
+
+# ============================================================================
+# EVAL RUN HISTORY ENDPOINTS
+# ============================================================================
+
+def _get_eval_history_dir(project_id: str) -> Path:
+    """Get the directory for storing eval run history."""
+    project_dir = project_manager.projects_dir / project_id
+    history_dir = project_dir / "eval_history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    return history_dir
+
+
+@app.post("/api/projects/{project_id}/eval-history")
+async def save_eval_run(project_id: str, data: dict):
+    """Save an evaluation run result to history."""
+    history_dir = _get_eval_history_dir(project_id)
+    run_id = data.get("id") or f"{int(time.time() * 1000)}"
+    file_path = history_dir / f"{run_id}.json"
+    
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+    
+    return {"success": True, "run_id": run_id}
+
+
+@app.get("/api/projects/{project_id}/eval-history")
+async def list_eval_runs(project_id: str):
+    """List all saved evaluation runs for a project."""
+    history_dir = _get_eval_history_dir(project_id)
+    runs = []
+    
+    for file_path in sorted(history_dir.glob("*.json"), reverse=True):
+        try:
+            with open(file_path) as f:
+                data = json.load(f)
+                runs.append({
+                    "id": data.get("id", file_path.stem),
+                    "eval_set_name": data.get("eval_set_name", "Unknown"),
+                    "started_at": data.get("started_at", 0),
+                    "ended_at": data.get("ended_at", 0),
+                    "total_cases": data.get("total_cases", 0),
+                    "passed_cases": data.get("passed_cases", 0),
+                    "failed_cases": data.get("failed_cases", 0),
+                    "overall_pass_rate": data.get("overall_pass_rate", 0),
+                })
+        except Exception as e:
+            logger.warning(f"Failed to read eval history file {file_path}: {e}")
+    
+    return {"runs": runs}
+
+
+@app.get("/api/projects/{project_id}/eval-history/{run_id}")
+async def get_eval_run(project_id: str, run_id: str):
+    """Get a specific saved evaluation run."""
+    history_dir = _get_eval_history_dir(project_id)
+    file_path = history_dir / f"{run_id}.json"
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Eval run not found")
+    
+    with open(file_path) as f:
+        data = json.load(f)
+    
+    return {"run": data}
+
+
+@app.delete("/api/projects/{project_id}/eval-history/{run_id}")
+async def delete_eval_run(project_id: str, run_id: str):
+    """Delete a saved evaluation run."""
+    history_dir = _get_eval_history_dir(project_id)
+    file_path = history_dir / f"{run_id}.json"
+    
+    if file_path.exists():
+        file_path.unlink()
+    
+    return {"success": True}
 
 
 @app.post("/api/eval/compare-text")
