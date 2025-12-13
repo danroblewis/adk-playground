@@ -1,0 +1,108 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.2.0)'
+        required: true
+        type: string
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Configure git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Update version in pyproject.toml
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          echo "Updated version to $VERSION"
+          grep "^version" pyproject.toml
+
+      - name: Commit version bump
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git add pyproject.toml
+          git commit -m "chore: bump version to $VERSION"
+          git push
+
+      - name: Create and push tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log $LAST_TAG..HEAD --pretty=format:"- %s" --no-merges | head -50)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | head -50)
+          fi
+          
+          # Create release notes
+          cat << EOF > release_notes.md
+          ## What's Changed
+          
+          $COMMITS
+          
+          ## Installation
+          
+          \`\`\`bash
+          # Install from PyPI
+          pip install adk-playground==$VERSION
+          
+          # Or run directly with uvx
+          uvx adk-playground
+          \`\`\`
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...v$VERSION
+          EOF
+          
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
