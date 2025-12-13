@@ -287,19 +287,16 @@ def generate_python_code(project: Project) -> str:
     lines.append('"""')
     lines.append("")
     
-    # Environment variables
+    # Environment variables (shown as comments - actual values set by runtime)
     env_vars = project.app.env_vars if project.app and project.app.env_vars else {}
     if env_vars:
-        lines.append("import os")
-        lines.append("")
-        lines.append("# Environment Variables")
+        lines.append("# Environment Variables (set these in your environment)")
         for key, value in env_vars.items():
-            if value:
-                is_sensitive = "key" in key.lower() or "secret" in key.lower()
-                display_value = "***" if is_sensitive else value
-                lines.append(f'os.environ["{key}"] = "{display_value}"')
+            is_sensitive = "key" in key.lower() or "secret" in key.lower() or "token" in key.lower()
+            if value and not is_sensitive:
+                lines.append(f'# os.environ["{key}"] = "{value}"')
             else:
-                lines.append(f'# os.environ["{key}"] = ""  # TODO: Set your {key}')
+                lines.append(f'# os.environ["{key}"] = "..."  # Set your {key}')
         lines.append("")
     
     # Collect imports
