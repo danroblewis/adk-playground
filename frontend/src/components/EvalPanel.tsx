@@ -532,6 +532,36 @@ export default function EvalPanel() {
   // File input ref for import
   const importInputRef = useRef<HTMLInputElement>(null);
   
+  // Export all eval sets as a single JSON file
+  const exportAllEvalSets = async () => {
+    if (!project?.id || evalSets.length === 0) return;
+    
+    try {
+      // Fetch full data for all eval sets
+      const allSetsData = await Promise.all(
+        evalSets.map(async (evalSet) => {
+          try {
+            return await api.get(`/projects/${project.id}/eval-sets/${evalSet.id}/export`);
+          } catch {
+            return evalSet; // Fallback to basic eval set data
+          }
+        })
+      );
+      
+      const blob = new Blob([JSON.stringify(allSetsData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name || 'project'}-eval-sets.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Failed to export all eval sets');
+    }
+  };
+  
   // Run single eval case
   const runEvalCase = async (evalSetId: string, caseId: string) => {
     if (!project?.id) return;
@@ -1128,6 +1158,15 @@ export default function EvalPanel() {
             >
               <Upload size={14} />
             </button>
+            {evalSets.length > 0 && (
+              <button 
+                className="btn btn-secondary btn-sm" 
+                onClick={exportAllEvalSets}
+                title="Download all eval sets as JSON"
+              >
+                <Download size={14} />
+              </button>
+            )}
             <button 
               className="btn btn-secondary btn-sm" 
               onClick={loadEvalSets}
