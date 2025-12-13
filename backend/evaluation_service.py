@@ -462,6 +462,9 @@ class EvaluationService:
                             invocation_results=result.invocation_results,
                         )
                         result.metric_results.append(judge_result)
+                        # LLM judge failure means the test fails
+                        if not judge_result.passed:
+                            all_passed = False
                     except Exception as e:
                         import traceback
                         result.metric_results.append(MetricResult(
@@ -471,6 +474,8 @@ class EvaluationService:
                             passed=False,
                             error=f"LLM judge error: {str(e)}",
                         ))
+                        # LLM judge error means the test fails
+                        all_passed = False
             
             # Aggregate token counts from all invocations
             for inv_result in result.invocation_results:
@@ -756,25 +761,8 @@ Respond with ONLY a number between 0.0 and 1.0."""
                     if passed is not None and not passed:
                         all_passed = False
             
-            # LLM-judged metrics (placeholders - would require actual API calls)
-            for metric_type in [
-                EvalMetricType.RESPONSE_EVALUATION_SCORE,
-                EvalMetricType.FINAL_RESPONSE_MATCH_V2,
-                EvalMetricType.SAFETY_V1,
-                EvalMetricType.HALLUCINATIONS_V1,
-                EvalMetricType.RUBRIC_BASED_FINAL_RESPONSE_QUALITY_V1,
-                EvalMetricType.RUBRIC_BASED_TOOL_USE_QUALITY_V1,
-            ]:
-                config = self._get_metric_config(eval_config, metric_type)
-                if config:
-                    # TODO: Implement actual LLM-judged evaluation
-                    result.metric_results.append(MetricResult(
-                        metric=metric_type.value,
-                        score=None,
-                        threshold=config.criterion.threshold,
-                        passed=True,
-                        error="LLM-judged metrics not yet implemented",
-                    ))
+            # LLM-judged metrics are handled in run_eval_case via enabled_metrics
+            # This method (_run_invocation) only handles response_match and tool_trajectory
             
             result.passed = all_passed
             
