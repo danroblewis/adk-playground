@@ -371,9 +371,18 @@ export default function EvalPanel() {
       const response = await api.get(`/projects/${project.id}/eval-sets`);
       setEvalSets(response.eval_sets || []);
       
-      // Auto-expand first set if exists
+      // Auto-expand first set if exists, but respect URL params
       if (response.eval_sets?.length > 0) {
-        setExpandedSets(new Set([response.eval_sets[0].id]));
+        const params = new URLSearchParams(window.location.search);
+        const urlSetId = params.get('set');
+        const urlCaseId = params.get('case');
+        
+        // If URL specifies a set/case, expand that one; otherwise expand first
+        const targetSetId = urlSetId || (urlCaseId 
+          ? response.eval_sets.find((s: EvalSet) => s.eval_cases.some((c: EvalCase) => c.id === urlCaseId))?.id 
+          : null) || response.eval_sets[0].id;
+        
+        setExpandedSets(new Set([targetSetId]));
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load eval sets');
