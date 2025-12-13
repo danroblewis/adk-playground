@@ -1203,45 +1203,58 @@ export default function EvalPanel() {
                   No previous runs
                 </div>
               ) : (
-                evalHistory.map(run => (
-                  <div
-                    key={run.id}
-                    className={`history-item ${selectedHistoryRun?.id === run.id ? 'selected' : ''}`}
-                    onClick={() => loadHistoryRun(run.id)}
-                    style={{
-                      padding: '8px 12px',
-                      borderBottom: '1px solid var(--border-color)',
-                      cursor: 'pointer',
-                      background: selectedHistoryRun?.id === run.id ? 'var(--bg-tertiary)' : 'transparent',
-                      fontSize: 12
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 500 }}>{run.eval_set_name || 'Unnamed'}</div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
-                          {new Date(run.started_at * 1000).toLocaleString()}
+                [...evalHistory]
+                  .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))
+                  .map(run => {
+                    const allPassed = run.passed_cases === run.total_cases;
+                    return (
+                      <div
+                        key={run.id}
+                        className={`history-item ${selectedHistoryRun?.id === run.id ? 'selected' : ''}`}
+                        onClick={() => loadHistoryRun(run.id)}
+                        style={{
+                          padding: '8px 12px',
+                          borderBottom: '1px solid var(--border-color)',
+                          cursor: 'pointer',
+                          background: selectedHistoryRun?.id === run.id ? 'var(--bg-tertiary)' : 'transparent',
+                          fontSize: 12
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {allPassed ? (
+                              <CheckCircle size={14} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                            ) : (
+                              <XCircle size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />
+                            )}
+                            <div>
+                              <div style={{ fontWeight: 500 }}>{run.eval_set_name || 'Unnamed'}</div>
+                              <div style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                                {new Date(run.started_at * 1000).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ 
+                              color: allPassed ? 'var(--success)' : 'var(--error)',
+                              fontWeight: 500,
+                              fontSize: 11
+                            }}>
+                              {run.passed_cases}/{run.total_cases}
+                            </span>
+                            <button
+                              className="btn btn-icon"
+                              onClick={(e) => { e.stopPropagation(); deleteHistoryRun(run.id); }}
+                              title="Delete run"
+                              style={{ padding: 2 }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ 
-                          color: run.passed_cases === run.total_cases ? 'var(--success-color)' : 'var(--error-color)',
-                          fontWeight: 500
-                        }}>
-                          {run.passed_cases}/{run.total_cases}
-                        </span>
-                        <button
-                          className="btn btn-icon"
-                          onClick={(e) => { e.stopPropagation(); deleteHistoryRun(run.id); }}
-                          title="Delete run"
-                          style={{ padding: 2 }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                    );
+                  })
               )}
             </div>
           )}
