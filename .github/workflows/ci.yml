@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev
+
+      - name: Run tests
+        run: |
+          uv run pytest tests/ -v --tb=short
+
+  frontend-build:
+    name: Check Frontend Build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Copy build to package directory
+        run: |
+          rm -rf adk_playground/frontend/dist/*
+          cp -r frontend/dist/* adk_playground/frontend/dist/
+
+      - name: Check for changes in frontend dist
+        id: check-changes
+        run: |
+          if git diff --quiet adk_playground/frontend/dist/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✅ Frontend dist is up to date"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Frontend dist has changed"
+            git diff --stat adk_playground/frontend/dist/
+          fi
+
+      - name: Commit updated frontend dist
+        if: steps.check-changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add adk_playground/frontend/dist/
+          git commit -m "chore: update frontend dist build artifacts"
+          git push
