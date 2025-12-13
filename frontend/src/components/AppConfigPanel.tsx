@@ -1089,13 +1089,16 @@ export default function AppConfigPanel() {
                     />
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <span className="toggle-switch">
                       <input
                         type="checkbox"
-                      checked={plugin.throw_exception_if_retry_exceeded ?? false}
+                        checked={plugin.throw_exception_if_retry_exceeded ?? false}
                         onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
                       />
+                      <span className="toggle-slider" />
+                    </span>
                     Throw exception if retry exceeded
-                    </label>
+                  </label>
                 </div>
                 )}
               

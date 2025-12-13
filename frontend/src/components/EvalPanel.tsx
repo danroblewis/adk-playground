@@ -1023,53 +1023,6 @@ export default function EvalPanel() {
           border-radius: var(--radius-sm) var(--radius-sm) 0 0;
           border-bottom-color: var(--accent-primary);
         }
-        
-        .toggle-switch {
-          position: relative;
-          display: inline-block;
-          width: 32px;
-          height: 18px;
-          flex-shrink: 0;
-        }
-        
-        .toggle-switch input {
-          opacity: 0;
-          width: 0;
-          height: 0;
-        }
-        
-        .toggle-slider {
-          position: absolute;
-          cursor: pointer;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: var(--bg-tertiary);
-          transition: 0.2s;
-          border-radius: 18px;
-        }
-        
-        .toggle-slider:before {
-          position: absolute;
-          content: "";
-          height: 12px;
-          width: 12px;
-          left: 3px;
-          bottom: 3px;
-          background-color: var(--text-muted);
-          transition: 0.2s;
-          border-radius: 50%;
-        }
-        
-        .toggle-switch input:checked + .toggle-slider {
-          background-color: var(--accent-primary);
-        }
-        
-        .toggle-switch input:checked + .toggle-slider:before {
-          transform: translateX(14px);
-          background-color: var(--bg-primary);
-        }
       `}</style>
       
       <aside className="eval-sidebar">
