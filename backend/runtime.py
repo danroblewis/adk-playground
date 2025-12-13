@@ -161,12 +161,12 @@ class TrackingPlugin:
     
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
-            await self._emit(RunEvent(
-                timestamp=time.time(),
-                event_type="state_change",
+                await self._emit(RunEvent(
+                    timestamp=time.time(),
+                    event_type="state_change",
                 agent_name=getattr(event, "author", None) or "system",
                 data={"state_delta": dict(event.actions.state_delta)},
-            ))
+                ))
         return None
     
     async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
@@ -254,7 +254,7 @@ class TrackingPlugin:
             data={"tool_name": tool.name, "result": result},
         ))
         return None
-    
+
     def _serialize_contents(self, contents) -> list:
         if not contents:
             return []
@@ -494,9 +494,9 @@ class RuntimeManager:
                     session_id=session_id,
                 )
             
-            session.id = adk_session.id
-            session_id = adk_session.id
-            self.sessions[session_id] = session
+                session.id = adk_session.id
+                session_id = adk_session.id
+                self.sessions[session_id] = session
             
             # Yield session info
             yield RunEvent(
@@ -575,9 +575,9 @@ class RuntimeManager:
             for adk_session in response.sessions:
                 duration = None
                 if adk_session.events and len(adk_session.events) > 0:
-                    first_time = adk_session.events[0].timestamp
-                    last_time = adk_session.events[-1].timestamp
-                    duration = last_time - first_time
+                        first_time = adk_session.events[0].timestamp
+                        last_time = adk_session.events[-1].timestamp
+                        duration = last_time - first_time
                 
                 sessions.append({
                     "id": adk_session.id,

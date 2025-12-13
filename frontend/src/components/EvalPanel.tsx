@@ -1463,7 +1463,7 @@ export default function EvalPanel() {
                               onClick={(e) => { e.stopPropagation(); deleteHistoryRun(run.id); }}
                               title="Delete run"
                               style={{ padding: 2 }}
-                            >
+                    >
                               <Trash2 size={12} />
                     </button>
                   </div>
@@ -1795,7 +1795,7 @@ function TestResultViewer({
             type="checkbox"
             checked={showOnlyFailed}
             onChange={(e) => setShowOnlyFailed(e.target.checked)}
-          />
+                  />
           <span className="toggle-slider" />
         </label>
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -1832,7 +1832,7 @@ function TestResultViewer({
                 className="result-case-header"
                 onClick={() => toggleCaseExpanded(caseId)}
                 style={{ cursor: 'pointer' }}
-              >
+                  >
                 <div className="result-case-name">
                   <span style={{ marginRight: 6, fontSize: 12, color: 'var(--text-muted)' }}>
                     {isExpanded ? '▼' : '▶'}
@@ -2564,7 +2564,7 @@ function EvalCaseEditor({
                       const rubrics = [...localCase.rubrics];
                       rubrics[idx] = { rubric: e.target.value };
                       saveCase({ rubrics });
-                    }}
+                }}
                     placeholder="e.g., The response mentions the return policy"
                     style={{ flex: 1 }}
                   />
@@ -2574,7 +2574,7 @@ function EvalCaseEditor({
                   >
                     <Trash2 size={12} />
                   </button>
-                </div>
+            </div>
               ))}
               <button
                 className="btn btn-secondary btn-sm"
@@ -3157,17 +3157,17 @@ function EvalSetEditor({
           </div>
         ) : (
           <>
-            <div className="form-section">
-              <h4>Description</h4>
-              <textarea
-                value={evalSet.description}
-                onChange={(e) => onUpdate({ description: e.target.value })}
-                placeholder="Description of this evaluation set..."
-                style={{ minHeight: 40 }}
-              />
-            </div>
-            
-            <div className="form-section">
+        <div className="form-section">
+          <h4>Description</h4>
+          <textarea
+            value={evalSet.description}
+            onChange={(e) => onUpdate({ description: e.target.value })}
+            placeholder="Description of this evaluation set..."
+            style={{ minHeight: 40 }}
+          />
+        </div>
+        
+        <div className="form-section">
               <h4>LLM Judge Model</h4>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
             Model used for LLM-judged metrics (safety, hallucinations, etc.).

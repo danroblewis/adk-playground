@@ -4,6 +4,7 @@ import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig, CallbackConfig, CustomCallbackDefinition } from '../utils/types';
 import { generatePrompt } from '../utils/api';
 import MarkdownEditor from './MarkdownEditor';
+import { ModelConfigForm } from './ModelConfigForm';
 
 interface Props {
   agent: AgentConfig;
@@ -770,6 +771,7 @@ Your response (5-10 words only):`;
               agent={llmAgent}
               appModels={project.app.models || []}
               defaultModelId={project.app.default_model_id}
+              projectId={project.id}
               onUpdate={(modelConfig) => update({ model: modelConfig } as Partial<LlmAgentConfig>)}
             />
           </Section>
@@ -1658,11 +1660,13 @@ function ModelSelector({
   agent,
   appModels,
   defaultModelId,
+  projectId,
   onUpdate
 }: {
   agent: LlmAgentConfig;
   appModels: AppModelConfig[];
   defaultModelId?: string;
+  projectId: string;
   onUpdate: (model: ModelConfig | null) => void;
 }) {
   // Determine if using an app model by checking for _appModelId marker
@@ -1935,84 +1939,11 @@ function ModelSelector({
       
       {(useCustom || appModels.length === 0) && (
         <div className="custom-model-form">
-          <div className="form-row">
-            <div className="form-group">
-              <label>Provider</label>
-              <select
-                value={agent.model?.provider || 'gemini'}
-                onChange={(e) => updateCustomModel({ provider: e.target.value as any })}
-              >
-                <option value="gemini">Gemini</option>
-                <option value="litellm">LiteLLM</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
-            </div>
-            <div className="form-group" style={{ flex: 2 }}>
-              <label>Model Name</label>
-              <input
-                type="text"
-                value={agent.model?.model_name || ''}
-                onChange={(e) => updateCustomModel({ model_name: e.target.value })}
-                placeholder="e.g., gemini-2.0-flash"
-              />
-            </div>
-            {agent.model?.provider === 'litellm' && (
-              <div className="form-group" style={{ flex: 2 }}>
-                <label>API Base</label>
-                <input
-                  type="text"
-                  value={agent.model?.api_base || ''}
-                  onChange={(e) => updateCustomModel({ api_base: e.target.value || undefined })}
-                  placeholder="http://localhost:11434"
-                />
-              </div>
-            )}
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Temperature</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={agent.model?.temperature ?? ''}
-                onChange={(e) => updateCustomModel({ temperature: e.target.value ? parseFloat(e.target.value) : undefined })}
-                placeholder="Default"
-              />
-            </div>
-            <div className="form-group">
-              <label>Max Tokens</label>
-              <input
-                type="number"
-                value={agent.model?.max_output_tokens ?? ''}
-                onChange={(e) => updateCustomModel({ max_output_tokens: e.target.value ? parseInt(e.target.value) : undefined })}
-                placeholder="Default"
-              />
-            </div>
-            <div className="form-group">
-              <label>Top P</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="1"
-                value={agent.model?.top_p ?? ''}
-                onChange={(e) => updateCustomModel({ top_p: e.target.value ? parseFloat(e.target.value) : undefined })}
-                placeholder="Default"
-              />
-            </div>
-            <div className="form-group">
-              <label>Top K</label>
-              <input
-                type="number"
-                min="1"
-                value={agent.model?.top_k ?? ''}
-                onChange={(e) => updateCustomModel({ top_k: e.target.value ? parseInt(e.target.value) : undefined })}
-                placeholder="Default"
-              />
-            </div>
-          </div>
+          <ModelConfigForm
+            projectId={projectId}
+            values={agent.model || {}}
+            onChange={updateCustomModel}
+          />
         </div>
       )}
     </div>

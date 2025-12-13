@@ -786,35 +786,35 @@ function applyTransform(text: string, transform: string | undefined): string {
   
   // Simple dot notation property access (e.g., ".items[0].name")
   if (trimmed.startsWith('.')) {
-    try {
-      const path = trimmed.slice(1).split('.').filter(Boolean);
-      let result: any = data;
-      for (const key of path) {
+        try {
+          const path = trimmed.slice(1).split('.').filter(Boolean);
+          let result: any = data;
+          for (const key of path) {
         // Handle array index like [0] or items[0]
-        const match = key.match(/^(\w+)?\[(\d+)\]$/);
-        if (match) {
-          if (match[1]) result = result[match[1]];
-          result = result[parseInt(match[2])];
-        } else {
-          result = result[key];
-        }
-      }
+            const match = key.match(/^(\w+)?\[(\d+)\]$/);
+            if (match) {
+              if (match[1]) result = result[match[1]];
+              result = result[parseInt(match[2])];
+            } else {
+              result = result[key];
+            }
+          }
       if (result === null || result === undefined) {
         return '[No match]';
       }
-      return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
     } catch (e: any) {
       return `[Path error: ${e.message}]`;
-    }
-  }
+        }
+      }
   
   // Try as JavaScript expression
-  try {
-    // eslint-disable-next-line no-new-func
-    const fn = new Function('value', 'data', `return ${trimmed}`);
-    const result = fn(text, data);
-    return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-  } catch (e: any) {
+      try {
+        // eslint-disable-next-line no-new-func
+        const fn = new Function('value', 'data', `return ${trimmed}`);
+        const result = fn(text, data);
+        return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+      } catch (e: any) {
     return `[Transform error: ${e.message}]`;
   }
 }

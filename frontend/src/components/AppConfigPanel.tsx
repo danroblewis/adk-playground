@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig } from '../utils/types';
+import { ModelConfigForm } from './ModelConfigForm';
 
 // Common environment variables with descriptions
 const COMMON_ENV_VARS = [
@@ -558,7 +559,7 @@ export default function AppConfigPanel() {
                   }}
                   placeholder="agent-engine-id"
                 />
-              </div>
+          </div>
             )}
             <span className="help-text" style={{ marginTop: 4, fontSize: 11, color: 'var(--text-dim)' }}>
               {app.session_service_uri.startsWith('memory://') && 'Sessions stored in memory, lost on restart'}
@@ -611,7 +612,7 @@ export default function AppConfigPanel() {
                 <span className="help-text" style={{ fontSize: 11, color: 'var(--text-dim)' }}>
                   Format: projects/PROJECT/locations/LOCATION/ragCorpora/CORPUS_ID
                 </span>
-              </div>
+          </div>
             )}
             {app.memory_service_uri.startsWith('agentengine://') && (
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -825,85 +826,11 @@ export default function AppConfigPanel() {
                 </button>
               </div>
               <div className="model-card-body">
-                <div className="model-row">
-                  <div className="form-group">
-                    <label>Provider</label>
-                    <select
-                      value={model.provider}
-                      onChange={(e) => updateModel(model.id, { provider: e.target.value as any })}
-                    >
-                      <option value="gemini">Gemini</option>
-                      <option value="litellm">LiteLLM</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
-                  </div>
-                  <div className="form-group" style={{ flex: 2 }}>
-                    <label>Model Name</label>
-                    <input
-                      type="text"
-                      value={model.model_name}
-                      onChange={(e) => updateModel(model.id, { model_name: e.target.value })}
-                      placeholder="e.g., gemini-2.0-flash"
-                    />
-                  </div>
-                  {model.provider === 'litellm' && (
-                    <div className="form-group" style={{ flex: 2 }}>
-                      <label>API Base URL</label>
-                      <input
-                        type="text"
-                        value={model.api_base || ''}
-                        onChange={(e) => updateModel(model.id, { api_base: e.target.value || undefined })}
-                        placeholder="http://localhost:11434"
-                      />
-                    </div>
-                  )}
-                </div>
-                <div className="model-row">
-                  <div className="form-group">
-                    <label>Temperature</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="2"
-                      value={model.temperature ?? ''}
-                      onChange={(e) => updateModel(model.id, { temperature: e.target.value ? parseFloat(e.target.value) : undefined })}
-                      placeholder="Default"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Max Tokens</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={model.max_output_tokens ?? ''}
-                      onChange={(e) => updateModel(model.id, { max_output_tokens: e.target.value ? parseInt(e.target.value) : undefined })}
-                      placeholder="Default"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Top P</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="1"
-                      value={model.top_p ?? ''}
-                      onChange={(e) => updateModel(model.id, { top_p: e.target.value ? parseFloat(e.target.value) : undefined })}
-                      placeholder="Default"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Top K</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={model.top_k ?? ''}
-                      onChange={(e) => updateModel(model.id, { top_k: e.target.value ? parseInt(e.target.value) : undefined })}
-                      placeholder="Default"
-                    />
-                  </div>
-                </div>
+                <ModelConfigForm
+                  projectId={project.id}
+                  values={model}
+                  onChange={(updates) => updateModel(model.id, updates)}
+                />
               </div>
             </div>
           ))
@@ -1122,7 +1049,7 @@ export default function AppConfigPanel() {
                       <span className="toggle-slider" />
                     </span>
                     Throw exception if retry exceeded
-                  </label>
+                    </label>
                 </div>
                 )}
               
