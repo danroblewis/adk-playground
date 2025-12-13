@@ -150,13 +150,40 @@ button {
   border-color: var(--accent-primary);
 }
 
-.btn-danger {
+.btn-danger, .btn-error {
   background: var(--error);
   color: white;
 }
 
-.btn-danger:hover {
+.btn-danger:hover, .btn-error:hover {
   background: #ff5252;
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #00c853;
+}
+
+.btn-warning {
+  background: var(--warning);
+  color: #1a1a1a;
+}
+
+.btn-warning:hover {
+  background: #ffb300;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .btn-sm {
