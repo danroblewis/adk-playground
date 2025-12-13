@@ -79,7 +79,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   const [quickSetupDescription, setQuickSetupDescription] = useState('');
   // Track multiple concurrent generations: Map of temp ID -> description
   const [generatingAgents, setGeneratingAgents] = useState<Map<string, string>>(new Map());
-  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [sidebarWidth, setSidebarWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
   const [draggedAgentId, setDraggedAgentId] = useState<string | null>(null);
@@ -572,8 +572,8 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         .agent-item {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 8px;
+          gap: 5px;
+          padding: 5px;
           border-radius: var(--radius-md);
           cursor: pointer;
           transition: all 0.15s ease;
