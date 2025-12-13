@@ -123,7 +123,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [selectedMcpServer, setSelectedMcpServer] = useState<string | null>(null);
   const [mcpJsonCode, setMcpJsonCode] = useState('');
   const [hasMcpChanges, setHasMcpChanges] = useState(false);
-  const [selectedKnownMcp, setSelectedKnownMcp] = useState<MCPServerConfig | null>(null);
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [isTestingMcp, setIsTestingMcp] = useState(false);
   const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; tools: { name: string; description: string }[]; message?: string; error?: string } | null>(null);
@@ -137,9 +136,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const selectedTool = project.custom_tools.find(t => t.id === selectedToolId);
   const selectedMcp = projectMcpServers.find(s => s.name === selectedMcpServer);
   
-  // Filter out known servers that are already added to project
-  const addedServerNames = new Set(projectMcpServers.map(s => s.name));
-  const availableKnownServers = knownMcpServers.filter(s => !addedServerNames.has(s.name));
   
   function selectTool(id: string | null) {
     setSelectedToolId(id);
@@ -260,6 +256,35 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     } catch (e) {
       setMcpServerStatus(prev => ({ ...prev, [serverName]: 'error' }));
     }
+  }
+  
+  // Add a known MCP server to the project
+  function addKnownMcpServer(serverName: string) {
+    const knownServer = knownMcpServers.find(s => s.name === serverName);
+    if (!knownServer) return;
+    
+    // Check if already added
+    if (projectMcpServers.some(s => s.name === serverName)) {
+      alert(`Server "${serverName}" is already configured`);
+      return;
+    }
+    
+    // Add to project
+    const newServer: MCPServerConfig = {
+      name: knownServer.name,
+      description: knownServer.description || '',
+      connection_type: knownServer.connection_type,
+      command: knownServer.command,
+      args: knownServer.args || [],
+      env: knownServer.env || {},
+      url: knownServer.url,
+      headers: knownServer.headers || {},
+      timeout: knownServer.timeout || 30,
+      tool_filter: knownServer.tool_filter || null,
+      tool_name_prefix: knownServer.tool_name_prefix,
+    };
+    
+    updateProject({ mcp_servers: [...projectMcpServers, newServer] });
   }
   
   // Test all MCP servers
@@ -407,18 +432,8 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       mcp_servers: [...projectMcpServers, newServer]
     });
     setSelectedMcpServer(newServer.name);
-    setSelectedKnownMcp(null);
   }
   
-  function handleAddKnownMcpServer(server: MCPServerConfig) {
-    // Clone the server config
-    const newServer = { ...server };
-    updateProject({
-      mcp_servers: [...projectMcpServers, newServer]
-    });
-    setSelectedMcpServer(newServer.name);
-    setSelectedKnownMcp(null);
-  }
   
   function handleDeleteMcpServer(name: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -1474,64 +1489,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               </div>
             </div>
           </>
-        ) : selectedKnownMcp ? (
-          <>
-            <div className="editor-header">
-              <Server size={20} style={{ color: 'var(--accent-secondary)' }} />
-              <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>{selectedKnownMcp.name}</span>
-              <span className="badge badge-info">{selectedKnownMcp.connection_type}</span>
-              <span className="badge badge-muted">Template</span>
-              <button 
-                className="btn btn-primary btn-sm"
-                onClick={() => handleAddKnownMcpServer(selectedKnownMcp)}
-              >
-                <Plus size={14} />
-                Add to Project
-              </button>
-            </div>
-            
-            <div className="known-server-preview">
-              <div className="preview-section">
-                <h4>Description</h4>
-                <p>{selectedKnownMcp.description}</p>
-              </div>
-              
-              <div className="preview-section">
-                <h4>Command</h4>
-                <code>{selectedKnownMcp.command} {selectedKnownMcp.args?.join(' ')}</code>
-              </div>
-              
-              {selectedKnownMcp.env && Object.keys(selectedKnownMcp.env).length > 0 && (
-                <div className="preview-section">
-                  <h4>Required Environment Variables</h4>
-                  <div className="env-vars">
-                    {Object.entries(selectedKnownMcp.env).map(([key, value]) => (
-                      <div key={key} className="env-var">
-                        <code>{key}</code>
-                        {value ? <span className="env-value">{value}</span> : <span className="env-required">Required</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {selectedKnownMcp.tool_filter && selectedKnownMcp.tool_filter.length > 0 && (
-                <div className="preview-section">
-                  <h4>Available Tools ({selectedKnownMcp.tool_filter.length})</h4>
-                  <div className="tool-badges">
-                    {selectedKnownMcp.tool_filter.map(tool => (
-                      <span key={tool} className="tool-badge">{tool}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="preview-section">
-                <h4>Configuration Preview</h4>
-                <pre className="config-preview">{JSON.stringify(selectedKnownMcp, null, 2)}</pre>
-              </div>
-            </div>
-          </>
         ) : selectedMcp ? (
           <>
             <div className="editor-header">
@@ -1659,6 +1616,32 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               <Server size={20} style={{ color: 'var(--accent-primary)' }} />
               <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>mcp.json</span>
               <span className="badge badge-muted">Model Context Protocol</span>
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    addKnownMcpServer(e.target.value);
+                  }
+                }}
+                style={{ 
+                  padding: '6px 10px', 
+                  fontSize: '12px', 
+                  borderRadius: '6px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <option value="">+ Add known server...</option>
+                {knownMcpServers
+                  .filter(s => !projectMcpServers.some(ps => ps.name === s.name))
+                  .map(server => (
+                    <option key={server.name} value={server.name}>
+                      {server.name} - {server.description || 'No description'}
+                    </option>
+                  ))
+                }
+              </select>
               <button 
                 className="btn btn-primary btn-sm"
                 onClick={handleSaveMcpJson}
@@ -1671,7 +1654,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
             <div className="mcp-json-info">
               <p>
                 Configure your MCP servers using the standard <code>mcp.json</code> format.
-                Changes are applied when you click "Apply Changes".
+                Select a known server from the dropdown to add its configuration.
               </p>
             </div>
             
