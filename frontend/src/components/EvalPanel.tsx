@@ -236,6 +236,9 @@ export default function EvalPanel() {
     try {
       const response = await api.get(`/projects/${project.id}/eval-history/${runId}`);
       setSelectedHistoryRun(response.run);
+      // Clear other selections to show the result viewer
+      setSelectedSetId(null);
+      setSelectedCaseId(null);
     } catch (err) {
       console.warn('Failed to load history run:', err);
     }
@@ -1246,7 +1249,12 @@ export default function EvalPanel() {
       </aside>
       
       <div className="eval-editor">
-        {selectedCase ? (
+        {selectedHistoryRun ? (
+          <TestResultViewer
+            run={selectedHistoryRun}
+            onClose={() => setSelectedHistoryRun(null)}
+          />
+        ) : selectedCase ? (
           <EvalCaseEditor
             evalCase={selectedCase}
             evalSetId={selectedSetId!}
@@ -1325,6 +1333,292 @@ function JudgeModelSelector({
       <option value="gemini-2.5-flash">gemini-2.5-flash</option>
       <option value="gemini-2.5-pro">gemini-2.5-pro</option>
     </select>
+  );
+}
+
+// Test Result Viewer Component - for viewing historical test runs
+function TestResultViewer({
+  run,
+  onClose
+}: {
+  run: any;
+  onClose: () => void;
+}) {
+  const { project } = useStore();
+  const caseResults = run.case_results || [];
+  const passedCases = caseResults.filter((c: any) => c.passed).length;
+  const failedCases = caseResults.filter((c: any) => !c.passed).length;
+  
+  const viewSession = (sessionId: string) => {
+    if (sessionId && project) {
+      // Navigate to Run panel with session ID in URL
+      window.location.href = `/project/${project.id}/run?session=${sessionId}`;
+    }
+  };
+  
+  return (
+    <div className="test-result-viewer">
+      <style>{`
+        .test-result-viewer {
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-secondary);
+        }
+        .result-header {
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .result-header h2 {
+          font-size: 16px;
+          font-weight: 600;
+          margin: 0;
+        }
+        .result-summary {
+          padding: 16px 20px;
+          background: var(--bg-tertiary);
+          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          gap: 24px;
+          flex-wrap: wrap;
+        }
+        .summary-stat {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .summary-stat .label {
+          font-size: 11px;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+        }
+        .summary-stat .value {
+          font-size: 18px;
+          font-weight: 600;
+        }
+        .summary-stat .value.passed { color: var(--success); }
+        .summary-stat .value.failed { color: var(--error); }
+        .result-cases {
+          flex: 1;
+          overflow-y: auto;
+          padding: 16px 20px;
+        }
+        .result-case {
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-md);
+          margin-bottom: 12px;
+          background: var(--bg-primary);
+        }
+        .result-case-header {
+          padding: 12px 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 1px solid var(--border-color);
+          cursor: pointer;
+        }
+        .result-case-header:hover {
+          background: var(--bg-hover);
+        }
+        .result-case-name {
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .result-case-details {
+          padding: 12px 16px;
+        }
+        .metric-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 6px 0;
+          border-bottom: 1px solid var(--border-color);
+          font-size: 13px;
+        }
+        .metric-row:last-child {
+          border-bottom: none;
+        }
+        .metric-name {
+          color: var(--text-secondary);
+        }
+        .metric-value {
+          font-weight: 500;
+        }
+        .metric-value.passed { color: var(--success); }
+        .metric-value.failed { color: var(--error); }
+        .metric-error {
+          color: var(--error);
+          font-size: 12px;
+          opacity: 0.8;
+        }
+        .invocation-summary {
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid var(--border-color);
+        }
+        .invocation-item {
+          padding: 8px;
+          background: var(--bg-tertiary);
+          border-radius: var(--radius-sm);
+          margin-bottom: 8px;
+          font-size: 12px;
+        }
+        .invocation-query {
+          color: var(--accent-primary);
+          font-weight: 500;
+        }
+        .invocation-response {
+          color: var(--text-secondary);
+          margin-top: 4px;
+        }
+      `}</style>
+      
+      <div className="result-header">
+        <h2>{run.eval_set_name || 'Test Run Results'}</h2>
+        <button className="btn btn-secondary btn-sm" onClick={onClose}>
+          ← Back to Editor
+        </button>
+      </div>
+      
+      <div className="result-summary">
+        <div className="summary-stat">
+          <span className="label">Status</span>
+          <span className={`value ${passedCases === caseResults.length ? 'passed' : 'failed'}`}>
+            {passedCases === caseResults.length ? 'PASSED' : 'FAILED'}
+          </span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Passed</span>
+          <span className="value passed">{passedCases}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Failed</span>
+          <span className="value failed">{failedCases}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Total Cases</span>
+          <span className="value">{caseResults.length}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Duration</span>
+          <span className="value">{run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '-'}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Tokens</span>
+          <span className="value">{run.total_tokens?.toLocaleString() || '-'}</span>
+        </div>
+        <div className="summary-stat">
+          <span className="label">Run Time</span>
+          <span className="value" style={{ fontSize: 13 }}>
+            {run.started_at ? new Date(run.started_at * 1000).toLocaleString() : '-'}
+          </span>
+        </div>
+      </div>
+      
+      <div className="result-cases">
+        {caseResults.map((caseResult: any, index: number) => (
+          <div key={caseResult.case_id || index} className="result-case">
+            <div className="result-case-header">
+              <div className="result-case-name">
+                {caseResult.passed ? (
+                  <CheckCircle size={16} style={{ color: 'var(--success)' }} />
+                ) : (
+                  <XCircle size={16} style={{ color: 'var(--error)' }} />
+                )}
+                {caseResult.case_name || `Case ${index + 1}`}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {caseResult.session_id && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => viewSession(caseResult.session_id)}
+                    title="View session in Run panel"
+                  >
+                    <ExternalLink size={12} /> View Session
+                  </button>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  {caseResult.duration_ms ? `${(caseResult.duration_ms / 1000).toFixed(2)}s` : ''}
+                </span>
+              </div>
+            </div>
+            
+            <div className="result-case-details">
+              {/* Metrics */}
+              {caseResult.metric_results?.map((metric: any, mIndex: number) => (
+                <div key={mIndex} className="metric-row">
+                  <span className="metric-name">{metric.metric}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {metric.error ? (
+                      <span className="metric-error">{metric.error}</span>
+                    ) : (
+                      <>
+                        <span className={`metric-value ${metric.passed ? 'passed' : 'failed'}`}>
+                          {metric.score !== null && metric.score !== undefined 
+                            ? metric.score.toFixed(2) 
+                            : (metric.passed ? '✓' : '✗')}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          (≥{metric.threshold})
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              
+              {/* Invocation Summary */}
+              {caseResult.invocation_results?.length > 0 && (
+                <div className="invocation-summary">
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                    Invocations ({caseResult.invocation_results.length})
+                  </div>
+                  {caseResult.invocation_results.map((inv: any, iIndex: number) => (
+                    <div key={iIndex} className="invocation-item">
+                      <div className="invocation-query">
+                        Turn {iIndex + 1}: {inv.user_message || '(no message)'}
+                      </div>
+                      {inv.actual_response && (
+                        <div className="invocation-response">
+                          Response: {inv.actual_response.substring(0, 200)}
+                          {inv.actual_response.length > 200 ? '...' : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Error message if case failed with error */}
+              {caseResult.error && (
+                <div style={{ 
+                  marginTop: 12, 
+                  padding: 12, 
+                  background: 'rgba(255, 107, 107, 0.1)', 
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--error)',
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {caseResult.error}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        
+        {caseResults.length === 0 && (
+          <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+            No test cases in this run
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
