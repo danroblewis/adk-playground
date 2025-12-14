@@ -415,13 +415,16 @@ export function NetworkApprovalDialog({
             )}
           </div>
           
-          {/* Persist checkbox */}
+          {/* Persist toggle */}
           <label style={styles.checkboxLabel}>
-            <input
-              type="checkbox"
-              checked={persist}
-              onChange={(e) => setPersist(e.target.checked)}
-            />
+            <span className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={persist}
+                onChange={(e) => setPersist(e.target.checked)}
+              />
+              <span className="toggle-slider" />
+            </span>
             Save to project (persists across sessions)
           </label>
         </div>

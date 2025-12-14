@@ -144,3 +144,4 @@ export function downloadHAR(requests: NetworkRequest[], filename?: string): void
   URL.revokeObjectURL(url);
 }
 
+
