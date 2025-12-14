@@ -115,6 +115,128 @@ function formatTimestamp(timestamp: number, baseTime: number): string {
   return `+${Math.floor(delta / 60)}m${(delta % 60).toFixed(0)}s`;
 }
 
+// Syntax highlighting for container logs
+function highlightLogLine(line: string): React.ReactNode {
+  // Color scheme
+  const colors = {
+    timestamp: '#71717a',      // Gray - ISO timestamps at start of lines
+    bracket: '#a78bfa',        // Purple - content in square brackets
+    ip: '#22d3ee',             // Cyan - IP addresses
+    domain: '#34d399',         // Green - domain names and hostnames
+    url: '#60a5fa',            // Blue - URLs and paths
+    method: '#f472b6',         // Pink - HTTP methods
+    status: '#4ade80',         // Green - success status codes
+    statusError: '#f87171',    // Red - error status codes  
+    number: '#fbbf24',         // Yellow - numbers with units
+    keyword: '#c084fc',        // Light purple - keywords
+    info: '#22d3ee',           // Cyan - INFO level
+    warning: '#fbbf24',        // Yellow - WARNING level
+    error: '#f87171',          // Red - ERROR level
+    debug: '#71717a',          // Gray - DEBUG level
+  };
+
+  const parts: React.ReactNode[] = [];
+  let remaining = line;
+  let keyIndex = 0;
+
+  const addPart = (text: string, color?: string) => {
+    if (!text) return;
+    parts.push(
+      color 
+        ? <span key={keyIndex++} style={{ color }}>{text}</span>
+        : <span key={keyIndex++}>{text}</span>
+    );
+  };
+
+  // Process line with regex patterns
+  const patterns: Array<{ regex: RegExp; color: string; group?: number }> = [
+    // ISO timestamp at start of line (2025-12-14T15:02:06.947686251Z)
+    { regex: /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z?\s*)/, color: colors.timestamp },
+    // Square bracket content [anything]
+    { regex: /(\[[^\]]+\])/, color: colors.bracket },
+    // HTTP methods
+    { regex: /\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|CONNECT)\b/, color: colors.method },
+    // HTTP status codes 2xx/3xx (success)
+    { regex: /\b([23]\d{2})\s+(OK|Created|Accepted|No Content|Moved|Found|Not Modified)\b/, color: colors.status },
+    // HTTP status codes 4xx/5xx (error)
+    { regex: /\b([45]\d{2})\s+\w+/, color: colors.statusError },
+    // << response prefix with status
+    { regex: /(<< \d{3} \w+)/, color: colors.status },
+    // URLs and paths (http://... or /path/to/something)
+    { regex: /(https?:\/\/[^\s]+)/, color: colors.url },
+    { regex: /(\s)(\/[a-zA-Z0-9_\-./]+)/, color: colors.url, group: 2 },
+    // IP:port patterns
+    { regex: /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+)/, color: colors.ip },
+    // IP addresses
+    { regex: /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/, color: colors.ip },
+    // Domain names (sandbox-agent-xxx:port, host.docker.internal, etc)
+    { regex: /(sandbox-agent-[a-zA-Z0-9_-]+:\d+)/, color: colors.domain },
+    { regex: /(host\.docker\.internal:\d+)/, color: colors.domain },
+    { regex: /([a-zA-Z][a-zA-Z0-9-]*\.(?:com|org|net|io|dev|local|internal)(?::\d+)?)/, color: colors.domain },
+    // Numbers with units (200b, 2.1k, 155b, etc)
+    { regex: /\b(\d+(?:\.\d+)?[kmgb])\b/i, color: colors.number },
+    // Log levels
+    { regex: /\b(INFO)\b/, color: colors.info },
+    { regex: /\b(WARNING|WARN)\b/, color: colors.warning },
+    { regex: /\b(ERROR|CRITICAL|FATAL)\b/, color: colors.error },
+    { regex: /\b(DEBUG)\b/, color: colors.debug },
+    // Python module paths (aiohttp.access, google_adk.google.adk.models, etc)
+    { regex: /([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*){2,})/, color: colors.domain },
+    // Keywords
+    { regex: /\b(client|server|connect|disconnect|completion|model|provider)\b/i, color: colors.keyword },
+  ];
+
+  // Simple approach: process patterns one at a time on remaining text
+  while (remaining.length > 0) {
+    let earliestMatch: { index: number; length: number; text: string; color: string } | null = null;
+
+    for (const { regex, color, group } of patterns) {
+      const match = remaining.match(regex);
+      if (match && match.index !== undefined) {
+        const matchIndex = group ? remaining.indexOf(match[group], match.index) : match.index;
+        const matchText = group ? match[group] : match[0];
+        if (!earliestMatch || matchIndex < earliestMatch.index) {
+          earliestMatch = {
+            index: matchIndex,
+            length: matchText.length,
+            text: matchText,
+            color,
+          };
+        }
+      }
+    }
+
+    if (earliestMatch) {
+      // Add text before match
+      if (earliestMatch.index > 0) {
+        addPart(remaining.slice(0, earliestMatch.index));
+      }
+      // Add matched text with color
+      addPart(earliestMatch.text, earliestMatch.color);
+      // Continue with remaining text
+      remaining = remaining.slice(earliestMatch.index + earliestMatch.length);
+    } else {
+      // No more matches, add remaining text
+      addPart(remaining);
+      break;
+    }
+  }
+
+  return <>{parts}</>;
+}
+
+// Highlight full log content
+function HighlightedLogs({ content }: { content: string }) {
+  const lines = content.split('\n');
+  return (
+    <>
+      {lines.map((line, i) => (
+        <div key={i}>{highlightLogLine(line)}</div>
+      ))}
+    </>
+  );
+}
+
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['instruction', 'messages', 'result', 'response', 'state_delta', 'data']));
@@ -4228,8 +4350,10 @@ export default function RunPanel() {
                 <div style={{ color: '#71717a', textAlign: 'center', padding: '20px' }}>
                   Loading logs...
                 </div>
+              ) : containerLogs[logsTab] ? (
+                <HighlightedLogs content={containerLogs[logsTab]!} />
               ) : (
-                containerLogs[logsTab] || 'No logs available'
+                <div style={{ color: '#71717a' }}>No logs available</div>
               )}
             </div>
           </div>
