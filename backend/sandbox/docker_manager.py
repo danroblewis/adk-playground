@@ -206,7 +206,7 @@ class SandboxManager:
         # 4. Install tsx globally
         # 5. Install Python packages
         build_command = """sh -c '
-            apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+            apt-get update && apt-get install -y --no-install-recommends curl ca-certificates git && \
             curl -LsSf https://astral.sh/uv/install.sh | sh && \
             export PATH="/root/.local/bin:$PATH" && \
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
