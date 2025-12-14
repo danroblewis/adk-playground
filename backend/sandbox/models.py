@@ -92,14 +92,18 @@ class NetworkAllowlist(BaseModel):
     auto: List[str] = Field(default_factory=list)  # Auto-populated, not persisted
     user: List[AllowlistPattern] = Field(default_factory=list)  # User-defined, persisted
     
-    # Default allowed domains (LLM providers + internal communication)
+    # Default allowed domains (LLM providers + infrastructure + internal communication)
     DEFAULT_LLM_DOMAINS: List[str] = [
+        # LLM API providers
         "generativelanguage.googleapis.com",
         "api.anthropic.com",
         "api.openai.com",
         "api.groq.com",
         "api.mistral.ai",
         "api.together.xyz",
+        # PyPI (for pip install in containers)
+        "pypi.org",
+        "files.pythonhosted.org",
         # Host communication (for agent events going through proxy)
         "host.docker.internal",
         # Internal container communication (host→agent via proxy)

@@ -508,7 +508,7 @@ class SandboxManager:
             # Need to install aiohttp and run mitmdump
             command = [
                 "sh", "-c",
-                "pip install --quiet aiohttp && "
+                "pip install --no-cache-dir aiohttp && "
                 "mitmdump --mode regular --set block_global=false -s /app/gateway_addon.py"
             ]
         else:
@@ -651,9 +651,12 @@ class SandboxManager:
             volumes[str(agent_script)] = {"bind": "/app/agent_runner.py", "mode": "ro"}
             volumes[str(mcp_script)] = {"bind": "/app/mcp_spawner.py", "mode": "ro"}
             # Install dependencies and run the agent script
+            # Wait a few seconds for gateway proxy to be ready, then pip install
+            # PyPI domains are in the default allowlist
             command = [
                 "sh", "-c",
-                "pip install --quiet google-adk aiohttp httpx pyyaml mcp 2>/dev/null || true && "
+                "echo 'Waiting for gateway...' && sleep 5 && "
+                "pip install --no-cache-dir google-adk aiohttp httpx pyyaml mcp && "
                 "cd /app && python -u agent_runner.py"
             ]
         else:
