@@ -1306,6 +1306,14 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
         from google.genai import types
         
+        # Set API keys from project env_vars (temporarily for this request)
+        env_vars = project.app.env_vars or {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
+        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -1321,6 +1329,9 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
                 model=model_config.model_name,
                 api_base=model_config.api_base,
             )
+        elif model_config:
+            # Use the configured model name
+            model = model_config.model_name
         else:
             # Default to Gemini if available
             model = "gemini-2.0-flash"
@@ -1367,9 +1378,23 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
         # Extract the prompt from session state (this avoids <think> blocks)
         generated_prompt = final_session.state.get("generated_prompt", "").strip() if final_session else ""
         
+        # Restore original environment variables
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         return {"prompt": generated_prompt, "success": True}
         
     except Exception as e:
+        # Restore original environment variables on error too
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         import traceback
         return {
             "prompt": None,
@@ -1554,6 +1579,14 @@ Write the complete Python code for this tool. Include appropriate imports at the
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
         from google.genai import types
         
+        # Set API keys from project env_vars
+        env_vars = project.app.env_vars or {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
+        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -1569,6 +1602,8 @@ Write the complete Python code for this tool. Include appropriate imports at the
                 model=model_config.model_name,
                 api_base=model_config.api_base,
             )
+        elif model_config:
+            model = model_config.model_name
         else:
             model = "gemini-2.0-flash"
         
@@ -1624,9 +1659,23 @@ Write the complete Python code for this tool. Include appropriate imports at the
             code = code[:-3]
         code = code.strip()
         
+        # Restore original environment variables
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         return {"code": code, "success": True}
         
     except Exception as e:
+        # Restore original environment variables on error
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         import traceback
         print(f"[generate-tool-code] ERROR: {e}", file=sys.stderr, flush=True)
         print(traceback.format_exc(), file=sys.stderr, flush=True)
@@ -1887,6 +1936,14 @@ Write the complete Python code for this callback. Include appropriate imports at
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
         from google.genai import types
         
+        # Set API keys from project env_vars
+        env_vars = project.app.env_vars or {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
+        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -1902,6 +1959,8 @@ Write the complete Python code for this callback. Include appropriate imports at
                 model=model_config.model_name,
                 api_base=model_config.api_base,
             )
+        elif model_config:
+            model = model_config.model_name
         else:
             model = "gemini-2.0-flash"
         
@@ -1957,9 +2016,23 @@ Write the complete Python code for this callback. Include appropriate imports at
             code = code[:-3]
         code = code.strip()
         
+        # Restore original environment variables
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         return {"code": code, "success": True}
         
     except Exception as e:
+        # Restore original environment variables on error
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         import traceback
         print(f"[generate-callback-code] ERROR: {e}", file=sys.stderr, flush=True)
         print(traceback.format_exc(), file=sys.stderr, flush=True)
@@ -2057,6 +2130,14 @@ JSON:"""
         from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
         from google.genai import types
         
+        # Set API keys from project env_vars
+        env_vars = project.app.env_vars or {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
+        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -2071,6 +2152,8 @@ JSON:"""
                 model=model_config.model_name,
                 api_base=model_config.api_base,
             )
+        elif model_config:
+            model = model_config.model_name
         else:
             model = "gemini-2.0-flash"
         
@@ -2147,12 +2230,24 @@ Please return ONLY the JSON object with the agent configuration. No explanation,
             
             try:
                 config = json.loads(generated_text)
+                # Restore original environment variables
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
                 return {"config": config, "success": True, "attempts": attempt + 1}
             except json.JSONDecodeError as e:
                 last_error = str(e)
                 if attempt < max_retries - 1:
                     continue  # Try again
                 else:
+                    # Restore original environment variables
+                    for key, value in old_env.items():
+                        if value is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = value
                     # All retries exhausted
                     return {
                         "config": None,
@@ -2163,9 +2258,22 @@ Please return ONLY the JSON object with the agent configuration. No explanation,
                     }
         
         # Should not reach here, but just in case
+        # Restore original environment variables
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         return {"config": None, "success": False, "error": "Unknown error"}
         
     except Exception as e:
+        # Restore original environment variables on error
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        
         import traceback
         return {
             "config": None,
