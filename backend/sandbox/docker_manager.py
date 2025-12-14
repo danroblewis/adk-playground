@@ -1208,7 +1208,7 @@ class SandboxManager:
                         "message": message,
                         "session_id": session_id,
                     },
-                    timeout=aiohttp.ClientTimeout(total=300),  # 5 minute timeout
+                    timeout=aiohttp.ClientTimeout(total=600),  # 10 minute timeout
                 ) as resp:
                     if resp.status == 200:
                         return await resp.json()

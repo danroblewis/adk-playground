@@ -1509,6 +1509,7 @@ export default function RunPanel() {
   const [containerLogs, setContainerLogs] = useState<{ agent?: string; gateway?: string }>({});
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsTab, setLogsTab] = useState<'agent' | 'gateway'>('agent');
+  const logsContainerRef = useRef<HTMLDivElement>(null);
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
@@ -2075,6 +2076,18 @@ export default function RunPanel() {
     setShowLogsModal(true);
     fetchContainerLogs();
   }, [fetchContainerLogs]);
+  
+  // Auto-scroll logs to bottom when modal opens, tab changes, or logs load
+  useEffect(() => {
+    if (showLogsModal && logsContainerRef.current && !logsLoading) {
+      // Small timeout to ensure content is rendered
+      setTimeout(() => {
+        if (logsContainerRef.current) {
+          logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+        }
+      }, 50);
+    }
+  }, [showLogsModal, logsTab, containerLogs, logsLoading]);
   
   // Keyboard shortcuts
   useEffect(() => {
@@ -4334,18 +4347,21 @@ export default function RunPanel() {
             </div>
             
             {/* Log content */}
-            <div style={{
-              flex: 1,
-              overflow: 'auto',
-              padding: '12px',
-              fontFamily: 'ui-monospace, monospace',
-              fontSize: '11px',
-              lineHeight: '1.5',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-              color: '#d4d4d8',
-              backgroundColor: '#09090b',
-            }}>
+            <div 
+              ref={logsContainerRef}
+              style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '12px',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '11px',
+                lineHeight: '1.5',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                color: '#d4d4d8',
+                backgroundColor: '#09090b',
+              }}
+            >
               {logsLoading ? (
                 <div style={{ color: '#71717a', textAlign: 'center', padding: '20px' }}>
                   Loading logs...
