@@ -117,44 +117,131 @@ class SandboxManager:
         self._initialized = True
         return True
     
+    # Dependencies to install in agent container (matches pyproject.toml + runtime needs)
+    AGENT_DEPENDENCIES = [
+        "google-adk",
+        "litellm",
+        "aiohttp",
+        "httpx",
+        "pyyaml",
+        "mcp",
+        "numpy",
+    ]
+    
     async def _ensure_images_available(self):
-        """Ensure Docker images are available (pull base images if needed).
+        """Ensure Docker images are available.
         
-        This uses base images from Docker Hub directly, eliminating the need
-        to build custom images. Scripts are mounted at runtime.
+        Strategy:
+        1. Check if cached custom images exist (fast path)
+        2. If not, pull base images and build cached images with deps pre-installed
+        3. Cache the images so subsequent starts are instant
         """
         if not self.client:
             return
         
-        # Check if we have pre-built custom images (legacy support)
+        # Check if we have cached images with dependencies pre-installed
+        agent_cached = False
+        gateway_cached = False
+        
         try:
             self.client.images.get(self.AGENT_IMAGE)
-            self.client.images.get(self.GATEWAY_IMAGE)
-            logger.info("Using pre-built custom images")
-            self._use_base_images = False
-            return
+            agent_cached = True
+            logger.info(f"Using cached agent image: {self.AGENT_IMAGE}")
         except NotFound:
             pass
         
-        # Pull base images from Docker Hub
-        self._use_base_images = True
-        base_images = [
-            self.AGENT_BASE_IMAGE,
-            self.GATEWAY_BASE_IMAGE,
-        ]
+        try:
+            self.client.images.get(self.GATEWAY_IMAGE)
+            gateway_cached = True
+            logger.info(f"Using cached gateway image: {self.GATEWAY_IMAGE}")
+        except NotFound:
+            pass
         
-        for image in base_images:
+        if agent_cached and gateway_cached:
+            self._use_base_images = False
+            return
+        
+        # Need to build cached images - first pull base images
+        logger.info("Building cached images with dependencies (one-time setup)...")
+        
+        for image in [self.AGENT_BASE_IMAGE, self.GATEWAY_BASE_IMAGE]:
             try:
                 self.client.images.get(image)
-                logger.info(f"Image {image} already available")
+                logger.info(f"Base image {image} already available")
             except NotFound:
-                logger.info(f"Pulling image {image}...")
-                try:
-                    self.client.images.pull(image)
-                    logger.info(f"Pulled image {image}")
-                except Exception as e:
-                    logger.error(f"Failed to pull {image}: {e}")
-                    raise
+                logger.info(f"Pulling base image {image}...")
+                self.client.images.pull(image)
+                logger.info(f"Pulled {image}")
+        
+        # Build agent image with dependencies pre-installed
+        if not agent_cached:
+            await self._build_cached_agent_image()
+        
+        # Build gateway image with dependencies pre-installed
+        if not gateway_cached:
+            await self._build_cached_gateway_image()
+        
+        self._use_base_images = False
+        logger.info("Cached images ready - future starts will be fast!")
+    
+    async def _build_cached_agent_image(self):
+        """Build a cached agent image with all dependencies pre-installed."""
+        if not self.client:
+            return
+        
+        deps = " ".join(self.AGENT_DEPENDENCIES)
+        logger.info(f"Building cached agent image with: {deps}")
+        
+        # Create a temporary container, install deps, commit as new image
+        container = self.client.containers.run(
+            self.AGENT_BASE_IMAGE,
+            command=f"pip install --no-cache-dir {deps}",
+            detach=True,
+            remove=False,
+        )
+        
+        # Wait for pip install to complete
+        result = container.wait()
+        exit_code = result.get("StatusCode", 1)
+        
+        if exit_code != 0:
+            logs = container.logs().decode()
+            container.remove()
+            raise RuntimeError(f"Failed to install dependencies: {logs}")
+        
+        # Commit the container as a new image
+        container.commit(repository=self.AGENT_IMAGE, tag="latest")
+        container.remove()
+        logger.info(f"Built cached agent image: {self.AGENT_IMAGE}")
+    
+    async def _build_cached_gateway_image(self):
+        """Build a cached gateway image with dependencies pre-installed."""
+        if not self.client:
+            return
+        
+        logger.info("Building cached gateway image with aiohttp")
+        
+        # Create a temporary container, install deps, commit as new image
+        container = self.client.containers.run(
+            self.GATEWAY_BASE_IMAGE,
+            command="pip install --no-cache-dir aiohttp",
+            detach=True,
+            remove=False,
+        )
+        
+        # Wait for pip install to complete
+        result = container.wait()
+        exit_code = result.get("StatusCode", 1)
+        
+        if exit_code != 0:
+            logs = container.logs().decode()
+            container.remove()
+            raise RuntimeError(f"Failed to install dependencies: {logs}")
+        
+        # Commit the container as a new image
+        container.commit(repository=self.GATEWAY_IMAGE, tag="latest")
+        container.remove()
+        logger.info(f"Built cached gateway image: {self.GATEWAY_IMAGE}")
     
     async def start_sandbox(
         self,
@@ -497,25 +584,15 @@ class SandboxManager:
                 "pattern_type": p.pattern_type.value,  # Gateway expects "pattern_type"
             })
         
-        # Choose image and command based on mode
-        if self._use_base_images:
-            # Use base mitmproxy image + mount scripts
-            image = self.GATEWAY_BASE_IMAGE
-            addon_script = self.docker_dir / "gateway_addon.py"
-            volumes = {
-                str(addon_script): {"bind": "/app/gateway_addon.py", "mode": "ro"},
-            }
-            # Need to install aiohttp and run mitmdump
-            command = [
-                "sh", "-c",
-                "pip install --no-cache-dir aiohttp && "
-                "mitmdump --mode regular --set block_global=false -s /app/gateway_addon.py"
-            ]
-        else:
-            # Use pre-built custom image
-            image = self.GATEWAY_IMAGE
-            volumes = {}
-            command = None
+        # Mount the addon script (always needed)
+        addon_script = self.docker_dir / "gateway_addon.py"
+        volumes = {
+            str(addon_script): {"bind": "/app/gateway_addon.py", "mode": "ro"},
+        }
+        
+        # Use cached image (deps pre-installed) - no pip install needed at runtime
+        image = self.GATEWAY_IMAGE
+        command = ["mitmdump", "--mode", "regular", "--set", "block_global=false", "-s", "/app/gateway_addon.py"]
         
         # Create container without any network initially
         container = self.client.containers.create(
@@ -548,7 +625,7 @@ class SandboxManager:
         internal_network.connect(container, aliases=["gateway"])
         container.start()
         
-        logger.info(f"Started gateway container: {container.id[:12]} (dual-homed, base_image={self._use_base_images})")
+        logger.info(f"Started gateway container: {container.id[:12]} (dual-homed)")
         return container.id
     
     async def _start_agent(
@@ -642,27 +719,15 @@ class SandboxManager:
                 else:
                     logger.warning(f"Volume mount path does not exist: {host_path}")
         
-        # Choose image and command based on mode
-        if self._use_base_images:
-            # Use base Python image + mount scripts + install deps at runtime
-            image = self.AGENT_BASE_IMAGE
-            agent_script = self.docker_dir / "agent_runner.py"
-            mcp_script = self.docker_dir / "mcp_spawner.py"
-            volumes[str(agent_script)] = {"bind": "/app/agent_runner.py", "mode": "ro"}
-            volumes[str(mcp_script)] = {"bind": "/app/mcp_spawner.py", "mode": "ro"}
-            # Install dependencies and run the agent script
-            # Wait a few seconds for gateway proxy to be ready, then pip install
-            # PyPI domains are in the default allowlist
-            command = [
-                "sh", "-c",
-                "echo 'Waiting for gateway...' && sleep 5 && "
-                "pip install --no-cache-dir google-adk aiohttp httpx pyyaml mcp && "
-                "cd /app && python -u agent_runner.py"
-            ]
-        else:
-            # Use pre-built custom image
-            image = self.AGENT_IMAGE
-            command = None
+        # Mount the agent scripts (always needed)
+        agent_script = self.docker_dir / "agent_runner.py"
+        mcp_script = self.docker_dir / "mcp_spawner.py"
+        volumes[str(agent_script)] = {"bind": "/app/agent_runner.py", "mode": "ro"}
+        volumes[str(mcp_script)] = {"bind": "/app/mcp_spawner.py", "mode": "ro"}
+        
+        # Use cached image (deps pre-installed) - no pip install needed at runtime
+        image = self.AGENT_IMAGE
+        command = ["python", "-u", "/app/agent_runner.py"]
         
         container = self.client.containers.create(
             image=image,
@@ -680,7 +745,7 @@ class SandboxManager:
         )
         
         container.start()
-        logger.info(f"Started agent container: {container.id[:12]} (isolated, base_image={self._use_base_images})")
+        logger.info(f"Started agent container: {container.id[:12]} (isolated)")
         return container.id
     
     async def stop_sandbox(self, app_id: str) -> bool:
