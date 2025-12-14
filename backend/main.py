@@ -225,11 +225,32 @@ mcp_pool = MCPConnectionPool()
 # Default is production mode (serves built frontend from package)
 PRODUCTION_MODE = os.environ.get("ADK_PLAYGROUND_MODE", "production").lower() == "production"
 
+# Lifespan handler for startup/shutdown
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app):
+    """Handle app startup and shutdown."""
+    # Startup
+    yield
+    # Shutdown - cleanup Docker containers
+    if SANDBOX_AVAILABLE:
+        try:
+            from sandbox.docker_manager import get_sandbox_manager
+            manager = get_sandbox_manager()
+            if manager._initialized:
+                logger.info("🧹 Cleaning up Docker containers on shutdown...")
+                await manager.cleanup()
+                logger.info("✅ Docker containers cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up Docker containers: {e}")
+
 # Create FastAPI app
 app = FastAPI(
     title="ADK Playground",
     description="Visual builder and runtime for Google ADK agents",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS for frontend (only in dev mode)
