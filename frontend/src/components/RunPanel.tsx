@@ -946,6 +946,9 @@ function ToolWatchPanel({ project, selectedEventIndex, sandboxMode }: { project:
     setIsTestRunning(true);
     setTestError(null);
     
+    // Get the app_id for sandbox mode
+    const appId = project.app?.id || `app_${project.id}`;
+    
     try {
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
         method: 'POST',
@@ -954,6 +957,8 @@ function ToolWatchPanel({ project, selectedEventIndex, sandboxMode }: { project:
           server_name: formServerName,
           tool_name: formToolName,
           arguments: formArgs,
+          sandbox_mode: sandboxMode,  // Use sandbox mode if enabled
+          app_id: sandboxMode ? appId : undefined,
         }),
       });
       
