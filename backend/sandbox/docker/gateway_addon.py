@@ -1,0 +1,405 @@
+"""
+Mitmproxy addon for the ADK Playground Docker sandbox.
+
+This addon intercepts all HTTP/HTTPS traffic from the sandbox and:
+1. Checks if the destination is in the allowlist
+2. Blocks requests to unknown hosts (or asks for approval)
+3. Reports all network activity to the host via webhook
+4. Attributes traffic to its source (agent or MCP server)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import fnmatch
+import json
+import logging
+import os
+import re
+import threading
+import time
+from typing import Optional
+
+from mitmproxy import ctx, http
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("gateway_addon")
+
+
+class PendingApproval:
+    """Represents a request waiting for approval."""
+    
+    def __init__(self, request_id: str, flow: http.HTTPFlow, timeout: int):
+        self.request_id = request_id
+        self.flow = flow
+        self.timeout = timeout
+        self.created_at = time.time()
+        self.approved: Optional[bool] = None
+        self.pattern: Optional[str] = None
+        self.pattern_type: str = "exact"
+        self.event = threading.Event()
+    
+    def is_expired(self) -> bool:
+        return time.time() - self.created_at > self.timeout
+    
+    def approve(self, pattern: Optional[str] = None, pattern_type: str = "exact"):
+        self.approved = True
+        self.pattern = pattern
+        self.pattern_type = pattern_type
+        self.event.set()
+    
+    def deny(self):
+        self.approved = False
+        self.event.set()
+    
+    def wait(self) -> bool:
+        """Wait for approval decision or timeout. Returns True if approved."""
+        remaining = self.timeout - (time.time() - self.created_at)
+        if remaining <= 0:
+            return False
+        
+        self.event.wait(timeout=remaining)
+        return self.approved is True
+
+
+class AllowlistGateway:
+    """Mitmproxy addon that enforces network allowlist."""
+
+    def __init__(self):
+        # Load configuration from environment
+        self.webhook_url = os.environ.get(
+            "WEBHOOK_URL", "http://host.docker.internal:8765/api/sandbox/webhook"
+        )
+        self.app_id = os.environ.get("APP_ID", "unknown")
+        self.unknown_action = os.environ.get("UNKNOWN_ACTION", "ask")  # ask, deny, allow
+        self.approval_timeout = int(os.environ.get("APPROVAL_TIMEOUT", "30"))
+        
+        # Parse allowlist from environment (JSON)
+        self.exact_patterns: list[str] = []
+        self.wildcard_patterns: list[str] = []
+        self.regex_patterns: list[re.Pattern] = []
+        self._load_allowlist()
+        
+        # Pending approvals: request_id -> PendingApproval
+        self.pending_approvals: dict[str, PendingApproval] = {}
+        self._pending_lock = threading.Lock()
+        
+        # Known LLM provider domains (always allowed for model calls)
+        self.llm_providers = {
+            "generativelanguage.googleapis.com",
+            "aiplatform.googleapis.com",
+            "api.anthropic.com",
+            "api.openai.com",
+            "api.together.xyz",
+            "api.mistral.ai",
+            "api.cohere.ai",
+            "api.groq.com",
+            "api.deepseek.com",
+            "api.fireworks.ai",
+        }
+
+    def _load_allowlist(self):
+        """Load allowlist patterns from environment."""
+        try:
+            allowlist_json = os.environ.get("ALLOWLIST", "[]")
+            patterns = json.loads(allowlist_json)
+            
+            for p in patterns:
+                pattern = p.get("pattern", "")
+                pattern_type = p.get("pattern_type", "exact")
+                
+                if pattern_type == "exact":
+                    self.exact_patterns.append(pattern.lower())
+                elif pattern_type == "wildcard":
+                    self.wildcard_patterns.append(pattern.lower())
+                elif pattern_type == "regex":
+                    try:
+                        self.regex_patterns.append(re.compile(pattern, re.IGNORECASE))
+                    except re.error as e:
+                        logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+            
+            logger.info(f"Loaded {len(self.exact_patterns)} exact, "
+                       f"{len(self.wildcard_patterns)} wildcard, "
+                       f"{len(self.regex_patterns)} regex patterns")
+        except Exception as e:
+            logger.error(f"Failed to load allowlist: {e}")
+
+    def _match_pattern(self, host: str, url: str) -> Optional[str]:
+        """Check if host/url matches any allowlist pattern."""
+        host_lower = host.lower()
+        url_lower = url.lower()
+        
+        # Check exact patterns
+        for pattern in self.exact_patterns:
+            if host_lower == pattern or url_lower.startswith(pattern):
+                return pattern
+        
+        # Check wildcard patterns
+        for pattern in self.wildcard_patterns:
+            # Convert wildcard to regex-like matching
+            if "*" in pattern:
+                if fnmatch.fnmatch(host_lower, pattern) or fnmatch.fnmatch(url_lower, pattern):
+                    return pattern
+            elif host_lower == pattern:
+                return pattern
+        
+        # Check regex patterns
+        for regex in self.regex_patterns:
+            if regex.search(url_lower) or regex.search(host_lower):
+                return regex.pattern
+        
+        return None
+
+    def _is_llm_provider(self, host: str) -> bool:
+        """Check if host is a known LLM API provider."""
+        host_lower = host.lower()
+        for provider in self.llm_providers:
+            if host_lower == provider or host_lower.endswith("." + provider):
+                return True
+        return False
+
+    def _get_source(self, flow: http.HTTPFlow) -> str:
+        """Determine the source of the request (agent or MCP server)."""
+        # Check X-Sandbox-Source header
+        source_header = flow.request.headers.get("X-Sandbox-Source", "")
+        if source_header:
+            # Remove the header so it doesn't leak to destination
+            del flow.request.headers["X-Sandbox-Source"]
+            return source_header
+        
+        # Default to agent
+        return "agent"
+
+    def _send_webhook(self, event_type: str, data: dict):
+        """Send event to host via webhook."""
+        try:
+            import urllib.request
+            import urllib.error
+            
+            payload = {
+                "event_type": event_type,
+                "app_id": self.app_id,
+                "timestamp": time.time(),
+                "data": data,
+            }
+            
+            req = urllib.request.Request(
+                self.webhook_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                pass  # Fire and forget
+        except Exception as e:
+            logger.debug(f"Webhook failed: {e}")
+
+    def _request_approval(self, flow: http.HTTPFlow, request_id: str, host: str, 
+                          url: str, method: str, source: str) -> bool:
+        """Request approval for a blocked request and wait for decision."""
+        # Create pending approval
+        pending = PendingApproval(request_id, flow, self.approval_timeout)
+        
+        with self._pending_lock:
+            self.pending_approvals[request_id] = pending
+        
+        # Send approval request to host
+        self._send_webhook("approval_required", {
+            "id": request_id,
+            "method": method,
+            "url": url,
+            "host": host,
+            "source": source,
+            "is_llm_provider": False,
+            "timeout": self.approval_timeout,
+            "headers": {k: v for k, v in flow.request.headers.items() 
+                       if k.lower() not in ("authorization", "cookie", "x-api-key")},
+        })
+        
+        logger.info(f"Waiting for approval: {request_id} ({host})")
+        
+        # Wait for approval (blocking)
+        approved = pending.wait()
+        
+        # Cleanup
+        with self._pending_lock:
+            if request_id in self.pending_approvals:
+                del self.pending_approvals[request_id]
+        
+        # If approved with a pattern, add it to allowlist
+        if approved and pending.pattern:
+            self.add_pattern(pending.pattern, pending.pattern_type)
+        
+        return approved
+
+    def request(self, flow: http.HTTPFlow):
+        """Handle incoming request."""
+        host = flow.request.host
+        url = flow.request.pretty_url
+        method = flow.request.method
+        source = self._get_source(flow)
+        is_llm = self._is_llm_provider(host)
+        
+        # Generate request ID
+        request_id = f"{int(time.time() * 1000)}_{id(flow)}"
+        flow.metadata["request_id"] = request_id
+        flow.metadata["source"] = source
+        flow.metadata["is_llm_provider"] = is_llm
+        flow.metadata["start_time"] = time.time()
+        
+        # Check allowlist
+        matched_pattern = self._match_pattern(host, url)
+        
+        # Determine action
+        if matched_pattern or is_llm:
+            # Allowed
+            action = "allowed"
+            flow.metadata["matched_pattern"] = matched_pattern or "llm_provider"
+            
+            # Report to webhook
+            self._send_webhook("network_request", {
+                "id": request_id,
+                "method": method,
+                "url": url,
+                "host": host,
+                "status": action,
+                "source": source,
+                "is_llm_provider": is_llm,
+                "matched_pattern": matched_pattern,
+            })
+            
+        elif self.unknown_action == "allow":
+            action = "allowed"
+            
+            self._send_webhook("network_request", {
+                "id": request_id,
+                "method": method,
+                "url": url,
+                "host": host,
+                "status": action,
+                "source": source,
+                "is_llm_provider": is_llm,
+                "matched_pattern": None,
+            })
+            
+        elif self.unknown_action == "deny":
+            action = "denied"
+            
+            self._send_webhook("network_request", {
+                "id": request_id,
+                "method": method,
+                "url": url,
+                "host": host,
+                "status": action,
+                "source": source,
+                "is_llm_provider": is_llm,
+                "matched_pattern": None,
+            })
+            
+            flow.response = http.Response.make(
+                403,
+                f"Blocked by sandbox: {host} is not in allowlist",
+                {"Content-Type": "text/plain"},
+            )
+            
+        else:
+            # Ask mode - notify and wait for approval
+            self._send_webhook("network_request", {
+                "id": request_id,
+                "method": method,
+                "url": url,
+                "host": host,
+                "status": "pending",
+                "source": source,
+                "is_llm_provider": is_llm,
+                "matched_pattern": None,
+                "headers": {k: v for k, v in flow.request.headers.items() 
+                           if k.lower() not in ("authorization", "cookie", "x-api-key")},
+            })
+            
+            approved = self._request_approval(flow, request_id, host, url, method, source)
+            
+            if approved:
+                action = "allowed"
+                self._send_webhook("network_request", {
+                    "id": request_id,
+                    "status": "allowed",
+                })
+            else:
+                action = "denied"
+                self._send_webhook("network_request", {
+                    "id": request_id,
+                    "status": "denied",
+                })
+                
+                flow.response = http.Response.make(
+                    403,
+                    f"Request denied: {host}",
+                    {"Content-Type": "text/plain"},
+                )
+        
+        logger.info(f"[{action.upper()}] {source}: {method} {url}")
+
+    def response(self, flow: http.HTTPFlow):
+        """Handle response (for timing and size)."""
+        request_id = flow.metadata.get("request_id")
+        if not request_id:
+            return
+        
+        start_time = flow.metadata.get("start_time", time.time())
+        response_time_ms = (time.time() - start_time) * 1000
+        response_size = len(flow.response.content) if flow.response.content else 0
+        
+        self._send_webhook("network_response", {
+            "id": request_id,
+            "status": "completed",
+            "response_status": flow.response.status_code,
+            "response_time_ms": response_time_ms,
+            "response_size": response_size,
+        })
+
+    def add_pattern(self, pattern: str, pattern_type: str) -> bool:
+        """Add a pattern to the allowlist (called via control API)."""
+        if pattern_type == "exact":
+            self.exact_patterns.append(pattern.lower())
+        elif pattern_type == "wildcard":
+            self.wildcard_patterns.append(pattern.lower())
+        elif pattern_type == "regex":
+            try:
+                self.regex_patterns.append(re.compile(pattern, re.IGNORECASE))
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+                return False
+        
+        logger.info(f"Added {pattern_type} pattern: {pattern}")
+        return True
+    
+    def approve_request(self, request_id: str, pattern: Optional[str] = None, 
+                       pattern_type: str = "exact"):
+        """Approve a pending request."""
+        with self._pending_lock:
+            pending = self.pending_approvals.get(request_id)
+            if pending:
+                pending.approve(pattern, pattern_type)
+                return True
+        return False
+    
+    def deny_request(self, request_id: str):
+        """Deny a pending request."""
+        with self._pending_lock:
+            pending = self.pending_approvals.get(request_id)
+            if pending:
+                pending.deny()
+                return True
+        return False
+    
+    def get_pending_requests(self) -> list[str]:
+        """Get list of pending request IDs."""
+        with self._pending_lock:
+            return list(self.pending_approvals.keys())
+
+
+# Global addon instance
+gateway = AllowlistGateway()
+addons = [gateway]

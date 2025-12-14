@@ -1,0 +1,54 @@
+# Agent container for the ADK Playground sandbox.
+# Runs the ADK agent and optionally manages stdio-based MCP servers.
+
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+# Core ADK and commonly used MCP servers
+RUN pip install --no-cache-dir \
+    google-adk \
+    aiohttp \
+    httpx \
+    pyyaml \
+    mcp \
+    mcp-server-filesystem \
+    mcp-server-fetch \
+    mcp-server-time \
+    mcp-server-sqlite \
+    mcp-server-memory
+
+# Copy agent runner and MCP spawner scripts
+COPY agent_runner.py /app/agent_runner.py
+COPY mcp_spawner.py /app/mcp_spawner.py
+
+WORKDIR /app
+
+# Create workspace directory for mounted project files
+RUN mkdir -p /workspace
+
+# Expose port for agent API
+EXPOSE 5000
+
+# Environment variables for proxy (will be set by docker_manager)
+ENV HTTP_PROXY=http://gateway:8080
+ENV HTTPS_PROXY=http://gateway:8080
+ENV NO_PROXY=localhost,127.0.0.1,gateway
+
+# Environment variables for configuration
+ENV PROJECT_CONFIG_PATH=/app/config.yaml
+ENV WORKSPACE_PATH=/workspace
+ENV APP_ID=unknown
+ENV WEBHOOK_URL=http://host.docker.internal:8765/api/sandbox/event
+
+# Health check
+HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Run the agent runner
+CMD ["python", "-u", "agent_runner.py"]

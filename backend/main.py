@@ -32,6 +32,15 @@ from project_manager import ProjectManager
 from runtime import RuntimeManager
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
 
+# Import sandbox API router
+try:
+    from sandbox.api import router as sandbox_router
+    SANDBOX_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Sandbox module not available: {e}")
+    SANDBOX_AVAILABLE = False
+    sandbox_router = None
+
 # Get projects directory from environment variable, default to ~/.adk-playground/projects
 # This can be overridden by setting ADK_PLAYGROUND_PROJECTS_DIR environment variable
 # or by passing --projects-dir command line argument (handled in adk_playground/__init__.py)
@@ -238,6 +247,11 @@ if not PRODUCTION_MODE:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Include sandbox router
+if SANDBOX_AVAILABLE and sandbox_router is not None:
+    app.include_router(sandbox_router)
+    logger.info("Sandbox API routes enabled")
 
 
 # ============================================================================

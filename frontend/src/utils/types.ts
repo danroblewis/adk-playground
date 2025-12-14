@@ -280,3 +280,86 @@ export interface WatchToolResult {
   timestamp: number;
 }
 
+// =============================================================================
+// Sandbox Types (Docker container isolation)
+// =============================================================================
+
+export type PatternType = 'exact' | 'wildcard' | 'regex';
+export type NetworkRequestStatus = 'pending' | 'allowed' | 'denied' | 'completed' | 'error';
+export type SandboxStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+
+export interface AllowlistPattern {
+  id: string;
+  pattern: string;
+  pattern_type: PatternType;
+  added_at?: string;
+  source: string;
+}
+
+export interface NetworkAllowlist {
+  auto: string[];
+  user: AllowlistPattern[];
+}
+
+export interface SandboxConfig {
+  enabled: boolean;
+  allowlist: NetworkAllowlist;
+  unknown_action: 'ask' | 'deny' | 'allow';
+  approval_timeout: number;
+  agent_memory_limit_mb: number;
+  agent_cpu_limit: number;
+  mcp_memory_limit_mb: number;
+  mcp_cpu_limit: number;
+  run_timeout: number;
+}
+
+export interface NetworkRequest {
+  id: string;
+  timestamp: string;
+  method: string;
+  url: string;
+  host: string;
+  status: NetworkRequestStatus;
+  source: string;  // "agent" or "mcp:<server_name>"
+  matched_pattern?: string;
+  source_agent?: string;
+  response_status?: number;
+  response_time_ms?: number;
+  response_size?: number;
+  is_llm_provider: boolean;
+  headers?: Record<string, string>;
+}
+
+export interface MCPContainerStatus {
+  name: string;
+  container_id?: string;
+  status: string;
+  transport: string;
+  endpoint?: string;
+  error?: string;
+}
+
+export interface SandboxInstance {
+  id: string;
+  app_id: string;
+  status: SandboxStatus;
+  gateway_container_id?: string;
+  agent_container_id?: string;
+  mcp_containers: MCPContainerStatus[];
+  network_requests: NetworkRequest[];
+  pending_approvals: string[];
+  started_at?: string;
+  error?: string;
+  config?: SandboxConfig;
+}
+
+export interface ApprovalRequest {
+  request_id: string;
+  host: string;
+  url: string;
+  method: string;
+  headers?: Record<string, string>;
+  source: string;
+  timestamp: number;
+}
+

@@ -443,6 +443,163 @@ export async function checkEmbeddingsAvailable(): Promise<{ available: boolean }
 }
 
 // ============================================================================
+// Sandbox API (Docker container isolation)
+// ============================================================================
+
+import type { 
+  SandboxConfig, SandboxInstance, NetworkRequest, AllowlistPattern,
+  PatternType, ApprovalRequest, MCPContainerStatus
+} from './types';
+
+export interface StartSandboxResponse {
+  status: string;
+  instance?: SandboxInstance;
+  error?: string;
+}
+
+export async function startSandbox(
+  appId: string,
+  projectId: string,
+  config?: Partial<SandboxConfig>
+): Promise<StartSandboxResponse> {
+  return fetchJSON('/sandbox/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      app_id: appId,
+      project_id: projectId,
+      config,
+    }),
+  });
+}
+
+export async function stopSandbox(appId: string): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/stop`, { method: 'POST' });
+}
+
+export async function getSandboxStatus(appId: string): Promise<{
+  status: string;
+  instance?: SandboxInstance;
+}> {
+  return fetchJSON(`/sandbox/${appId}/status`);
+}
+
+export async function listSandboxes(): Promise<{ sandboxes: SandboxInstance[] }> {
+  return fetchJSON('/sandbox/list');
+}
+
+export async function getNetworkActivity(appId: string): Promise<{
+  requests: NetworkRequest[];
+}> {
+  return fetchJSON(`/sandbox/${appId}/network`);
+}
+
+export async function getSandboxAllowlist(appId: string): Promise<{
+  auto: string[];
+  user: AllowlistPattern[];
+}> {
+  return fetchJSON(`/sandbox/${appId}/allowlist`);
+}
+
+export async function addAllowlistPattern(
+  appId: string,
+  pattern: string,
+  patternType: PatternType = 'exact',
+  persist: boolean = false,
+  projectId?: string
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/allowlist`, {
+    method: 'POST',
+    body: JSON.stringify({
+      pattern,
+      pattern_type: patternType,
+      persist,
+      project_id: projectId,
+    }),
+  });
+}
+
+export async function removeAllowlistPattern(
+  appId: string,
+  patternId: string
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/allowlist/${patternId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function persistAllowlist(
+  appId: string,
+  projectId: string
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/allowlist/persist`, {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId }),
+  });
+}
+
+export async function approveNetworkRequest(
+  appId: string,
+  requestId: string,
+  pattern?: string,
+  patternType: PatternType = 'exact',
+  persist: boolean = false
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/approval`, {
+    method: 'POST',
+    body: JSON.stringify({
+      request_id: requestId,
+      action: pattern ? 'allow_pattern' : 'allow_once',
+      pattern,
+      pattern_type: patternType,
+      persist,
+    }),
+  });
+}
+
+export async function denyNetworkRequest(
+  appId: string,
+  requestId: string
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/approval`, {
+    method: 'POST',
+    body: JSON.stringify({
+      request_id: requestId,
+      action: 'deny',
+    }),
+  });
+}
+
+export async function getMcpContainerStatus(appId: string): Promise<{
+  mcp_servers: MCPContainerStatus[];
+}> {
+  return fetchJSON(`/sandbox/${appId}/mcp-status`);
+}
+
+export async function getSandboxConfig(appId: string): Promise<{
+  config: SandboxConfig;
+}> {
+  return fetchJSON(`/sandbox/${appId}/config`);
+}
+
+export async function updateSandboxConfig(
+  appId: string,
+  config: Partial<SandboxConfig>
+): Promise<{ status: string }> {
+  return fetchJSON(`/sandbox/${appId}/config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+// WebSocket for sandbox events
+export function createSandboxWebSocket(appId: string): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  return new WebSocket(`${protocol}//${host}/api/sandbox/${appId}/events`);
+}
+
+
+// ============================================================================
 // Generic API object for simpler CRUD operations
 // ============================================================================
 
