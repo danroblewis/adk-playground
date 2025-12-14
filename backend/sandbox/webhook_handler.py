@@ -74,7 +74,8 @@ class SandboxEvents:
                 self.pending_approvals.remove(request_id)
         
         # Notify subscribers (convert to dict for JSON serialization)
-        self._notify({"type": "network_request", "data": existing.model_dump()})
+        # Use mode='json' to ensure datetime objects are converted to strings
+        self._notify({"type": "network_request", "data": existing.model_dump(mode='json')})
     
     def _notify(self, event: dict):
         """Notify all subscribers of an event."""
