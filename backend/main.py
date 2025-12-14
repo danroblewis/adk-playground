@@ -907,8 +907,15 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
             if not sandbox_manager._initialized:
                 await sandbox_manager.initialize()
             
-            # Get workspace path (use PROJECTS_DIR / project_id)
-            workspace_path = PROJECTS_DIR / project_id if PROJECTS_DIR.exists() else Path.cwd()
+            # Get project file path - use same path as project_manager
+            from project_manager import project_manager
+            project_yaml_path = project_manager.get_project_path(project_id)
+            if project_yaml_path:
+                workspace_path = Path(project_yaml_path)  # Use actual file path
+            else:
+                workspace_path = PROJECTS_DIR / project_id if PROJECTS_DIR.exists() else Path.cwd()
+            
+            logger.info(f"📂 Loading sandbox config from: {workspace_path}")
             
             # Load persisted sandbox config from project (includes saved allowlist patterns)
             config = load_sandbox_config_from_project(workspace_path)

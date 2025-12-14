@@ -116,7 +116,7 @@ async def start_sandbox(request: StartSandboxRequest):
     if not project_path:
         raise HTTPException(status_code=404, detail="Project path not found")
     
-    workspace_path = Path(project_path).parent
+    workspace_path = Path(project_path).parent  # For Docker mounts, we need the directory
     
     # Use provided config or create default
     config = request.config or SandboxConfig(enabled=True)
@@ -234,13 +234,15 @@ async def handle_approval(app_id: str, request: ApprovalRequest, project_id: Opt
         project_path = project_manager.get_project_path(project_id)
         if project_path:
             pattern_type = PatternType(request.pattern_type)
+            # Pass the actual project file path (not parent directory)
             result = add_pattern_to_project(
-                project_path=Path(project_path).parent,
+                project_path=Path(project_path),
                 pattern=request.pattern,
                 pattern_type=pattern_type,
                 source="approved",
             )
             persisted = result is not None
+            logger.info(f"Persisted pattern '{request.pattern}' to {project_path}: {persisted}")
     
     return {
         "status": "processed",
@@ -315,7 +317,7 @@ async def add_allowlist_pattern(app_id: str, request: AddPatternRequest):
         project_path = project_manager.get_project_path(request.project_id)
         if project_path:
             result = add_pattern_to_project(
-                project_path=Path(project_path).parent,
+                project_path=Path(project_path),  # Use actual file path
                 pattern=request.pattern,
                 pattern_type=pattern_type,
                 source="user",
@@ -401,7 +403,7 @@ async def persist_allowlist(app_id: str, project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     
     success = save_allowlist_to_project(
-        project_path=Path(project_path).parent,
+        project_path=Path(project_path),  # Use actual file path
         allowlist=instance.config.allowlist,
     )
     
@@ -424,7 +426,7 @@ async def get_sandbox_config(project_id: str):
     if not project_path:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    config = load_sandbox_config_from_project(Path(project_path).parent)
+    config = load_sandbox_config_from_project(Path(project_path))  # Use actual file path
     
     return {
         "config": config.model_dump(),
@@ -445,7 +447,7 @@ async def update_sandbox_config(project_id: str, config: SandboxConfig):
         raise HTTPException(status_code=404, detail="Project not found")
     
     success = save_sandbox_config_to_project(
-        project_path=Path(project_path).parent,
+        project_path=Path(project_path),  # Use actual file path
         config=config,
     )
     
