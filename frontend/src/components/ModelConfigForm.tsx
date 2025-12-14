@@ -83,17 +83,21 @@ export function ModelConfigForm({
             placeholder="Search models..."
           />
         </div>
-        {values.provider === 'litellm' && (
-          <div className="model-config-field" style={{ flex: 2 }}>
-            <label>API Base</label>
-            <input
-              type="text"
-              value={values.api_base || ''}
-              onChange={(e) => onChange({ api_base: e.target.value || undefined })}
-              placeholder="http://localhost:11434"
-            />
-          </div>
-        )}
+        <div className="model-config-field" style={{ flex: 2 }}>
+          <label>API Base (optional)</label>
+          <input
+            type="text"
+            value={values.api_base || ''}
+            onChange={(e) => onChange({ api_base: e.target.value || undefined })}
+            placeholder={
+              values.provider === 'gemini' ? 'https://generativelanguage.googleapis.com' :
+              values.provider === 'anthropic' ? 'https://api.anthropic.com' :
+              values.provider === 'openai' ? 'https://api.openai.com/v1' :
+              values.provider === 'groq' ? 'https://api.groq.com/openai/v1' :
+              'http://localhost:11434'
+            }
+          />
+        </div>
       </div>
       <div className="model-config-row">
         <div className="model-config-field">
