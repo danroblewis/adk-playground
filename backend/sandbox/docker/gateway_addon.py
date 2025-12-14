@@ -277,6 +277,16 @@ class AllowlistGateway:
                 logger.info(f"[PASSTHROUGH] TLS to Google service: {sni}")
                 data.ignore_connection = True
                 return
+            
+            # Passthrough for PyPI (package installation in containers)
+            if any(domain in sni_lower for domain in [
+                "pypi.org",
+                "files.pythonhosted.org",
+                "pythonhosted.org",
+            ]):
+                logger.info(f"[PASSTHROUGH] TLS to PyPI: {sni}")
+                data.ignore_connection = True
+                return
 
     def request(self, flow: http.HTTPFlow):
         """Handle incoming request."""
