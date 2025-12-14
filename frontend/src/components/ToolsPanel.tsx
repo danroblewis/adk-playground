@@ -128,6 +128,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
   const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; tools: { name: string; description: string }[]; message?: string; error?: string } | null>(null);
   const [toolNameError, setToolNameError] = useState<string | null>(null);
   const [mcpServerStatus, setMcpServerStatus] = useState<Record<string, 'unknown' | 'connected' | 'error' | 'testing'>>({});
+  const [mcpServerErrors, setMcpServerErrors] = useState<Record<string, string>>({});
   const [mcpJsonEditorValue, setMcpJsonEditorValue] = useState('');
   
   if (!project) return null;
@@ -256,6 +257,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     if (!server) return;
     
     setMcpServerStatus(prev => ({ ...prev, [serverName]: 'testing' }));
+    setMcpServerErrors(prev => ({ ...prev, [serverName]: '' })); // Clear previous error
     
     try {
       const result = await testMcpServer({
@@ -269,8 +271,12 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       });
       
       setMcpServerStatus(prev => ({ ...prev, [serverName]: result.success ? 'connected' : 'error' }));
+      if (!result.success && result.error) {
+        setMcpServerErrors(prev => ({ ...prev, [serverName]: result.error || 'Unknown error' }));
+      }
     } catch (e) {
       setMcpServerStatus(prev => ({ ...prev, [serverName]: 'error' }));
+      setMcpServerErrors(prev => ({ ...prev, [serverName]: (e as Error).message }));
     }
   }
   
@@ -990,6 +996,10 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           padding: 8px;
         }
         
+        .mcp-server-item-wrapper {
+          margin-bottom: 6px;
+        }
+        
         .mcp-server-item {
           display: flex;
           align-items: center;
@@ -997,12 +1007,23 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           padding: 10px 12px;
           background: var(--bg-tertiary);
           border-radius: var(--radius-md);
-          margin-bottom: 6px;
           transition: all 0.15s ease;
         }
         
         .mcp-server-item:hover {
           background: var(--bg-primary);
+        }
+        
+        .mcp-server-error {
+          padding: 6px 12px;
+          margin-top: 2px;
+          background: rgba(var(--error-rgb, 239, 68, 68), 0.1);
+          border-radius: 0 0 var(--radius-md) var(--radius-md);
+          font-size: 11px;
+          color: var(--text-secondary);
+          word-break: break-word;
+          max-height: 60px;
+          overflow-y: auto;
         }
         
         .mcp-server-info {
@@ -1331,31 +1352,39 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               ) : (
                 projectMcpServers.map(server => {
                   const status = mcpServerStatus[server.name] || 'unknown';
+                  const errorMsg = mcpServerErrors[server.name];
                   return (
-                    <div key={server.name} className="mcp-server-item">
-                      <div className="mcp-server-info">
-                        <Server size={14} />
-                        <span className="mcp-server-name">{server.name}</span>
-                        <span className={`mcp-status-badge ${status}`}>
-                          {status === 'testing' ? <Loader size={10} className="spin" /> : null}
-                          {status === 'unknown' && '●'}
-                          {status === 'connected' && '●'}
-                          {status === 'error' && '●'}
-                        </span>
+                    <div key={server.name} className="mcp-server-item-wrapper">
+                      <div className="mcp-server-item">
+                        <div className="mcp-server-info">
+                          <Server size={14} />
+                          <span className="mcp-server-name">{server.name}</span>
+                          <span className={`mcp-status-badge ${status}`}>
+                            {status === 'testing' ? <Loader size={10} className="spin" /> : null}
+                            {status === 'unknown' && '●'}
+                            {status === 'connected' && '●'}
+                            {status === 'error' && '●'}
+                          </span>
+                        </div>
+                        <div className="mcp-server-actions">
+                          <span className="mcp-server-type">{server.connection_type}</span>
+                          <button 
+                            className="btn btn-sm" 
+                            onClick={() => testMcpServerConnection(server.name)}
+                            disabled={status === 'testing'}
+                            title="Test server connection"
+                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                          >
+                            {status === 'testing' ? <Loader size={12} className="spin" /> : <RefreshCw size={12} />}
+                            <span style={{ fontSize: 11 }}>Test</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="mcp-server-actions">
-                        <span className="mcp-server-type">{server.connection_type}</span>
-                        <button 
-                          className="btn btn-sm" 
-                          onClick={() => testMcpServerConnection(server.name)}
-                          disabled={status === 'testing'}
-                          title="Test server connection"
-                          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-                        >
-                          {status === 'testing' ? <Loader size={12} className="spin" /> : <RefreshCw size={12} />}
-                          <span style={{ fontSize: 11 }}>Test</span>
-                        </button>
-                      </div>
+                      {status === 'error' && errorMsg && (
+                        <div className="mcp-server-error">
+                          <span style={{ fontWeight: 500, color: 'var(--error)' }}>Error:</span> {errorMsg}
+                        </div>
+                      )}
                     </div>
                   );
                 })
