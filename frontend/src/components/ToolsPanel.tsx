@@ -1202,14 +1202,24 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
         <div className="sidebar-tabs">
           <button 
             className={`sidebar-tab ${activeTab === 'tools' ? 'active' : ''}`}
-            onClick={() => setActiveTab('tools')}
+            onClick={() => {
+              setActiveTab('tools');
+              // Clear MCP-specific selections when switching to tools
+              setSelectedMcpServer(null);
+            }}
           >
             <Wrench size={14} />
             Tools
           </button>
           <button 
             className={`sidebar-tab ${activeTab === 'mcp' ? 'active' : ''}`}
-            onClick={() => setActiveTab('mcp')}
+            onClick={() => {
+              setActiveTab('mcp');
+              // Clear selections so mcp.json editor shows
+              setSelectedToolId(null);
+              setSelectedBuiltinTool(null);
+              setSelectedMcpServer(null);
+            }}
           >
             <Server size={14} />
             MCP
