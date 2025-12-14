@@ -44,6 +44,10 @@ cd backend
 BACKEND_PID=$!
 cd ..
 
+# Wait for backend to start
+echo "  Waiting for backend to be ready..."
+sleep 3
+
 # Setup frontend
 echo "📦 Setting up frontend..."
 cd frontend

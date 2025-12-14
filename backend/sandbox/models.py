@@ -92,7 +92,7 @@ class NetworkAllowlist(BaseModel):
     auto: List[str] = Field(default_factory=list)  # Auto-populated, not persisted
     user: List[AllowlistPattern] = Field(default_factory=list)  # User-defined, persisted
     
-    # Default LLM provider domains (always allowed)
+    # Default allowed domains (LLM providers + internal communication)
     DEFAULT_LLM_DOMAINS: List[str] = [
         "generativelanguage.googleapis.com",
         "api.anthropic.com",
@@ -100,19 +100,30 @@ class NetworkAllowlist(BaseModel):
         "api.groq.com",
         "api.mistral.ai",
         "api.together.xyz",
+        # Host communication (for agent events going through proxy)
+        "host.docker.internal",
+        # Internal container communication (host→agent via proxy)
+        "sandbox-agent-*",  # Wildcard for agent containers
     ]
     
     def all_patterns(self) -> List[AllowlistPattern]:
         """Get all patterns (auto converted to AllowlistPattern + user)."""
-        auto_patterns = [
-            AllowlistPattern(
+        auto_patterns = []
+        for i, p in enumerate(self.auto):
+            # Detect pattern type from pattern string
+            if "*" in p or "?" in p:
+                ptype = PatternType.WILDCARD
+            elif p.startswith("^") or p.endswith("$"):
+                ptype = PatternType.REGEX
+            else:
+                ptype = PatternType.EXACT
+            
+            auto_patterns.append(AllowlistPattern(
                 id=f"auto-{i}",
                 pattern=p, 
-                pattern_type=PatternType.EXACT, 
+                pattern_type=ptype, 
                 source="auto"
-            )
-            for i, p in enumerate(self.auto)
-        ]
+            ))
         return auto_patterns + self.user
     
     def matches(self, url: str) -> Optional[AllowlistPattern]:
@@ -189,7 +200,7 @@ class SandboxConfig(BaseModel):
     enabled: bool = False
     allowlist: NetworkAllowlist = Field(default_factory=NetworkAllowlist)
     unknown_action: str = "ask"  # "ask", "deny", "allow"
-    approval_timeout: int = 30
+    approval_timeout: int = 120
     agent_memory_limit_mb: int = 512
     agent_cpu_limit: float = 1.0
     mcp_memory_limit_mb: int = 256  # Per MCP container
@@ -221,7 +232,7 @@ class NetworkRequest(BaseModel):
     response_time_ms: Optional[float] = None
     response_size: Optional[int] = None
     is_llm_provider: bool = False
-    headers: Dict[str, str] = Field(default_factory=dict)
+    headers: Optional[Dict[str, str]] = Field(default_factory=dict)
 
 
 class MCPContainerStatus(BaseModel):

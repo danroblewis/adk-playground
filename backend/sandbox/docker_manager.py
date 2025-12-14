@@ -29,6 +29,10 @@ from .models import (
 )
 from .mcp_manager import MCPContainerManager
 
+# Import code generator for creating executable Python code
+from backend.code_generator import generate_python_code
+from backend.models import Project
+
 logger = logging.getLogger(__name__)
 
 # Check if docker is available
@@ -157,12 +161,31 @@ class SandboxManager:
             if not await self.initialize():
                 raise RuntimeError("Docker not available")
         
-        # Check if already running
+        # Check if already running in memory
         if app_id in self.instances:
             existing = self.instances[app_id]
             if existing.status == SandboxStatus.RUNNING:
-                logger.info(f"Sandbox for {app_id} already running")
-                return existing
+                # Verify container is still running
+                if await self._verify_container_running(existing.agent_container_id):
+                    logger.info(f"Reusing existing sandbox for {app_id}")
+                    # Load project config into existing container
+                    await self._load_project_into_container(existing, project_config)
+                    return existing
+                else:
+                    # Container died, clean up
+                    logger.info(f"Container for {app_id} died, cleaning up")
+                    await self._cleanup_existing_containers(app_id)
+        else:
+            # Check for orphaned Docker containers (e.g. after server restart)
+            existing_container = await self._find_existing_container(app_id)
+            if existing_container:
+                logger.info(f"Found orphaned container for {app_id}, reusing")
+                instance = await self._adopt_existing_container(app_id, existing_container, config)
+                if instance:
+                    await self._load_project_into_container(instance, project_config)
+                    return instance
+                # Failed to adopt, clean up
+                await self._cleanup_existing_containers(app_id)
         
         # Create instance
         instance = SandboxInstance(
@@ -204,6 +227,11 @@ class SandboxManager:
             )
             instance.gateway_container_id = gateway_id
             
+            # Get app environment variables from project config
+            app_env_vars = {}
+            if project_config.get("app") and project_config["app"].get("env_vars"):
+                app_env_vars = project_config["app"]["env_vars"]
+            
             # Start agent container
             agent_id = await self._start_agent(
                 app_id=app_id,
@@ -213,6 +241,7 @@ class SandboxManager:
                 memory_limit=config.agent_memory_limit_mb,
                 cpu_limit=config.agent_cpu_limit,
                 mcp_configs=mcp_configs,
+                app_env_vars=app_env_vars,
             )
             instance.agent_container_id = agent_id
             
@@ -240,7 +269,12 @@ class SandboxManager:
         return instance
     
     async def _create_network(self, network_name: str):
-        """Create an isolated Docker network."""
+        """Create an isolated internal Docker network.
+        
+        This network is internal=True, meaning containers on it cannot
+        directly access the internet. The gateway container will be on
+        both this network AND the default bridge network to route traffic.
+        """
         if not self.client:
             raise RuntimeError("Docker client not initialized")
         
@@ -252,14 +286,171 @@ class SandboxManager:
         except NotFound:
             pass
         
-        # Create network
+        # Create INTERNAL network - no direct internet access
         network = self.client.networks.create(
             network_name,
             driver="bridge",
-            internal=False,  # Allow outbound through gateway
+            internal=True,  # No direct internet access from this network
         )
-        logger.info(f"Created network {network_name}")
+        logger.info(f"Created internal network {network_name}")
         return network
+    
+    async def _find_gateway_container(self, app_id: str) -> Optional[str]:
+        """Find an orphaned gateway container by app_id.
+        
+        This is used to recover from server restarts when Docker containers
+        are still running but not tracked in memory.
+        """
+        if not self.client:
+            return None
+        
+        gateway_name = f"sandbox-gateway-{app_id}"
+        try:
+            container = self.client.containers.get(gateway_name)
+            if container.status == "running":
+                logger.info(f"Found running gateway container: {gateway_name}")
+                return container.id
+        except Exception:
+            pass
+        return None
+    
+    async def _cleanup_existing_containers(self, app_id: str):
+        """Clean up any existing containers and networks for an app.
+        
+        This handles the case where the server restarts but containers are still running.
+        """
+        if not self.client:
+            return
+        
+        # Clean up agent container
+        agent_name = f"sandbox-agent-{app_id}"
+        try:
+            container = self.client.containers.get(agent_name)
+            logger.info(f"Found existing container {agent_name}, stopping...")
+            container.stop(timeout=5)
+            container.remove(force=True)
+            logger.info(f"Removed container {agent_name}")
+        except Exception:
+            pass  # Container doesn't exist
+        
+        # Clean up gateway container
+        gateway_name = f"sandbox-gateway-{app_id}"
+        try:
+            container = self.client.containers.get(gateway_name)
+            logger.info(f"Found existing container {gateway_name}, stopping...")
+            container.stop(timeout=5)
+            container.remove(force=True)
+            logger.info(f"Removed container {gateway_name}")
+        except Exception:
+            pass  # Container doesn't exist
+        
+        # Clean up network
+        network_name = f"{self.NETWORK_PREFIX}-{app_id}"
+        try:
+            network = self.client.networks.get(network_name)
+            logger.info(f"Found existing network {network_name}, removing...")
+            network.remove()
+            logger.info(f"Removed network {network_name}")
+        except Exception:
+            pass  # Network doesn't exist
+    
+    async def _verify_container_running(self, container_id: Optional[str]) -> bool:
+        """Check if a container is still running and healthy."""
+        if not container_id or not self.client:
+            return False
+        try:
+            container = self.client.containers.get(container_id)
+            return container.status == "running"
+        except Exception:
+            return False
+    
+    async def _find_existing_container(self, app_id: str) -> Optional[Any]:
+        """Find an existing container for an app."""
+        if not self.client:
+            return None
+        agent_name = f"sandbox-agent-{app_id}"
+        try:
+            container = self.client.containers.get(agent_name)
+            if container.status == "running":
+                return container
+        except Exception:
+            pass
+        return None
+    
+    async def _adopt_existing_container(
+        self,
+        app_id: str,
+        container: Any,
+        config: SandboxConfig,
+    ) -> Optional[SandboxInstance]:
+        """Adopt an existing container into our instance tracking."""
+        try:
+            # Get container port
+            ports = container.ports.get("5000/tcp")
+            if not ports:
+                return None
+            
+            # Create instance
+            instance = SandboxInstance(
+                app_id=app_id,
+                status=SandboxStatus.RUNNING,
+                started_at=datetime.now(),
+                config=config,
+            )
+            instance.agent_container_id = container.id
+            
+            # Try to find gateway container
+            gateway_name = f"sandbox-gateway-{app_id}"
+            try:
+                gateway = self.client.containers.get(gateway_name)
+                instance.gateway_container_id = gateway.id
+            except Exception:
+                pass
+            
+            self.instances[app_id] = instance
+            logger.info(f"Adopted existing container for {app_id}")
+            return instance
+        except Exception as e:
+            logger.error(f"Failed to adopt container: {e}")
+            return None
+    
+    async def _load_project_into_container(
+        self,
+        instance: SandboxInstance,
+        project_config: Dict[str, Any],
+    ):
+        """Load project configuration into an existing container.
+        
+        Generates Python code from the project config and sends it to the container.
+        The container then execs the code to create the app.
+        """
+        if not instance.agent_container_id or not self.client:
+            return
+        
+        try:
+            container = self.client.containers.get(instance.agent_container_id)
+            ports = container.ports.get("5000/tcp")
+            if not ports:
+                return
+            host_port = ports[0]["HostPort"]
+            
+            # Generate Python code from project config
+            project = Project.model_validate(project_config)
+            generated_code = generate_python_code(project)
+            
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"http://localhost:{host_port}/project",
+                    json={"code": generated_code, "project_name": project.name, "app_id": instance.app_id},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Loaded project into container for {instance.app_id}")
+                    else:
+                        logger.warning(f"Failed to load project: {resp.status}")
+        except Exception as e:
+            logger.error(f"Failed to load project into container: {e}")
     
     async def _write_config_file(self, project_config: Dict[str, Any]) -> Path:
         """Write project config to a temp file."""
@@ -280,27 +471,29 @@ class SandboxManager:
         if not self.client:
             raise RuntimeError("Docker client not initialized")
         
-        # Prepare allowlist patterns
+        # Prepare allowlist patterns for gateway
         patterns = []
         for p in allowlist.all_patterns():
             patterns.append({
                 "pattern": p.pattern,
-                "type": p.pattern_type.value,
+                "pattern_type": p.pattern_type.value,  # Gateway expects "pattern_type"
             })
         
-        container = self.client.containers.run(
+        # Create container without any network initially
+        container = self.client.containers.create(
             image=self.GATEWAY_IMAGE,
             name=f"sandbox-gateway-{app_id}",
             detach=True,
-            network=network_name,
+            network_mode="bridge",  # Start with default bridge for internet access
             environment={
-                "ALLOWLIST_PATTERNS": json.dumps(patterns),
+                "ALLOWLIST": json.dumps(patterns),
                 "UNKNOWN_ACTION": unknown_action,
                 "APPROVAL_TIMEOUT": str(approval_timeout),
-                "HOST_WEBHOOK_URL": "http://host.docker.internal:8080",
+                "WEBHOOK_URL": f"http://host.docker.internal:8080/api/sandbox/webhook/{app_id}",
+                "APP_ID": app_id,
             },
             ports={
-                "8080/tcp": None,  # Proxy port (internal)
+                "8080/tcp": None,  # Proxy port
                 "8081/tcp": None,  # Control API
             },
             extra_hosts={
@@ -308,7 +501,13 @@ class SandboxManager:
             },
         )
         
-        logger.info(f"Started gateway container: {container.id[:12]}")
+        # Also connect to internal network with "gateway" alias
+        # This gives gateway dual-homed access: internet + internal network
+        internal_network = self.client.networks.get(network_name)
+        internal_network.connect(container, aliases=["gateway"])
+        container.start()
+        
+        logger.info(f"Started gateway container: {container.id[:12]} (dual-homed)")
         return container.id
     
     async def _start_agent(
@@ -320,6 +519,7 @@ class SandboxManager:
         memory_limit: int,
         cpu_limit: float,
         mcp_configs: Optional[List[MCPServerSandboxConfig]] = None,
+        app_env_vars: Optional[Dict[str, str]] = None,
     ) -> str:
         """Start the agent runner container.
         
@@ -331,6 +531,7 @@ class SandboxManager:
             memory_limit: Memory limit in MB
             cpu_limit: CPU limit (1.0 = 1 core)
             mcp_configs: MCP server configurations (stdio servers will be spawned in container)
+            app_env_vars: Environment variables configured for the app
         """
         if not self.client:
             raise RuntimeError("Docker client not initialized")
@@ -344,43 +545,58 @@ class SandboxManager:
         if mcp_manager and mcp_configs:
             stdio_mcp_config = mcp_manager.get_stdio_config_for_agent(mcp_configs)
         
-        container = self.client.containers.run(
+        # Create container with proxy configuration for network monitoring
+        # All HTTP/HTTPS traffic goes through the mitmproxy gateway
+        # Agent is on internal network and can ONLY reach the gateway
+        env_vars = {
+            "HTTP_PROXY": "http://gateway:8080",
+            "HTTPS_PROXY": "http://gateway:8080",
+            "NO_PROXY": "localhost,127.0.0.1,gateway",  # Only local and gateway are direct
+            "WORKSPACE_PATH": "/workspace",
+            "PROJECT_CONFIG_PATH": "/config/project.json",
+            # Host URL goes through proxy - gateway will forward to host
+            "HOST_URL": "http://host.docker.internal:8080",
+            # MCP server configuration for stdio servers
+            "MCP_SERVERS_CONFIG": json.dumps(stdio_mcp_config),
+        }
+        
+        # Pass through app-configured environment variables (API keys, etc.)
+        if app_env_vars:
+            env_vars.update(app_env_vars)
+        
+        # Also pass through common API credentials from host environment if not already set
+        for key in [
+            "GOOGLE_API_KEY",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "GOOGLE_CLOUD_PROJECT",
+            "GOOGLE_CLOUD_LOCATION",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        ]:
+            if key not in env_vars and os.environ.get(key):
+                env_vars[key] = os.environ[key]
+        
+        # Create agent on the internal network (internal=True means no direct internet)
+        # Agent is only accessible via the gateway proxy, not directly from host
+        container = self.client.containers.create(
             image=self.AGENT_IMAGE,
             name=f"sandbox-agent-{app_id}",
             detach=True,
-            network=network_name,
-            environment={
-                "HTTP_PROXY": "http://gateway:8080",
-                "HTTPS_PROXY": "http://gateway:8080",
-                "NO_PROXY": "localhost,127.0.0.1,gateway",
-                "WORKSPACE_PATH": "/workspace",
-                "PROJECT_CONFIG_PATH": "/config/project.json",
-                "HOST_URL": "http://host.docker.internal:8080",
-                # MCP server configuration for stdio servers
-                "MCP_SERVERS_CONFIG": json.dumps(stdio_mcp_config),
-            },
+            network=network_name,  # Internal network only - isolated from internet
+            environment=env_vars,
             volumes={
                 str(workspace_path): {"bind": "/workspace", "mode": "ro"},
                 str(config_file): {"bind": "/config/project.json", "mode": "ro"},
             },
-            ports={
-                "5000/tcp": None,  # Agent API
-            },
+            # No ports exposed - host communicates via gateway proxy
             mem_limit=mem_limit,
             cpu_period=100000,
             cpu_quota=int(cpu_limit * 100000),
-            extra_hosts={
-                "host.docker.internal": "host-gateway",
-            },
-            # Add alias for gateway
-            network_aliases=["agent-runner"],
+            # No extra_hosts - all traffic goes through gateway proxy
         )
         
-        # Connect to network with alias
-        network = self.client.networks.get(network_name)
-        network.connect(container, aliases=["agent-runner"])
-        
-        logger.info(f"Started agent container: {container.id[:12]}")
+        container.start()
+        logger.info(f"Started agent container: {container.id[:12]} (isolated, access via proxy only)")
         return container.id
     
     async def stop_sandbox(self, app_id: str) -> bool:
@@ -527,19 +743,45 @@ class SandboxManager:
         Returns:
             True if approved successfully
         """
+        logger.info(f"🔓 approve_request called: app_id={app_id}, request_id={request_id}")
+        logger.info(f"   Manager id={id(self)}, instances={list(self.instances.keys())}")
+        
         instance = self.instances.get(app_id)
-        if not instance or instance.status != SandboxStatus.RUNNING:
+        if not instance:
+            # Try to find orphaned containers (e.g., after server restart)
+            logger.info(f"   Instance not in memory, checking for Docker containers...")
+            gateway_container_id = await self._find_gateway_container(app_id)
+            if gateway_container_id:
+                logger.info(f"   Found orphaned gateway container: {gateway_container_id[:12]}")
+                # Create a temporary instance just for this approval
+                instance = SandboxInstance(
+                    app_id=app_id,
+                    status=SandboxStatus.RUNNING,
+                    started_at=datetime.now(),
+                    config=SandboxConfig(enabled=True),
+                    gateway_container_id=gateway_container_id,
+                )
+                self.instances[app_id] = instance
+            else:
+                logger.warning(f"   ❌ No instance or container found for app_id={app_id}")
+                return False
+        if instance.status != SandboxStatus.RUNNING:
+            logger.warning(f"   ❌ Instance status={instance.status}, not RUNNING")
             return False
         
         if not instance.gateway_container_id or not self.client:
+            logger.warning(f"   ❌ No gateway or client")
             return False
         
         try:
             container = self.client.containers.get(instance.gateway_container_id)
             ports = container.ports.get("8081/tcp")
             if not ports:
+                logger.warning(f"   ❌ No 8081/tcp port exposed")
                 return False
             host_port = ports[0]["HostPort"]
+            
+            logger.info(f"   Calling gateway at http://localhost:{host_port}/approve")
             
             import aiohttp
             async with aiohttp.ClientSession() as session:
@@ -547,6 +789,10 @@ class SandboxManager:
                     f"http://localhost:{host_port}/approve",
                     json={"request_id": request_id, "pattern": pattern},
                 ) as resp:
+                    logger.info(f"   Gateway response: {resp.status}")
+                    if resp.status != 200:
+                        body = await resp.text()
+                        logger.warning(f"   Gateway error: {body}")
                     return resp.status == 200
         except Exception as e:
             logger.error(f"Failed to approve request: {e}")
@@ -580,6 +826,111 @@ class SandboxManager:
             logger.error(f"Failed to deny request: {e}")
         
         return False
+    
+    async def send_message(
+        self,
+        app_id: str,
+        message: str,
+        session_id: Optional[str] = None,
+        project_config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Send a message to the agent running in the sandbox.
+        
+        Args:
+            app_id: The App ID
+            message: The user message
+            session_id: Optional session ID to reuse
+            project_config: Optional project config to load before running
+        
+        Returns:
+            Response from the agent
+        """
+        instance = self.instances.get(app_id)
+        if not instance or instance.status != SandboxStatus.RUNNING:
+            return {"error": "Sandbox not running"}
+        
+        if not instance.agent_container_id or not self.client:
+            return {"error": "Agent container not available"}
+        
+        try:
+            # Get gateway proxy port - all communication goes through the gateway
+            gateway = self.client.containers.get(instance.gateway_container_id)
+            gateway_ports = gateway.ports.get("8080/tcp")
+            if not gateway_ports:
+                return {"error": "Gateway proxy port not exposed"}
+            proxy_port = gateway_ports[0]["HostPort"]
+            
+            # Agent container name for internal routing
+            agent_container_name = f"sandbox-agent-{app_id}"
+            agent_url = f"http://{agent_container_name}:5000"
+            
+            import aiohttp
+            
+            # Create a session that uses the gateway as a proxy
+            proxy_url = f"http://localhost:{proxy_port}"
+            
+            # Wait for agent to be healthy (through the proxy)
+            max_retries = 15
+            for attempt in range(max_retries):
+                try:
+                    # Use the proxy to reach the agent
+                    connector = aiohttp.TCPConnector()
+                    async with aiohttp.ClientSession(connector=connector) as session:
+                        async with session.get(
+                            f"{agent_url}/health",
+                            proxy=proxy_url,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as health_resp:
+                            if health_resp.status == 200:
+                                logger.info(f"Agent is healthy (via proxy)")
+                                break
+                except Exception as e:
+                    logger.debug(f"Health check attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    logger.info(f"Waiting for agent container to be ready (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(1)
+            else:
+                return {"error": "Agent container not ready after retries"}
+            
+            # Load project config if provided (through proxy)
+            if project_config:
+                try:
+                    project = Project.model_validate(project_config)
+                    generated_code = generate_python_code(project)
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{agent_url}/project",
+                            proxy=proxy_url,
+                            json={"code": generated_code, "project_name": project.name, "app_id": app_id},
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            if resp.status != 200:
+                                logger.warning(f"Failed to load project config: {resp.status}")
+                except Exception as e:
+                    logger.warning(f"Failed to load project config: {e}")
+            
+            # Send the run request (through proxy)
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{agent_url}/run",
+                    proxy=proxy_url,
+                    json={
+                        "message": message,
+                        "session_id": session_id,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=300),  # 5 minute timeout
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        text = await resp.text()
+                        return {"error": f"Agent returned {resp.status}: {text}"}
+        except asyncio.TimeoutError:
+            return {"error": "Agent request timed out"}
+        except Exception as e:
+            logger.error(f"Failed to send message to agent: {e}")
+            return {"error": str(e)}
     
     async def cleanup(self):
         """Cleanup all sandboxes on shutdown."""

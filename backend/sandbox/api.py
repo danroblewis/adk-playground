@@ -205,12 +205,24 @@ async def handle_approval(app_id: str, request: ApprovalRequest, project_id: Opt
     """
     manager = get_sandbox_manager()
     
+    # Debug logging
+    logger.info(f"🔐 Approval request: app_id={app_id}, request_id={request.request_id}, action={request.action}")
+    logger.info(f"   Manager id={id(manager)}, instances: {list(manager.instances.keys())}")
+    
+    instance = manager.instances.get(app_id)
+    if instance:
+        logger.info(f"   Instance found: status={instance.status}, gateway={instance.gateway_container_id[:12] if instance.gateway_container_id else None}")
+    else:
+        logger.info(f"   ❌ No instance found for app_id={app_id}")
+    
     if request.action == "deny":
         success = await manager.deny_request(app_id, request.request_id)
     else:
         # allow_once or allow_pattern
         pattern = request.pattern if request.action == "allow_pattern" else None
         success = await manager.approve_request(app_id, request.request_id, pattern)
+    
+    logger.info(f"   Approval result: success={success}")
     
     if not success:
         raise HTTPException(status_code=404, detail="Request or sandbox not found")
@@ -472,16 +484,47 @@ class WebhookPayload(BaseModel):
     data: Dict[str, Any]
 
 
-@router.post("/webhook")
-async def sandbox_webhook(payload: WebhookPayload):
-    """Receive events from sandbox containers.
+@router.post("/webhook/{app_id}")
+async def sandbox_webhook_with_app_id(app_id: str, payload: Dict[str, Any]):
+    """Receive events from sandbox containers (app_id in path).
     
     This endpoint is called by the gateway container to:
     - Notify about network requests
     - Request approval for blocked requests
     - Report errors
     """
-    logger.debug(f"Sandbox webhook: {payload.event_type} for {payload.app_id}")
+    event_type = payload.get("event_type", "unknown")
+    data = payload.get("data", {})
+    
+    # Debug: log the request ID for pending requests
+    if data.get("status") == "pending" or event_type == "approval_required":
+        logger.info(f"🔑 Pending request ID received: {data.get('id')} for host {data.get('host')}")
+    
+    logger.info(f"📡 Webhook received: {event_type} for {app_id}")
+    
+    await webhook_handler.handle_event(
+        event_type=event_type,
+        app_id=app_id,
+        data=data,
+    )
+    
+    # Forward as agent_event for WebSocket streaming
+    events = await webhook_handler.get_or_create(app_id)
+    events._notify({"type": "network_request", "data": {"event_type": event_type, **data}})
+    
+    return {"status": "received"}
+
+
+@router.post("/webhook")
+async def sandbox_webhook(payload: WebhookPayload):
+    """Receive events from sandbox containers (app_id in payload).
+    
+    This endpoint is called by the gateway container to:
+    - Notify about network requests
+    - Request approval for blocked requests
+    - Report errors
+    """
+    logger.info(f"📡 Webhook received: {payload.event_type} for {payload.app_id}")
     
     await webhook_handler.handle_event(
         event_type=payload.event_type,
@@ -547,15 +590,18 @@ async def sandbox_event(data: Dict[str, Any]):
     
     This endpoint is called by the agent runner to stream events.
     """
-    event_type = data.get("type")
+    event_type = data.get("event_type") or data.get("type")
     app_id = data.get("app_id")
     
-    logger.debug(f"Sandbox event: {event_type} for {app_id}")
+    logger.info(f"📨 Sandbox event: {event_type} for app_id='{app_id}' (type={type(app_id).__name__})")
     
     # Forward to webhook handler for broadcasting
-    if app_id:
+    if app_id and app_id != "None":  # Check for string "None" too
         events = await webhook_handler.get_or_create(app_id)
+        logger.info(f"📢 Broadcasting to {len(events.subscribers)} subscribers for {app_id}")
         events._notify({"type": "agent_event", "data": data})
+    else:
+        logger.warning(f"⚠️ No valid app_id in event: app_id={repr(app_id)}, keys={list(data.keys())}")
     
     return {"status": "received"}
 

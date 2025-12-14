@@ -7,8 +7,9 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
-import type { RunEvent, Project, MCPServerConfig } from '../utils/types';
+import type { RunEvent, Project, MCPServerConfig, ApprovalRequest, PatternType } from '../utils/types';
 import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession } from '../utils/api';
+import { NetworkApprovalDialog } from './sandbox/NetworkApprovalDialog';
 
 // Wireshark-inspired color scheme for event types
 const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -1326,6 +1327,8 @@ export default function RunPanel() {
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end']));
+  const [sandboxMode, setSandboxMode] = useState(true);  // Run in Docker sandbox (enabled by default)
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);  // Pending network approval request
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
@@ -1658,6 +1661,7 @@ export default function RunPanel() {
         message: userInput,
         agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
         session_id: currentSessionId || undefined,  // Reuse existing session if loaded
+        sandbox_mode: sandboxMode,  // Run in Docker sandbox
       }));
     };
     
@@ -1681,6 +1685,45 @@ export default function RunPanel() {
         if (data.session_id && availableSessions.some(s => s.id === data.session_id)) {
           setSelectedSessionId(data.session_id);
         }
+      } else if (data.type === 'sandbox_starting') {
+        addRunEvent({
+          timestamp: Date.now() / 1000,
+          event_type: 'agent_start',
+          agent_name: 'sandbox',
+          data: { message: 'Starting Docker sandbox...' }
+        });
+      } else if (data.type === 'sandbox_started') {
+        addRunEvent({
+          timestamp: Date.now() / 1000,
+          event_type: 'agent_start',
+          agent_name: 'sandbox',
+          data: { message: `Sandbox started (ID: ${data.sandbox_id})` }
+        });
+      } else if (data.type === 'sandbox_response') {
+        addRunEvent({
+          timestamp: Date.now() / 1000,
+          event_type: 'model_response',
+          agent_name: 'sandbox',
+          data: data.data
+        });
+      } else if (data.event_type === 'approval_required' || (data.type === 'network_request' && data.event_type === 'approval_required')) {
+        // Show approval dialog for unknown network requests
+        const approvalRequest: ApprovalRequest = {
+          id: data.id,
+          method: data.method || 'GET',
+          url: data.url,
+          host: data.host,
+          source: data.source || 'agent',
+          headers: data.headers || {},
+          timeout: data.timeout || 30,
+        };
+        setPendingApproval(approvalRequest);
+        addRunEvent({
+          timestamp: Date.now() / 1000,
+          event_type: 'callback_start',
+          agent_name: 'sandbox',
+          data: { message: `⚠️ Network request to ${data.host} requires approval` }
+        });
       } else if (data.type === 'completed') {
         setIsRunning(false);
         websocket.close();
@@ -1710,13 +1753,69 @@ export default function RunPanel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
-  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId]);
+  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId, sandboxMode]);
   
   // Handle stop
   const handleStop = useCallback(() => {
     ws?.close();
     setIsRunning(false);
   }, [ws, setIsRunning]);
+
+  // Handle network approval
+  const handleApprove = useCallback(async (pattern?: string, patternType?: PatternType, persist?: boolean) => {
+    if (!pendingApproval || !project) return;
+    
+    const appId = project.app?.id || project.id;
+    const action = pattern ? 'allow_pattern' : 'allow_once';
+    try {
+      await fetchJSON(`/sandbox/${appId}/approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: pendingApproval.id,
+          action,
+          pattern: pattern || pendingApproval.host,
+          pattern_type: patternType || 'exact',
+          persist: persist || false,
+        }),
+      });
+      addRunEvent({
+        timestamp: Date.now() / 1000,
+        event_type: 'callback_end',
+        agent_name: 'sandbox',
+        data: { message: `✅ Approved: ${pattern || pendingApproval.host}` }
+      });
+    } catch (e) {
+      console.error('Failed to approve:', e);
+    }
+    setPendingApproval(null);
+  }, [pendingApproval, project, addRunEvent]);
+
+  // Handle network denial
+  const handleDeny = useCallback(async () => {
+    if (!pendingApproval || !project) return;
+    
+    const appId = project.app?.id || project.id;
+    try {
+      await fetchJSON(`/sandbox/${appId}/approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: pendingApproval.id,
+          action: 'deny',
+        }),
+      });
+      addRunEvent({
+        timestamp: Date.now() / 1000,
+        event_type: 'callback_end',
+        agent_name: 'sandbox',
+        data: { message: `❌ Denied: ${pendingApproval.host}` }
+      });
+    } catch (e) {
+      console.error('Failed to deny:', e);
+    }
+    setPendingApproval(null);
+  }, [pendingApproval, project, addRunEvent]);
   
   // Keyboard shortcuts
   useEffect(() => {
@@ -3398,6 +3497,29 @@ export default function RunPanel() {
             Run
           </button>
         )}
+        
+        {/* Sandbox mode toggle */}
+        <label 
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '4px', 
+            marginLeft: '12px',
+            fontSize: '11px',
+            color: sandboxMode ? '#22d3ee' : '#71717a',
+            cursor: 'pointer',
+          }}
+          title="Run in isolated Docker container"
+        >
+          <input
+            type="checkbox"
+            checked={sandboxMode}
+            onChange={(e) => setSandboxMode(e.target.checked)}
+            disabled={isRunning}
+            style={{ accentColor: '#22d3ee' }}
+          />
+          🐳 Sandbox
+        </label>
       </div>
       
       {/* Toolbar */}
@@ -3800,6 +3922,17 @@ export default function RunPanel() {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Network Approval Dialog for sandbox mode */}
+      {pendingApproval && (
+        <NetworkApprovalDialog
+          request={pendingApproval}
+          timeout={pendingApproval.timeout || 30}
+          onApprove={handleApprove}
+          onDeny={handleDeny}
+          onClose={() => setPendingApproval(null)}
+        />
       )}
     </div>
   );

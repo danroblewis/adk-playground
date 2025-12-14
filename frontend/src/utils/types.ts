@@ -354,12 +354,13 @@ export interface SandboxInstance {
 }
 
 export interface ApprovalRequest {
-  request_id: string;
+  id: string;          // Request ID from gateway
   host: string;
   url: string;
   method: string;
   headers?: Record<string, string>;
   source: string;
-  timestamp: number;
+  timeout?: number;    // Seconds until auto-deny
+  timestamp?: number;
 }
 

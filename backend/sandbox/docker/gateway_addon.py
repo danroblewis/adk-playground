@@ -233,6 +233,34 @@ class AllowlistGateway:
         
         return approved
 
+    def tls_clienthello(self, data):
+        """Handle TLS client hello - passthrough for LLM providers.
+        
+        This avoids MITM'ing HTTPS connections to LLM APIs, which would
+        cause SSL certificate verification failures in the agent.
+        """
+        # Get the Server Name Indication (SNI) from the client hello
+        sni = data.context.client.sni
+        if sni:
+            # Check if this is an LLM provider domain
+            sni_lower = sni.lower()
+            if self._is_llm_provider(sni_lower):
+                logger.info(f"[PASSTHROUGH] TLS to LLM provider: {sni}")
+                # Tell mitmproxy to ignore this connection (passthrough)
+                data.ignore_connection = True
+                return
+            
+            # Also passthrough for Google OAuth/auth domains
+            if any(domain in sni_lower for domain in [
+                "accounts.google.com",
+                "oauth2.googleapis.com",
+                "www.googleapis.com",
+                "storage.googleapis.com",
+            ]):
+                logger.info(f"[PASSTHROUGH] TLS to Google service: {sni}")
+                data.ignore_connection = True
+                return
+
     def request(self, flow: http.HTTPFlow):
         """Handle incoming request."""
         host = flow.request.host
@@ -402,4 +430,123 @@ class AllowlistGateway:
 
 # Global addon instance
 gateway = AllowlistGateway()
+
+
+# =============================================================================
+# Embedded Control API
+# Runs in the SAME process as mitmproxy to share state
+# =============================================================================
+
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
+
+class ControlHandler(BaseHTTPRequestHandler):
+    """HTTP handler for gateway control commands."""
+    
+    def log_message(self, format, *args):
+        """Suppress logging."""
+        pass
+    
+    def _send_json(self, data: dict, status: int = 200):
+        """Send JSON response."""
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode("utf-8"))
+    
+    def do_OPTIONS(self):
+        """Handle CORS preflight."""
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+    
+    def do_GET(self):
+        """Handle GET requests."""
+        if self.path == "/health":
+            self._send_json({"status": "ok"})
+        elif self.path == "/status":
+            self._send_json({
+                "status": "ok",
+                "exact_patterns": len(gateway.exact_patterns),
+                "wildcard_patterns": len(gateway.wildcard_patterns),
+                "regex_patterns": len(gateway.regex_patterns),
+                "pending_requests": len(gateway.pending_approvals),
+                "app_id": gateway.app_id,
+                "unknown_action": gateway.unknown_action,
+            })
+        elif self.path == "/pending":
+            pending_ids = gateway.get_pending_requests()
+            self._send_json({
+                "pending": pending_ids,
+                "count": len(pending_ids),
+            })
+        else:
+            self._send_json({"error": "Not found"}, 404)
+    
+    def do_POST(self):
+        """Handle POST requests."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8")
+        
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            self._send_json({"error": "Invalid JSON"}, 400)
+            return
+        
+        if self.path == "/add_pattern":
+            pattern = data.get("pattern")
+            pattern_type = data.get("pattern_type", "exact")
+            if not pattern:
+                self._send_json({"error": "pattern required"}, 400)
+                return
+            success = gateway.add_pattern(pattern, pattern_type)
+            if success:
+                self._send_json({"status": "ok", "pattern": pattern})
+            else:
+                self._send_json({"error": "Failed to add pattern"}, 500)
+        elif self.path == "/approve":
+            request_id = data.get("request_id")
+            pattern = data.get("pattern")
+            pattern_type = data.get("pattern_type", "exact")
+            if not request_id:
+                self._send_json({"error": "request_id required"}, 400)
+                return
+            success = gateway.approve_request(request_id, pattern, pattern_type)
+            if success:
+                logger.info(f"Approved request {request_id}")
+                self._send_json({"status": "ok"})
+            else:
+                self._send_json({"error": "Request not found or already processed"}, 404)
+        elif self.path == "/deny":
+            request_id = data.get("request_id")
+            if not request_id:
+                self._send_json({"error": "request_id required"}, 400)
+                return
+            success = gateway.deny_request(request_id)
+            if success:
+                logger.info(f"Denied request {request_id}")
+                self._send_json({"status": "ok"})
+            else:
+                self._send_json({"error": "Request not found or already processed"}, 404)
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+
+def start_control_server(port: int = 8081):
+    """Start the control API server in a background thread."""
+    server = HTTPServer(("0.0.0.0", port), ControlHandler)
+    logger.info(f"Control API listening on port {port}")
+    server.serve_forever()
+
+
+# Start control server when mitmproxy loads the addon
+control_thread = threading.Thread(target=start_control_server, daemon=True)
+control_thread.start()
+
+
 addons = [gateway]

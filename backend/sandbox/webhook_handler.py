@@ -60,7 +60,7 @@ class SandboxEvents:
                 source=data.get("source", "agent"),
                 matched_pattern=data.get("matched_pattern"),
                 is_llm_provider=data.get("is_llm_provider", False),
-                headers=data.get("headers"),
+                headers=data.get("headers") or {},  # Handle None
             )
             self.network_requests[request_id] = request
             existing = request
@@ -119,6 +119,15 @@ class WebhookHandler:
             if app_id not in self.sandboxes:
                 self.sandboxes[app_id] = SandboxEvents(app_id=app_id)
             return self.sandboxes[app_id]
+    
+    async def clear(self, app_id: str):
+        """Clear all events for an app (call when starting a new sandbox)."""
+        async with self._lock:
+            if app_id in self.sandboxes:
+                old_events = len(self.sandboxes[app_id].network_requests)
+                old_pending = len(self.sandboxes[app_id].pending_approvals)
+                self.sandboxes[app_id] = SandboxEvents(app_id=app_id)
+                logger.info(f"Cleared cached events for {app_id}: had {old_events} requests, {old_pending} pending")
     
     async def handle_event(self, event_type: str, app_id: str, data: dict):
         """Handle an incoming webhook event."""

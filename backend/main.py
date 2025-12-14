@@ -848,6 +848,7 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         return
     
     session_id = None
+    sandbox_instance = None
     try:
         await websocket.accept()
         
@@ -856,13 +857,123 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
         user_message = data.get("message", "")
         requested_session_id = data.get("session_id")  # Optional: reuse existing session
         agent_id = data.get("agent_id")  # Optional: run specific agent instead of root
+        sandbox_mode = data.get("sandbox_mode", False)  # Run in Docker sandbox
         
         session_id = None  # Will be set from first event
         
         async def event_callback(event: RunEvent):
             await connection_manager.send_event(session_id, event.model_dump(mode="json"))
         
-        # Run the agent (optionally a specific agent instead of root, optionally reuse session)
+        # Check if sandbox mode requested
+        if sandbox_mode and SANDBOX_AVAILABLE:
+            # Run in Docker sandbox
+            await websocket.send_json({"type": "sandbox_starting"})
+            
+            from sandbox.docker_manager import get_sandbox_manager
+            from sandbox.models import SandboxConfig
+            from sandbox.webhook_handler import webhook_handler
+            
+            sandbox_manager = get_sandbox_manager()
+            app_id = project.app.id if project.app else project_id
+            
+            # Clear any cached events from previous runs BEFORE starting
+            await webhook_handler.clear(app_id)
+            
+            logger.info(f"🚀 Starting sandbox: manager id={id(sandbox_manager)}, app_id={app_id}")
+            
+            # Initialize sandbox if not already done
+            if not sandbox_manager._initialized:
+                await sandbox_manager.initialize()
+            
+            # Get workspace path (use PROJECTS_DIR / project_id)
+            workspace_path = PROJECTS_DIR / project_id if PROJECTS_DIR.exists() else Path.cwd()
+            
+            # Start or get existing sandbox
+            config = SandboxConfig(enabled=True)
+            sandbox_instance = await sandbox_manager.start_sandbox(
+                app_id=app_id,
+                config=config,
+                project_config=project.model_dump(),
+                workspace_path=workspace_path,
+            )
+            
+            await websocket.send_json({
+                "type": "sandbox_started",
+                "sandbox_id": app_id,
+                "gateway_port": sandbox_instance.gateway_container_id[:12] if sandbox_instance.gateway_container_id else None,
+            })
+            
+            # Set up event streaming from webhook
+            logger.info(f"📝 Subscribing to events for app_id={app_id}")
+            events_storage = await webhook_handler.get_or_create(app_id)
+            event_queue: asyncio.Queue = asyncio.Queue()
+            
+            # Subscriber to forward events to queue immediately
+            def on_event(event_data):
+                event_type = event_data.get("type")
+                logger.info(f"📩 WebSocket received event: {event_type}")
+                if event_type == "agent_event":
+                    event_queue.put_nowait(event_data.get("data", {}))
+                elif event_type == "network_request":
+                    # Forward network request events (including approval_required)
+                    event_queue.put_nowait({
+                        "type": "network_request",
+                        **event_data.get("data", {})
+                    })
+            
+            events_storage.subscribe(on_event)
+            logger.info(f"📝 Subscribed, {len(events_storage.subscribers)} total subscribers")
+            session_sent = False
+            
+            try:
+                # Start the agent run WITHOUT waiting for completion
+                # The container will post events to /api/sandbox/event as they happen
+                async def run_agent_background():
+                    return await sandbox_manager.send_message(
+                        app_id, 
+                        user_message, 
+                        requested_session_id,
+                        project_config=project.model_dump(),
+                    )
+                
+                agent_task = asyncio.create_task(run_agent_background())
+                
+                # Stream events as they arrive via webhook
+                while not agent_task.done():
+                    try:
+                        event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                        # Send session_started on first event with session_id
+                        if not session_sent:
+                            sess_id = event.get("session_id") or event.get("data", {}).get("session_id")
+                            if sess_id:
+                                await websocket.send_json({"type": "session_started", "session_id": sess_id})
+                                session_sent = True
+                        await websocket.send_json(event)
+                    except asyncio.TimeoutError:
+                        continue
+                
+                # Get the result
+                result = await agent_task
+                
+                # Drain any remaining events
+                while not event_queue.empty():
+                    event = event_queue.get_nowait()
+                    await websocket.send_json(event)
+                
+                # Check for errors
+                if "error" in result:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": result["error"],
+                    })
+                
+                await websocket.send_json({"type": "completed"})
+            finally:
+                events_storage.unsubscribe(on_event)
+            
+            return
+        
+        # Run the agent locally (optionally a specific agent instead of root, optionally reuse session)
         async for event in runtime_manager.run_agent(
             project, 
             user_message, 

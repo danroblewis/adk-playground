@@ -33,20 +33,192 @@ PROJECT_CONFIG_PATH = os.environ.get("PROJECT_CONFIG_PATH", "/config/project.jso
 API_PORT = int(os.environ.get("API_PORT", "5000"))
 
 
+class TrackingPlugin:
+    """Plugin that tracks all events during agent execution.
+    
+    This mirrors the TrackingPlugin from runtime.py to capture
+    model_call, model_response, tool_call, tool_result, etc.
+    """
+    
+    def __init__(self, emit_callback):
+        self.emit_callback = emit_callback
+        self.token_counts = {"input": 0, "output": 0}
+    
+    async def _emit(self, event: Dict[str, Any]):
+        """Emit an event."""
+        await self.emit_callback(event)
+    
+    async def before_agent_callback(self, *, agent, callback_context, **kwargs):
+        await self._emit({
+            "event_type": "agent_start",
+            "timestamp": time.time(),
+            "agent_name": agent.name,
+            "data": {"instruction": getattr(agent, "instruction", "") or ""},
+        })
+        return None
+    
+    async def after_agent_callback(self, *, agent, callback_context, **kwargs):
+        await self._emit({
+            "event_type": "agent_end",
+            "timestamp": time.time(),
+            "agent_name": agent.name,
+            "data": {},
+        })
+        return None
+    
+    async def on_event_callback(self, *, invocation_context, event, **kwargs):
+        if hasattr(event, "actions") and event.actions and event.actions.state_delta:
+            await self._emit({
+                "event_type": "state_change",
+                "timestamp": time.time(),
+                "agent_name": getattr(event, "author", None) or "system",
+                "data": {"state_delta": dict(event.actions.state_delta)},
+            })
+        return None
+    
+    async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
+        contents = self._serialize_contents(getattr(llm_request, "contents", None))
+        
+        system_instruction = None
+        if hasattr(llm_request, "config") and llm_request.config:
+            si = getattr(llm_request.config, "system_instruction", None)
+            if si:
+                if isinstance(si, str):
+                    system_instruction = si
+                elif hasattr(si, "parts"):
+                    system_instruction = "".join(
+                        getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
+                    )
+        
+        tool_names = list(getattr(llm_request, "tools_dict", {}).keys())
+        
+        await self._emit({
+            "event_type": "model_call",
+            "timestamp": time.time(),
+            "agent_name": getattr(callback_context, "agent_name", None) or "system",
+            "data": {
+                "contents": contents,
+                "system_instruction": system_instruction,
+                "tool_names": tool_names,
+                "tool_count": len(tool_names),
+            },
+        })
+        return None
+    
+    async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
+        response_parts = []
+        if hasattr(llm_response, "content") and llm_response.content:
+            if hasattr(llm_response.content, "parts"):
+                for part in llm_response.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        part_data = {"type": "text", "text": part.text}
+                        if hasattr(part, "thought") and part.thought:
+                            part_data["thought"] = True
+                        response_parts.append(part_data)
+                    elif hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        response_parts.append({
+                            "type": "function_call",
+                            "name": getattr(fc, "name", "unknown"),
+                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
+                        })
+        
+        if hasattr(llm_response, "usage_metadata") and llm_response.usage_metadata:
+            usage = llm_response.usage_metadata
+            self.token_counts["input"] += getattr(usage, "prompt_token_count", 0) or 0
+            self.token_counts["output"] += getattr(usage, "candidates_token_count", 0) or 0
+        
+        await self._emit({
+            "event_type": "model_response",
+            "timestamp": time.time(),
+            "agent_name": getattr(callback_context, "agent_name", None) or "system",
+            "data": {"parts": response_parts, "token_counts": dict(self.token_counts)},
+        })
+        return None
+    
+    async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
+        await self._emit({
+            "event_type": "tool_call",
+            "timestamp": time.time(),
+            "agent_name": getattr(tool_context, "agent_name", None) or "system",
+            "data": {"tool_name": tool.name, "args": tool_args},
+        })
+        return None
+    
+    async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
+        if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
+            await self._emit({
+                "event_type": "state_change",
+                "timestamp": time.time(),
+                "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                "data": {"state_delta": dict(tool_context._event_actions.state_delta)},
+            })
+        
+        await self._emit({
+            "event_type": "tool_result",
+            "timestamp": time.time(),
+            "agent_name": getattr(tool_context, "agent_name", None) or "system",
+            "data": {"tool_name": tool.name, "result": result},
+        })
+        return None
+    
+    def _serialize_contents(self, contents) -> list:
+        if not contents:
+            return []
+        
+        result = []
+        for content in contents:
+            content_data = {"role": getattr(content, "role", "unknown"), "parts": []}
+            
+            if hasattr(content, "parts") and content.parts:
+                for part in content.parts:
+                    part_data = {}
+                    if hasattr(part, "text") and part.text:
+                        part_data = {"type": "text", "text": part.text}
+                    elif hasattr(part, "function_call") and part.function_call:
+                        fc = part.function_call
+                        part_data = {
+                            "type": "function_call",
+                            "name": getattr(fc, "name", "unknown"),
+                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
+                        }
+                    elif hasattr(part, "function_response") and part.function_response:
+                        fr = part.function_response
+                        part_data = {
+                            "type": "function_response",
+                            "name": getattr(fr, "name", "unknown"),
+                            "response": getattr(fr, "response", None),
+                        }
+                    if part_data:
+                        content_data["parts"].append(part_data)
+            
+            result.append(content_data)
+        
+        return result
+
+
 class AgentRunner:
     """Runs ADK agents inside the sandbox."""
     
     def __init__(self):
-        self.project_config: Optional[Dict[str, Any]] = None
+        self.generated_code: Optional[str] = None
+        self.project_name: Optional[str] = None
+        self.app_id: Optional[str] = None
         self.running = False
         self.session_id: Optional[str] = None
         self.events: List[Dict[str, Any]] = []
         self._event_queue: asyncio.Queue = asyncio.Queue()
     
-    async def load_project(self, config: Dict[str, Any]):
-        """Load project configuration."""
-        self.project_config = config
-        logger.info(f"Loaded project: {config.get('name', 'unknown')}")
+    async def load_project(self, data: Dict[str, Any]):
+        """Load generated Python code for the project.
+        
+        Args:
+            data: Dict with 'code' (generated Python code), 'project_name', and 'app_id'
+        """
+        self.generated_code = data.get("code")
+        self.project_name = data.get("project_name", "sandbox_app")
+        self.app_id = data.get("app_id")
+        logger.info(f"Loaded project: {self.project_name} (app_id={self.app_id}, {len(self.generated_code or '')} chars)")
     
     async def run_agent(
         self,
@@ -58,7 +230,7 @@ class AgentRunner:
         Returns:
             The session ID
         """
-        if not self.project_config:
+        if not self.generated_code:
             raise ValueError("No project loaded")
         
         self.session_id = session_id or str(uuid.uuid4())[:8]
@@ -76,10 +248,54 @@ class AgentRunner:
             from google.adk.sessions.in_memory_session_service import InMemorySessionService
             from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
             from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+            from google.adk.plugins import BasePlugin
             from google.genai import types
             
+            # Create tracking plugin to capture all events
+            tracker = TrackingPlugin(emit_callback=self._emit_event)
+            
+            # Wrap tracker as BasePlugin
+            class TrackingPluginWrapper(BasePlugin):
+                def __init__(self, tracker):
+                    super().__init__(name="tracking")
+                    self.tracker = tracker
+                
+                async def before_agent_callback(self, *, agent, callback_context):
+                    return await self.tracker.before_agent_callback(agent=agent, callback_context=callback_context)
+                
+                async def after_agent_callback(self, *, agent, callback_context):
+                    return await self.tracker.after_agent_callback(agent=agent, callback_context=callback_context)
+                
+                async def before_model_callback(self, *, callback_context, llm_request):
+                    return await self.tracker.before_model_callback(callback_context=callback_context, llm_request=llm_request)
+                
+                async def after_model_callback(self, *, callback_context, llm_response):
+                    return await self.tracker.after_model_callback(callback_context=callback_context, llm_response=llm_response)
+                
+                async def before_tool_callback(self, *, tool, tool_args, tool_context):
+                    return await self.tracker.before_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context)
+                
+                async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
+                    return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, result=result)
+                
+                async def on_event_callback(self, *, invocation_context, event):
+                    return await self.tracker.on_event_callback(invocation_context=invocation_context, event=event)
+            
             # Execute the generated code to get the app
-            app = await self._build_app()
+            logger.info(f"Executing generated code ({len(self.generated_code)} chars)")
+            namespace = {"__builtins__": __builtins__, "__name__": "__main__"}
+            exec(compile(self.generated_code, "<generated>", "exec"), namespace)
+            
+            if "app" not in namespace:
+                raise ValueError("Generated code did not produce an 'app' variable")
+            
+            app = namespace["app"]
+            
+            # Add tracking plugin to the app
+            if hasattr(app, "plugins") and app.plugins is not None:
+                app.plugins.append(TrackingPluginWrapper(tracker))
+            else:
+                app.plugins = [TrackingPluginWrapper(tracker)]
             
             # Create services
             session_service = InMemorySessionService()
@@ -101,14 +317,7 @@ class AgentRunner:
                 session_id=self.session_id,
             )
             
-            # Emit start event
-            await self._emit_event({
-                "type": "agent_start",
-                "session_id": adk_session.id,
-                "timestamp": time.time(),
-            })
-            
-            # Run the agent
+            # Run the agent - events are captured by the TrackingPlugin callbacks
             content = types.Content(
                 role="user",
                 parts=[types.Part.from_text(text=user_message)],
@@ -121,25 +330,7 @@ class AgentRunner:
             ):
                 if not self.running:
                     break
-                
-                # Convert event to dict and emit
-                event_data = self._serialize_event(event)
-                await self._emit_event(event_data)
-            
-            # Get final state
-            final_session = await runner.session_service.get_session(
-                app_name=app.name,
-                user_id=adk_session.user_id,
-                session_id=adk_session.id,
-            )
-            
-            # Emit end event
-            await self._emit_event({
-                "type": "agent_end",
-                "session_id": adk_session.id,
-                "timestamp": time.time(),
-                "final_state": dict(final_session.state) if final_session else {},
-            })
+                # Events are handled by TrackingPlugin callbacks, not here
             
             await runner.close()
             
@@ -155,113 +346,29 @@ class AgentRunner:
         
         return self.session_id
     
-    async def _build_app(self):
-        """Build the ADK app from project config."""
-        # This is a simplified version - the real implementation
-        # would generate code similar to code_generator.py
-        from google.adk import Agent
-        from google.adk.apps import App
-        
-        config = self.project_config
-        app_config = config.get("app", {})
-        agents = config.get("agents", [])
-        
-        # Find root agent
-        root_agent_id = app_config.get("root_agent_id")
-        if not root_agent_id and agents:
-            root_agent_id = agents[0].get("id")
-        
-        # Build agents (simplified)
-        agent_map = {}
-        for agent_config in agents:
-            agent = Agent(
-                name=agent_config.get("name", agent_config.get("id")),
-                model=self._get_model_string(agent_config),
-                instruction=agent_config.get("instruction", ""),
-                description=agent_config.get("description", ""),
-            )
-            agent_map[agent_config.get("id")] = agent
-        
-        # Get root agent
-        root_agent = agent_map.get(root_agent_id)
-        if not root_agent:
-            # Create a default agent
-            root_agent = Agent(
-                name="assistant",
-                model="gemini-2.0-flash",
-                instruction="You are a helpful assistant.",
-            )
-        
-        # Create app
-        app = App(
-            name=app_config.get("name", config.get("name", "sandbox_app")),
-            root_agent=root_agent,
-        )
-        
-        return app
     
-    def _get_model_string(self, agent_config: Dict[str, Any]) -> str:
-        """Get model string from agent config."""
-        model_config = agent_config.get("model", {})
-        if not model_config:
-            return "gemini-2.0-flash"
-        
-        provider = model_config.get("provider", "gemini")
-        model_name = model_config.get("model_name", "gemini-2.0-flash")
-        
-        if provider == "gemini":
-            return model_name
-        else:
-            return f"{provider}/{model_name}"
-    
-    def _serialize_event(self, event) -> Dict[str, Any]:
-        """Serialize an ADK event to dict."""
-        data = {
-            "type": "event",
-            "timestamp": time.time(),
-            "author": getattr(event, "author", None),
-        }
-        
-        if hasattr(event, "content") and event.content:
-            parts = []
-            if hasattr(event.content, "parts"):
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        parts.append({"type": "text", "text": part.text})
-                    elif hasattr(part, "function_call") and part.function_call:
-                        fc = part.function_call
-                        parts.append({
-                            "type": "function_call",
-                            "name": getattr(fc, "name", "unknown"),
-                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
-                        })
-                    elif hasattr(part, "function_response") and part.function_response:
-                        fr = part.function_response
-                        parts.append({
-                            "type": "function_response",
-                            "name": getattr(fr, "name", "unknown"),
-                            "response": getattr(fr, "response", None),
-                        })
-            data["parts"] = parts
-        
-        return data
     
     async def _emit_event(self, event: Dict[str, Any]):
         """Emit an event to the queue and notify host."""
         self.events.append(event)
         await self._event_queue.put(event)
         
-        # Also send to host webhook
+        # Also send to host webhook with app_id
+        # Must use proxy since we're on an internal network
+        proxy_url = os.environ.get("HTTP_PROXY")
         try:
+            event_with_app_id = {**event, "app_id": self.app_id}
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{HOST_URL}/api/sandbox/event",
-                    json=event,
+                    json=event_with_app_id,
+                    proxy=proxy_url,  # Route through gateway
                     timeout=aiohttp.ClientTimeout(total=5),
                 ) as resp:
-                    pass
+                    if resp.status != 200:
+                        logger.warning(f"Event webhook returned {resp.status}")
         except Exception as e:
-            logger.debug(f"Failed to notify host: {e}")
+            logger.warning(f"Failed to notify host: {e}")
     
     def stop(self):
         """Stop the current run."""
@@ -290,17 +397,34 @@ async def run_agent(request: web.Request) -> web.Response:
     data = await request.json()
     user_message = data.get("message", "")
     session_id = data.get("session_id")
+    wait_for_completion = data.get("wait", True)  # Default to sync mode
     
     if not user_message:
         return web.json_response({"error": "message required"}, status=400)
     
-    # Run in background
-    asyncio.create_task(runner.run_agent(user_message, session_id))
-    
-    return web.json_response({
-        "status": "started",
-        "session_id": runner.session_id,
-    })
+    if wait_for_completion:
+        # Run synchronously and wait for completion
+        try:
+            result_session_id = await runner.run_agent(user_message, session_id)
+            return web.json_response({
+                "status": "completed",
+                "session_id": result_session_id,
+                "events": runner.events,
+            })
+        except Exception as e:
+            logger.error(f"Agent run failed: {e}")
+            return web.json_response({
+                "status": "error",
+                "error": str(e),
+                "events": runner.events,
+            }, status=500)
+    else:
+        # Run in background (async mode)
+        asyncio.create_task(runner.run_agent(user_message, session_id))
+        return web.json_response({
+            "status": "started",
+            "session_id": runner.session_id,
+        })
 
 
 async def stop_agent(request: web.Request) -> web.Response:

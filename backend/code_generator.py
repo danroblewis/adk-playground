@@ -62,9 +62,9 @@ def generate_tool_code(tool: ToolConfig, project: Project, agent_var_names: Dict
         return tool.name or "custom_tool"
     elif tool_type == "agent":
         agent_id = getattr(tool, "agent_id", None)
-        if agent_id:
-            return f"AgentTool(agent={agent_var_names.get(agent_id, 'sub_agent')})"
-        return "AgentTool(agent=sub_agent)"
+        if agent_id and agent_id in agent_var_names:
+            return f"AgentTool(agent={agent_var_names[agent_id]})"
+        return ""  # Skip if agent doesn't exist
     elif tool_type == "mcp":
         if tool.server and tool.server.name:
             return f"{tool.server.name}_tools"
@@ -180,8 +180,10 @@ def generate_agent_code(
         
         # Sub-agents
         if hasattr(agent, "sub_agents") and agent.sub_agents:
-            sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in agent.sub_agents]
-            params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+            # Only include sub-agents that exist in agent_var_names
+            sub_agent_vars = [agent_var_names[sid] for sid in agent.sub_agents if sid in agent_var_names]
+            if sub_agent_vars:
+                params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         
         # Include contents
         if hasattr(agent, "include_contents") and agent.include_contents == "none":
@@ -253,8 +255,9 @@ def generate_agent_code(
     
     elif isinstance(agent, SequentialAgentConfig) or agent.type == "SequentialAgent":
         params = [f'name="{agent.name}"']
-        sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in (agent.sub_agents or [])]
-        params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+        sub_agent_vars = [agent_var_names[sid] for sid in (agent.sub_agents or []) if sid in agent_var_names]
+        if sub_agent_vars:
+            params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         # Add agent callbacks for SequentialAgent
         for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
             if hasattr(agent, callback_type):
@@ -267,8 +270,9 @@ def generate_agent_code(
     
     elif isinstance(agent, LoopAgentConfig) or agent.type == "LoopAgent":
         params = [f'name="{agent.name}"']
-        sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in (agent.sub_agents or [])]
-        params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+        sub_agent_vars = [agent_var_names[sid] for sid in (agent.sub_agents or []) if sid in agent_var_names]
+        if sub_agent_vars:
+            params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         if hasattr(agent, "max_iterations") and agent.max_iterations:
             params.append(f"max_iterations={agent.max_iterations}")
         # Add agent callbacks for LoopAgent
@@ -283,8 +287,9 @@ def generate_agent_code(
     
     elif isinstance(agent, ParallelAgentConfig) or agent.type == "ParallelAgent":
         params = [f'name="{agent.name}"']
-        sub_agent_vars = [agent_var_names.get(sid, "sub_agent") for sid in (agent.sub_agents or [])]
-        params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
+        sub_agent_vars = [agent_var_names[sid] for sid in (agent.sub_agents or []) if sid in agent_var_names]
+        if sub_agent_vars:
+            params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         # Add agent callbacks for ParallelAgent
         for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
             if hasattr(agent, callback_type):

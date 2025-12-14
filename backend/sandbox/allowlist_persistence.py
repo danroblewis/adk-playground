@@ -27,7 +27,7 @@ DEFAULT_SANDBOX_CONFIG = {
         "user": [],
     },
     "unknown_action": "ask",
-    "approval_timeout": 30,
+    "approval_timeout": 120,
     "agent_memory_limit_mb": 512,
     "agent_cpu_limit": 1.0,
     "mcp_memory_limit_mb": 256,

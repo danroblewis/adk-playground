@@ -10,18 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-# Core ADK and commonly used MCP servers
+# Core ADK and common packages (MCP servers are optional)
 RUN pip install --no-cache-dir \
     google-adk \
     aiohttp \
     httpx \
     pyyaml \
-    mcp \
-    mcp-server-filesystem \
-    mcp-server-fetch \
-    mcp-server-time \
-    mcp-server-sqlite \
-    mcp-server-memory
+    mcp || true
 
 # Copy agent runner and MCP spawner scripts
 COPY agent_runner.py /app/agent_runner.py
@@ -35,10 +30,10 @@ RUN mkdir -p /workspace
 # Expose port for agent API
 EXPOSE 5000
 
-# Environment variables for proxy (will be set by docker_manager)
-ENV HTTP_PROXY=http://gateway:8080
-ENV HTTPS_PROXY=http://gateway:8080
-ENV NO_PROXY=localhost,127.0.0.1,gateway
+# Environment variables for proxy (optional - set by docker_manager if gateway is enabled)
+# ENV HTTP_PROXY=http://gateway:8080
+# ENV HTTPS_PROXY=http://gateway:8080
+# ENV NO_PROXY=localhost,127.0.0.1,gateway
 
 # Environment variables for configuration
 ENV PROJECT_CONFIG_PATH=/app/config.yaml

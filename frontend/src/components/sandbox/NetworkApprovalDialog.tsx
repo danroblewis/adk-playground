@@ -10,10 +10,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   AlertTriangle, X, Shield, Check, Ban, 
-  ChevronDown, Clock, TestTube
+  ChevronDown, Clock
 } from 'lucide-react';
 import type { ApprovalRequest, PatternType } from '../../utils/types';
-import { PatternTester } from './PatternTester';
 
 interface NetworkApprovalDialogProps {
   request: ApprovalRequest;
@@ -43,10 +42,6 @@ function getPatternSuggestions(url: string): Array<{ pattern: string; label: str
         pattern: `*.${baseDomain}`, 
         label: `*.${baseDomain} (all subdomains)` 
       });
-      suggestions.push({ 
-        pattern: `*.${baseDomain}/*`, 
-        label: `*.${baseDomain}/* (full wildcard)` 
-      });
     }
     
     // Add path-specific pattern
@@ -65,6 +60,209 @@ function getPatternSuggestions(url: string): Array<{ pattern: string; label: str
     return [{ pattern: url, label: url }];
   }
 }
+
+// Styles
+const styles = {
+  overlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+  dialog: {
+    backgroundColor: '#12121a',
+    border: '1px solid rgba(245, 158, 11, 0.5)',
+    borderRadius: 8,
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+    width: 500,
+    maxWidth: '90vw',
+    overflow: 'hidden',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderBottom: '1px solid #374151',
+    backgroundColor: 'rgba(120, 53, 15, 0.2)',
+  },
+  headerIcon: {
+    color: '#fbbf24',
+  },
+  headerTitle: {
+    fontWeight: 600,
+    color: '#fcd34d',
+    fontSize: 14,
+  },
+  closeButton: {
+    marginLeft: 'auto',
+    background: 'none',
+    border: 'none',
+    color: '#6b7280',
+    cursor: 'pointer',
+    padding: 4,
+    display: 'flex',
+    alignItems: 'center',
+  },
+  content: {
+    padding: 16,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 16,
+  },
+  sourceText: {
+    fontSize: 13,
+    color: '#9ca3af',
+  },
+  requestBox: {
+    backgroundColor: '#0a0a0f',
+    borderRadius: 6,
+    border: '1px solid #374151',
+    padding: 12,
+    fontFamily: "'SF Mono', 'Consolas', monospace",
+    fontSize: 13,
+  },
+  methodBadge: (method: string) => ({
+    fontWeight: 700,
+    color: method === 'POST' ? '#4ade80' : method === 'GET' ? '#60a5fa' : '#9ca3af',
+    marginRight: 8,
+  }),
+  urlText: {
+    color: '#d1d5db',
+    wordBreak: 'break-all' as const,
+  },
+  headersText: {
+    marginTop: 8,
+    fontSize: 11,
+    color: '#6b7280',
+  },
+  label: {
+    fontSize: 13,
+    color: '#9ca3af',
+    marginBottom: 6,
+  },
+  select: {
+    width: '100%',
+    padding: '10px 12px',
+    backgroundColor: '#1a1a24',
+    border: '1px solid #4b5563',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#e5e7eb',
+    cursor: 'pointer',
+    appearance: 'none' as const,
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 12px center',
+    paddingRight: 36,
+  },
+  customInput: {
+    width: '100%',
+    padding: '10px 12px',
+    backgroundColor: '#1a1a24',
+    border: '1px solid #4b5563',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#e5e7eb',
+    fontFamily: "'SF Mono', 'Consolas', monospace",
+  },
+  radioGroup: {
+    display: 'flex',
+    gap: 16,
+    marginTop: 8,
+  },
+  radioLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 12,
+    color: '#9ca3af',
+    cursor: 'pointer',
+  },
+  backLink: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    color: '#6b7280',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+  },
+  checkboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 13,
+    color: '#9ca3af',
+    cursor: 'pointer',
+  },
+  footer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderTop: '1px solid #374151',
+    backgroundColor: '#0a0a0f',
+  },
+  button: (variant: 'deny' | 'once' | 'pattern') => {
+    const baseStyle = {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      padding: '8px 16px',
+      borderRadius: 6,
+      fontSize: 13,
+      fontWeight: 500,
+      cursor: 'pointer',
+      border: '1px solid',
+      transition: 'all 0.15s ease',
+    };
+    
+    switch (variant) {
+      case 'deny':
+        return {
+          ...baseStyle,
+          backgroundColor: 'rgba(220, 38, 38, 0.2)',
+          borderColor: 'rgba(239, 68, 68, 0.5)',
+          color: '#f87171',
+        };
+      case 'once':
+        return {
+          ...baseStyle,
+          backgroundColor: 'rgba(75, 85, 99, 0.2)',
+          borderColor: 'rgba(107, 114, 128, 0.5)',
+          color: '#d1d5db',
+        };
+      case 'pattern':
+        return {
+          ...baseStyle,
+          backgroundColor: 'rgba(22, 163, 74, 0.2)',
+          borderColor: 'rgba(34, 197, 94, 0.5)',
+          color: '#4ade80',
+        };
+    }
+  },
+  timerContainer: {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    color: '#6b7280',
+    fontSize: 13,
+  },
+  progressBar: {
+    height: 3,
+    backgroundColor: '#1f2937',
+  },
+  progressFill: (progress: number) => ({
+    height: '100%',
+    backgroundColor: '#f59e0b',
+    transition: 'width 1s linear',
+    width: `${progress}%`,
+  }),
+};
 
 export function NetworkApprovalDialog({
   request,
@@ -121,84 +319,76 @@ export function NetworkApprovalDialog({
   const sourceName = isMCP ? request.source.substring(4) : 'agent';
   
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[#12121a] border border-amber-500/50 rounded-lg shadow-2xl w-[500px] max-w-[90vw]">
+    <div style={styles.overlay}>
+      <div style={styles.dialog}>
         {/* Header */}
-        <div className="flex items-center gap-2 p-3 border-b border-gray-700 bg-amber-900/20">
-          <AlertTriangle className="text-amber-400" size={20} />
-          <span className="font-semibold text-amber-300">Network Request Approval</span>
-          <div className="flex-1" />
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300">
-            <X size={18} />
+        <div style={styles.header}>
+          <AlertTriangle size={18} style={styles.headerIcon} />
+          <span style={styles.headerTitle}>Network Request Approval</span>
+          <button style={styles.closeButton} onClick={onClose}>
+            <X size={16} />
           </button>
         </div>
         
         {/* Content */}
-        <div className="p-4 space-y-4">
+        <div style={styles.content}>
           {/* Source info */}
-          <div className="text-sm text-gray-400">
+          <div style={styles.sourceText}>
             {isMCP ? (
-              <>MCP server "<span className="text-cyan-400">{sourceName}</span>" wants to connect to:</>
+              <>MCP server "<span style={{ color: '#22d3ee' }}>{sourceName}</span>" wants to connect to:</>
             ) : (
               <>Agent wants to connect to:</>
             )}
           </div>
           
           {/* Request details */}
-          <div className="bg-[#0a0a0f] rounded border border-gray-700 p-3 font-mono text-sm">
-            <div className="flex items-center gap-2">
-              <span className={`font-bold ${
-                request.method === 'POST' ? 'text-green-400' :
-                request.method === 'GET' ? 'text-blue-400' :
-                'text-gray-400'
-              }`}>
+          <div style={styles.requestBox}>
+            <div>
+              <span style={styles.methodBadge(request.method)}>
                 {request.method}
               </span>
-              <span className="text-gray-300 break-all">{request.url}</span>
+              <span style={styles.urlText}>{request.url}</span>
             </div>
             {request.headers && Object.keys(request.headers).length > 0 && (
-              <div className="mt-2 text-xs text-gray-500">
+              <div style={styles.headersText}>
                 Headers: {Object.keys(request.headers).join(', ')}
               </div>
             )}
           </div>
           
           {/* Pattern selector */}
-          <div className="space-y-2">
-            <label className="text-sm text-gray-400">Allow pattern:</label>
+          <div>
+            <div style={styles.label}>Allow pattern:</div>
             
             {!showCustom ? (
-              <div className="relative">
-                <select
-                  value={selectedPattern}
-                  onChange={(e) => {
-                    if (e.target.value === '__custom__') {
-                      setShowCustom(true);
-                      setCustomPattern(selectedPattern);
-                    } else {
-                      setSelectedPattern(e.target.value);
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-[#1a1a24] border border-gray-600 rounded text-sm appearance-none pr-8"
-                >
-                  {suggestions.map((s) => (
-                    <option key={s.pattern} value={s.pattern}>{s.label}</option>
-                  ))}
-                  <option value="__custom__">Custom pattern...</option>
-                </select>
-                <ChevronDown size={14} className="absolute right-2 top-3 text-gray-500 pointer-events-none" />
-              </div>
+              <select
+                value={selectedPattern}
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setShowCustom(true);
+                    setCustomPattern(selectedPattern);
+                  } else {
+                    setSelectedPattern(e.target.value);
+                  }
+                }}
+                style={styles.select}
+              >
+                {suggestions.map((s) => (
+                  <option key={s.pattern} value={s.pattern}>{s.label}</option>
+                ))}
+                <option value="__custom__">Custom pattern...</option>
+              </select>
             ) : (
-              <div className="space-y-3">
+              <div>
                 <input
                   type="text"
                   value={customPattern}
                   onChange={(e) => setCustomPattern(e.target.value)}
                   placeholder="e.g., *.example.com/*"
-                  className="w-full px-3 py-2 bg-[#1a1a24] border border-gray-600 rounded text-sm font-mono"
+                  style={styles.customInput}
                 />
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-1 text-xs">
+                <div style={styles.radioGroup}>
+                  <label style={styles.radioLabel}>
                     <input
                       type="radio"
                       checked={patternType === 'wildcard'}
@@ -206,7 +396,7 @@ export function NetworkApprovalDialog({
                     />
                     Wildcard
                   </label>
-                  <label className="flex items-center gap-1 text-xs">
+                  <label style={styles.radioLabel}>
                     <input
                       type="radio"
                       checked={patternType === 'regex'}
@@ -216,85 +406,52 @@ export function NetworkApprovalDialog({
                   </label>
                   <button
                     onClick={() => setShowCustom(false)}
-                    className="ml-auto text-xs text-gray-500 hover:text-gray-300"
+                    style={styles.backLink}
                   >
                     ← Back to suggestions
                   </button>
                 </div>
-                
-                {/* Pattern tester */}
-                {customPattern && (
-                  <div className="border-t border-gray-700 pt-3">
-                    <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
-                      <TestTube size={12} />
-                      <span>Test Pattern</span>
-                    </div>
-                    <PatternTester
-                      pattern={customPattern}
-                      patternType={patternType}
-                      testUrls={[request.url]}
-                      showHelp={true}
-                    />
-                  </div>
-                )}
               </div>
             )}
           </div>
           
           {/* Persist checkbox */}
-          <label className="flex items-center gap-2 text-sm">
+          <label style={styles.checkboxLabel}>
             <input
               type="checkbox"
               checked={persist}
               onChange={(e) => setPersist(e.target.checked)}
-              className="rounded"
             />
-            <span className="text-gray-400">Save to project (persists across sessions)</span>
+            Save to project (persists across sessions)
           </label>
         </div>
         
         {/* Actions */}
-        <div className="flex items-center gap-2 p-3 border-t border-gray-700 bg-[#0a0a0f]">
-          <button
-            onClick={onDeny}
-            className="px-4 py-2 bg-red-600/20 border border-red-500/50 text-red-400 rounded hover:bg-red-600/30 flex items-center gap-2"
-          >
+        <div style={styles.footer}>
+          <button onClick={onDeny} style={styles.button('deny')}>
             <Ban size={14} />
             Deny
           </button>
-          <button
-            onClick={handleApproveOnce}
-            className="px-4 py-2 bg-gray-600/20 border border-gray-500/50 text-gray-300 rounded hover:bg-gray-600/30 flex items-center gap-2"
-          >
+          <button onClick={handleApproveOnce} style={styles.button('once')}>
             <Check size={14} />
             Allow Once
           </button>
-          <button
-            onClick={handleApprovePattern}
-            className="px-4 py-2 bg-green-600/20 border border-green-500/50 text-green-400 rounded hover:bg-green-600/30 flex items-center gap-2"
-          >
+          <button onClick={handleApprovePattern} style={styles.button('pattern')}>
             <Shield size={14} />
             Allow Pattern
           </button>
           
-          <div className="flex-1" />
-          
-          {/* Timeout */}
-          <div className="flex items-center gap-2 text-gray-500 text-sm">
+          <div style={styles.timerContainer}>
             <Clock size={14} />
             <span>{timeLeft}s</span>
           </div>
         </div>
         
         {/* Progress bar */}
-        <div className="h-1 bg-gray-800">
-          <div 
-            className="h-full bg-amber-500 transition-all duration-1000"
-            style={{ width: `${progress}%` }}
-          />
+        <div style={styles.progressBar}>
+          <div style={styles.progressFill(progress)} />
         </div>
       </div>
     </div>
   );
 }
-

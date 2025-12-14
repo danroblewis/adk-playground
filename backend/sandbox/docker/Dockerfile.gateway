@@ -22,7 +22,7 @@ EXPOSE 8080 8081
 ENV WEBHOOK_URL=http://host.docker.internal:8765/api/sandbox/webhook
 ENV APP_ID=unknown
 ENV UNKNOWN_ACTION=ask
-ENV APPROVAL_TIMEOUT=30
+ENV APPROVAL_TIMEOUT=120
 ENV ALLOWLIST=[]
 ENV CONTROL_PORT=8081
 
@@ -30,6 +30,5 @@ ENV CONTROL_PORT=8081
 HEALTHCHECK --interval=5s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -q --spider http://localhost:8081/health || exit 1
 
-# Start both mitmproxy and the control API
-# Using shell form to handle both processes
-CMD sh -c "python /app/gateway_control.py & exec mitmdump --mode regular --set block_global=false -s /app/gateway_addon.py"
+# Start mitmproxy with the addon (control API is embedded in the addon)
+CMD ["mitmdump", "--mode", "regular", "--set", "block_global=false", "-s", "/app/gateway_addon.py"]
