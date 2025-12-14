@@ -907,8 +907,7 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
             if not sandbox_manager._initialized:
                 await sandbox_manager.initialize()
             
-            # Get project file path - use same path as project_manager
-            from project_manager import project_manager
+            # Get project file path - use same path as project_manager (module-level)
             project_yaml_path = project_manager.get_project_path(project_id)
             if project_yaml_path:
                 workspace_path = Path(project_yaml_path)  # Use actual file path
