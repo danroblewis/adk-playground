@@ -214,6 +214,22 @@ class TrackingPlugin:
         except Exception as e:
             logger.error(f"Failed to emit event {event.get('event_type')}: {e}")
     
+    async def _emit_error(self, source: str, error: Exception, context: str = ""):
+        """Emit an error event that will show in the message list."""
+        import traceback
+        await self._emit({
+            "event_type": "callback_error",
+            "timestamp": time.time(),
+            "agent_name": "system",
+            "data": {
+                "source": source,
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "context": context,
+                "traceback": traceback.format_exc(),
+            },
+        })
+    
     async def before_agent_callback(self, *, agent, callback_context, **kwargs):
         try:
             await self._emit({
@@ -224,6 +240,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in before_agent_callback for {agent.name}: {e}")
+            await self._emit_error("before_agent_callback", e, f"agent={agent.name}")
         return None
     
     async def after_agent_callback(self, *, agent, callback_context, **kwargs):
@@ -236,6 +253,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in after_agent_callback for {agent.name}: {e}")
+            await self._emit_error("after_agent_callback", e, f"agent={agent.name}")
         return None
     
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
@@ -278,6 +296,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in before_model_callback: {e}")
+            await self._emit_error("before_model_callback", e, "")
         return None
     
     async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
@@ -312,6 +331,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in after_model_callback: {e}")
+            await self._emit_error("after_model_callback", e, "")
         return None
     
     async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
@@ -334,6 +354,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in before_tool_callback for {tool.name}: {e}")
+            await self._emit_error("before_tool_callback", e, f"tool={tool.name}")
         return None
     
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
@@ -361,6 +382,7 @@ class TrackingPlugin:
             })
         except Exception as e:
             logger.error(f"Error in after_tool_callback for {tool.name}: {e}")
+            await self._emit_error("after_tool_callback", e, f"tool={tool.name}")
         return None
     
     def _serialize_contents(self, contents) -> list:

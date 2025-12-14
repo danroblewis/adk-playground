@@ -19,6 +19,7 @@ const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> =
   tool_result: { bg: '#0d3331', fg: '#5eead4', border: '#14b8a6' },
   model_call: { bg: '#3d2f0d', fg: '#fde047', border: '#eab308' },
   model_response: { bg: '#3d2f0d', fg: '#fde047', border: '#eab308' },
+  callback_error: { bg: '#450a0a', fg: '#fca5a5', border: '#dc2626' },
   state_change: { bg: '#3d0d1f', fg: '#fda4af', border: '#f43f5e' },
   transfer: { bg: '#0d2d3d', fg: '#7dd3fc', border: '#0ea5e9' },
   callback_start: { bg: '#1a1a2e', fg: '#a29bfe', border: '#6c5ce7' },
@@ -38,6 +39,7 @@ const EVENT_ICONS: Record<string, React.FC<{ size: number }>> = {
   transfer: Zap,
   callback_start: Code,
   callback_end: Code,
+  callback_error: AlertTriangle,
 };
 
 // Single-line event summary renderer
@@ -96,6 +98,10 @@ function getEventSummary(event: RunEvent): string {
       const endCallbackType = event.data?.callback_type || '';
       const hadError = event.data?.error ? ' [ERROR]' : '';
       return `CALLBACK END ${endCallbackType ? `[${endCallbackType}]` : ''} ${endCallbackName}${hadError}`;
+    case 'callback_error':
+      const errorSource = event.data?.source || 'unknown';
+      const errorMsg = event.data?.error || 'Unknown error';
+      return `⚠️ ERROR in ${errorSource}: ${errorMsg.slice(0, 50)}${errorMsg.length > 50 ? '...' : ''}`;
     default:
       return event.event_type.toUpperCase();
   }
@@ -373,6 +379,44 @@ function EventDetail({ event }: { event: RunEvent }) {
                       </pre>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {event.event_type === 'callback_error' && (
+        <div className="detail-section" style={{ borderColor: '#dc2626' }}>
+          <div className="section-header" onClick={() => toggleSection('error_info')} style={{ color: '#fca5a5' }}>
+            {expandedSections.has('error_info') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>⚠️ Error Details</span>
+          </div>
+          {expandedSections.has('error_info') && (
+            <div className="section-content" style={{ color: '#fca5a5' }}>
+              <div><strong>Source:</strong> {event.data?.source || 'unknown'}</div>
+              <div><strong>Error Type:</strong> {event.data?.error_type || 'unknown'}</div>
+              <div style={{ marginTop: '8px' }}><strong>Message:</strong> {event.data?.error || 'No error message'}</div>
+              {event.data?.context && (
+                <div style={{ marginTop: '8px' }}><strong>Context:</strong> {event.data.context}</div>
+              )}
+              {event.data?.traceback && (
+                <div style={{ marginTop: '8px' }}>
+                  <strong>Stack Trace:</strong>
+                  <pre style={{ 
+                    marginTop: '4px', 
+                    padding: '8px', 
+                    backgroundColor: '#1a1a1a', 
+                    borderRadius: '4px',
+                    fontSize: '0.85em',
+                    overflow: 'auto',
+                    maxHeight: '400px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    color: '#fca5a5'
+                  }}>
+                    {event.data.traceback}
+                  </pre>
                 </div>
               )}
             </div>
@@ -1336,7 +1380,7 @@ export default function RunPanel() {
   const [selectedEventIndex, setSelectedEventIndex] = useState<number | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end']));
+  const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end', 'callback_error']));
   const [sandboxMode, setSandboxMode] = useState(true);  // Run in Docker sandbox (enabled by default)
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);  // Pending network approval request
   const [showLogsModal, setShowLogsModal] = useState(false);  // Show container logs modal
@@ -3653,7 +3697,7 @@ export default function RunPanel() {
         <div className="toolbar-divider" />
         
         <div className="toolbar-section">
-          {['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change'].map(type => (
+          {['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_error'].map(type => (
             <button
               key={type}
               className={`filter-chip ${eventTypeFilter.has(type) ? 'active' : ''}`}
