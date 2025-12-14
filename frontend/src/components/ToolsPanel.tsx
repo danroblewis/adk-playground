@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe, Sparkles, Loader } from 'lucide-react';
+import { Plus, Wrench, Trash2, Folder, FolderOpen, Code, Key, Save, Lock, Package, Server, Globe, Sparkles, Loader, RefreshCw } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { CustomToolDefinition, BuiltinTool, MCPServerConfig } from '../utils/types';
 import Editor, { Monaco } from '@monaco-editor/react';
@@ -1315,8 +1315,8 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           <>
             <div className="sidebar-header">
               <h3>MCP Servers ({projectMcpServers.length})</h3>
-              <button className="btn btn-secondary btn-sm" onClick={testAllMcpServers} title="Test all connections">
-                <Loader size={14} />
+              <button className="btn btn-secondary btn-sm" onClick={testAllMcpServers} title="Test all server connections">
+                <RefreshCw size={14} />
               </button>
             </div>
             <div className="mcp-servers-list">
@@ -1349,9 +1349,11 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
                           className="btn btn-sm" 
                           onClick={() => testMcpServerConnection(server.name)}
                           disabled={status === 'testing'}
-                          title="Test connection"
+                          title="Test server connection"
+                          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
                         >
-                          {status === 'testing' ? <Loader size={12} className="spin" /> : <Loader size={12} />}
+                          {status === 'testing' ? <Loader size={12} className="spin" /> : <RefreshCw size={12} />}
+                          <span style={{ fontSize: 11 }}>Test</span>
                         </button>
                       </div>
                     </div>
