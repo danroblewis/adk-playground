@@ -108,7 +108,7 @@ class TrackingPlugin:
     async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
         response_parts = []
         if hasattr(llm_response, "content") and llm_response.content:
-            if hasattr(llm_response.content, "parts"):
+            if hasattr(llm_response.content, "parts") and llm_response.content.parts:
                 for part in llm_response.content.parts:
                     if hasattr(part, "text") and part.text:
                         part_data = {"type": "text", "text": part.text}
