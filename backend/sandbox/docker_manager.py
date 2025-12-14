@@ -873,6 +873,31 @@ class SandboxManager:
         """List all sandbox instances."""
         return list(self.instances.values())
     
+    def _get_agent_urls(self, instance: SandboxInstance) -> tuple:
+        """Get the agent URL and proxy URL for a sandbox instance.
+        
+        Returns:
+            Tuple of (agent_url, proxy_url) or (None, None) if not available
+        """
+        if not instance.gateway_container_id:
+            return None, None
+        
+        try:
+            gateway = self.client.containers.get(instance.gateway_container_id)
+            gateway_ports = gateway.attrs.get("NetworkSettings", {}).get("Ports", {}).get("8080/tcp")
+            if not gateway_ports:
+                return None, None
+            proxy_port = gateway_ports[0]["HostPort"]
+            
+            agent_container_name = f"sandbox-agent-{instance.app_id}"
+            agent_url = f"http://{agent_container_name}:5000"
+            proxy_url = f"http://localhost:{proxy_port}"
+            
+            return agent_url, proxy_url
+        except Exception as e:
+            logger.warning(f"Failed to get agent URLs: {e}")
+            return None, None
+    
     async def send_message_to_agent(
         self,
         app_id: str,
@@ -1194,6 +1219,131 @@ class SandboxManager:
             return {"error": "Agent request timed out"}
         except Exception as e:
             logger.error(f"Failed to send message to agent: {e}")
+            return {"error": str(e)}
+    
+    async def mcp_list_servers(self, app_id: str) -> Dict[str, Any]:
+        """List MCP servers available in the sandbox."""
+        instance = self.instances.get(app_id)
+        if not instance:
+            return {"error": "Sandbox not found"}
+        
+        agent_url, proxy_url = self._get_agent_urls(instance)
+        if not agent_url:
+            return {"error": "Agent not running"}
+        
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{agent_url}/mcp/servers",
+                    proxy=proxy_url,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        text = await resp.text()
+                        return {"error": f"Agent returned {resp.status}: {text}"}
+        except Exception as e:
+            logger.error(f"Failed to list MCP servers: {e}")
+            return {"error": str(e)}
+    
+    async def mcp_list_tools(self, app_id: str, server_name: str) -> Dict[str, Any]:
+        """List tools from an MCP server in the sandbox."""
+        instance = self.instances.get(app_id)
+        if not instance:
+            return {"error": "Sandbox not found"}
+        
+        agent_url, proxy_url = self._get_agent_urls(instance)
+        if not agent_url:
+            return {"error": "Agent not running"}
+        
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{agent_url}/mcp/tools",
+                    proxy=proxy_url,
+                    json={"server": server_name},
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        text = await resp.text()
+                        return {"error": f"Agent returned {resp.status}: {text}"}
+        except Exception as e:
+            logger.error(f"Failed to list MCP tools: {e}")
+            return {"error": str(e)}
+    
+    async def mcp_call_tool(
+        self, 
+        app_id: str, 
+        server_name: str, 
+        tool_name: str, 
+        args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Call an MCP tool in the sandbox.
+        
+        This allows Tool Watches and debugging to execute MCP tools
+        from the perspective of the agent runner inside the container.
+        """
+        instance = self.instances.get(app_id)
+        if not instance:
+            return {"error": "Sandbox not found"}
+        
+        agent_url, proxy_url = self._get_agent_urls(instance)
+        if not agent_url:
+            return {"error": "Agent not running"}
+        
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{agent_url}/mcp/call",
+                    proxy=proxy_url,
+                    json={
+                        "server": server_name,
+                        "tool": tool_name,
+                        "args": args,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=120),  # Tools can take a while
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        text = await resp.text()
+                        return {"error": f"Agent returned {resp.status}: {text}"}
+        except Exception as e:
+            logger.error(f"Failed to call MCP tool: {e}")
+            return {"error": str(e)}
+    
+    async def mcp_disconnect(self, app_id: str, server_name: Optional[str] = None) -> Dict[str, Any]:
+        """Disconnect from MCP servers in the sandbox."""
+        instance = self.instances.get(app_id)
+        if not instance:
+            return {"error": "Sandbox not found"}
+        
+        agent_url, proxy_url = self._get_agent_urls(instance)
+        if not agent_url:
+            return {"error": "Agent not running"}
+        
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{agent_url}/mcp/disconnect",
+                    proxy=proxy_url,
+                    json={"server": server_name} if server_name else {},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        text = await resp.text()
+                        return {"error": f"Agent returned {resp.status}: {text}"}
+        except Exception as e:
+            logger.error(f"Failed to disconnect MCP: {e}")
             return {"error": str(e)}
     
     async def cleanup(self):

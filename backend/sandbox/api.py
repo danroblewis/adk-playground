@@ -361,6 +361,105 @@ async def get_mcp_status(app_id: str):
     }
 
 
+# =============================================================================
+# MCP Tool Execution - for Tool Watches and debugging
+# =============================================================================
+
+@router.get("/{app_id}/mcp/servers")
+async def mcp_list_servers(app_id: str):
+    """List available MCP servers in the sandbox.
+    
+    Returns servers configured in the project that can be connected to.
+    """
+    manager = get_sandbox_manager()
+    result = await manager.mcp_list_servers(app_id)
+    
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"].lower() else 500, 
+                          detail=result["error"])
+    
+    return result
+
+
+class MCPListToolsRequest(BaseModel):
+    """Request to list tools from an MCP server."""
+    server: str
+
+
+@router.post("/{app_id}/mcp/tools")
+async def mcp_list_tools(app_id: str, request: MCPListToolsRequest):
+    """List tools available from an MCP server in the sandbox.
+    
+    This connects to the MCP server if not already connected.
+    """
+    manager = get_sandbox_manager()
+    result = await manager.mcp_list_tools(app_id, request.server)
+    
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"].lower() else 500, 
+                          detail=result["error"])
+    
+    return result
+
+
+class MCPCallToolRequest(BaseModel):
+    """Request to call an MCP tool."""
+    server: str
+    tool: str
+    args: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/{app_id}/mcp/call")
+async def mcp_call_tool(app_id: str, request: MCPCallToolRequest):
+    """Call an MCP tool in the sandbox.
+    
+    This executes the tool from the perspective of the agent runner,
+    useful for Tool Watches and debugging to inspect the container's state.
+    
+    Example:
+        POST /api/sandbox/{app_id}/mcp/call
+        {
+            "server": "filesystem",
+            "tool": "list_directory",
+            "args": {"path": "/tmp"}
+        }
+    """
+    manager = get_sandbox_manager()
+    result = await manager.mcp_call_tool(
+        app_id=app_id,
+        server_name=request.server,
+        tool_name=request.tool,
+        args=request.args,
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"].lower() else 500, 
+                          detail=result["error"])
+    
+    return result
+
+
+class MCPDisconnectRequest(BaseModel):
+    """Request to disconnect from MCP servers."""
+    server: Optional[str] = None  # If None, disconnect from all
+
+
+@router.post("/{app_id}/mcp/disconnect")
+async def mcp_disconnect(app_id: str, request: MCPDisconnectRequest):
+    """Disconnect from MCP servers in the sandbox.
+    
+    Useful for cleaning up connections or forcing a reconnect.
+    """
+    manager = get_sandbox_manager()
+    result = await manager.mcp_disconnect(app_id, request.server)
+    
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"].lower() else 500, 
+                          detail=result["error"])
+    
+    return result
+
+
 class SyncAllowlistRequest(BaseModel):
     """Request to sync allowlist patterns to a running gateway."""
     patterns: List[Dict[str, Any]]

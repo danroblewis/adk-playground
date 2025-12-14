@@ -25,12 +25,163 @@ from aiohttp import web
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# MCP imports - optional, may not be available
+try:
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+    logger.warning("MCP SDK not available - MCP tool execution disabled")
+
 
 # Configuration
 HOST_URL = os.environ.get("HOST_URL", "http://host.docker.internal:8080")
 WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", "/workspace")
 PROJECT_CONFIG_PATH = os.environ.get("PROJECT_CONFIG_PATH", "/config/project.json")
 API_PORT = int(os.environ.get("API_PORT", "5000"))
+MCP_SERVERS_CONFIG = os.environ.get("MCP_SERVERS_CONFIG", "{}")
+
+
+class MCPSessionManager:
+    """Manages MCP server connections for tool execution.
+    
+    This allows external callers to execute MCP tools inside the container,
+    useful for Tool Watches and debugging.
+    """
+    
+    def __init__(self):
+        self._sessions: Dict[str, Any] = {}  # server_name -> (session, context_manager)
+        self._server_configs: Dict[str, dict] = {}
+        self._load_configs()
+    
+    def _load_configs(self):
+        """Load MCP server configurations from environment."""
+        try:
+            config = json.loads(MCP_SERVERS_CONFIG)
+            if isinstance(config, dict):
+                self._server_configs = config
+                logger.info(f"Loaded {len(self._server_configs)} MCP server configs")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse MCP_SERVERS_CONFIG: {e}")
+    
+    def list_servers(self) -> List[dict]:
+        """List available MCP servers."""
+        servers = []
+        for name, config in self._server_configs.items():
+            servers.append({
+                "name": name,
+                "command": config.get("command", ""),
+                "args": config.get("args", []),
+                "connected": name in self._sessions,
+            })
+        return servers
+    
+    async def connect(self, server_name: str) -> Optional[Any]:
+        """Connect to an MCP server if not already connected."""
+        if not MCP_AVAILABLE:
+            raise RuntimeError("MCP SDK not available")
+        
+        if server_name in self._sessions:
+            return self._sessions[server_name]["session"]
+        
+        if server_name not in self._server_configs:
+            raise ValueError(f"Unknown MCP server: {server_name}")
+        
+        config = self._server_configs[server_name]
+        
+        # Build environment with proxy variables
+        env = {}
+        for key in ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "UV_HTTP_PROXY", 
+                    "UV_HTTPS_PROXY", "NPM_CONFIG_PROXY", "NPM_CONFIG_HTTPS_PROXY",
+                    "http_proxy", "https_proxy", "no_proxy"]:
+            if key in os.environ:
+                env[key] = os.environ[key]
+        # Add server-specific env vars
+        if config.get("env"):
+            env.update(config["env"])
+        
+        server_params = StdioServerParameters(
+            command=config.get("command", ""),
+            args=config.get("args", []),
+            env=env if env else None,
+        )
+        
+        try:
+            # Create the stdio client context manager
+            client_cm = stdio_client(server_params)
+            read_stream, write_stream = await client_cm.__aenter__()
+            
+            # Create and initialize the session
+            session = ClientSession(read_stream, write_stream)
+            await session.__aenter__()
+            await session.initialize()
+            
+            self._sessions[server_name] = {
+                "session": session,
+                "client_cm": client_cm,
+            }
+            
+            logger.info(f"Connected to MCP server: {server_name}")
+            return session
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server {server_name}: {e}")
+            raise
+    
+    async def disconnect(self, server_name: str):
+        """Disconnect from an MCP server."""
+        if server_name not in self._sessions:
+            return
+        
+        try:
+            session_data = self._sessions.pop(server_name)
+            await session_data["session"].__aexit__(None, None, None)
+            await session_data["client_cm"].__aexit__(None, None, None)
+            logger.info(f"Disconnected from MCP server: {server_name}")
+        except Exception as e:
+            logger.warning(f"Error disconnecting from {server_name}: {e}")
+    
+    async def disconnect_all(self):
+        """Disconnect from all MCP servers."""
+        for server_name in list(self._sessions.keys()):
+            await self.disconnect(server_name)
+    
+    async def list_tools(self, server_name: str) -> List[dict]:
+        """List tools available from an MCP server."""
+        session = await self.connect(server_name)
+        result = await session.list_tools()
+        
+        tools = []
+        for tool in result.tools:
+            tools.append({
+                "name": tool.name,
+                "description": tool.description or "",
+                "input_schema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+            })
+        return tools
+    
+    async def call_tool(self, server_name: str, tool_name: str, args: dict) -> Any:
+        """Call a tool on an MCP server."""
+        session = await self.connect(server_name)
+        result = await session.call_tool(tool_name, args)
+        
+        # Convert result to JSON-serializable format
+        if hasattr(result, "content"):
+            content = []
+            for item in result.content:
+                if hasattr(item, "text"):
+                    content.append({"type": "text", "text": item.text})
+                elif hasattr(item, "data"):
+                    content.append({"type": "data", "data": str(item.data)})
+                else:
+                    content.append({"type": "unknown", "value": str(item)})
+            return {"content": content, "isError": getattr(result, "isError", False)}
+        return {"result": str(result)}
+
+
+# Global MCP session manager
+mcp_manager = MCPSessionManager()
 
 
 class TrackingPlugin:
@@ -468,16 +619,87 @@ async def stream_events(request: web.Request) -> web.StreamResponse:
     return response
 
 
+async def mcp_list_servers(request: web.Request) -> web.Response:
+    """List available MCP servers."""
+    try:
+        servers = mcp_manager.list_servers()
+        return web.json_response({"servers": servers})
+    except Exception as e:
+        logger.error(f"Failed to list MCP servers: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def mcp_list_tools(request: web.Request) -> web.Response:
+    """List tools from an MCP server."""
+    try:
+        data = await request.json()
+        server_name = data.get("server")
+        if not server_name:
+            return web.json_response({"error": "server name required"}, status=400)
+        
+        tools = await mcp_manager.list_tools(server_name)
+        return web.json_response({"tools": tools})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except Exception as e:
+        logger.error(f"Failed to list MCP tools: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def mcp_call_tool(request: web.Request) -> web.Response:
+    """Call a tool on an MCP server."""
+    try:
+        data = await request.json()
+        server_name = data.get("server")
+        tool_name = data.get("tool")
+        args = data.get("args", {})
+        
+        if not server_name:
+            return web.json_response({"error": "server name required"}, status=400)
+        if not tool_name:
+            return web.json_response({"error": "tool name required"}, status=400)
+        
+        result = await mcp_manager.call_tool(server_name, tool_name, args)
+        return web.json_response({"result": result})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    except Exception as e:
+        logger.error(f"Failed to call MCP tool: {e}", exc_info=True)
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def mcp_disconnect(request: web.Request) -> web.Response:
+    """Disconnect from an MCP server."""
+    try:
+        data = await request.json()
+        server_name = data.get("server")
+        if server_name:
+            await mcp_manager.disconnect(server_name)
+        else:
+            await mcp_manager.disconnect_all()
+        return web.json_response({"status": "disconnected"})
+    except Exception as e:
+        logger.error(f"Failed to disconnect MCP: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 def create_app() -> web.Application:
     """Create the HTTP API application."""
     app = web.Application()
     
+    # Agent endpoints
     app.router.add_get("/health", health_check)
     app.router.add_post("/project", load_project)
     app.router.add_post("/run", run_agent)
     app.router.add_post("/stop", stop_agent)
     app.router.add_get("/events", get_events)
     app.router.add_get("/events/stream", stream_events)
+    
+    # MCP endpoints - for Tool Watches and debugging
+    app.router.add_get("/mcp/servers", mcp_list_servers)
+    app.router.add_post("/mcp/tools", mcp_list_tools)
+    app.router.add_post("/mcp/call", mcp_call_tool)
+    app.router.add_post("/mcp/disconnect", mcp_disconnect)
     
     return app
 
