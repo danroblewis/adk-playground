@@ -295,6 +295,10 @@ class AppConfig(BaseModel):
     
     # Environment variables (for API keys, etc.)
     env_vars: Dict[str, str] = Field(default_factory=dict)
+    
+    # Sandbox configuration (network allowlist, etc.)
+    # Uses Dict to avoid circular imports with sandbox/models.py
+    sandbox: Optional[Dict[str, Any]] = None
 
 
 # ============================================================================

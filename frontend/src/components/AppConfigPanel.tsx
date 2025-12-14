@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff, Shield, Globe } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig } from '../utils/types';
+import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig, AllowlistPattern, PatternType, SandboxConfig, NetworkAllowlist } from '../utils/types';
 import { ModelConfigForm } from './ModelConfigForm';
 
 // Common environment variables with descriptions
@@ -134,6 +134,50 @@ export default function AppConfigPanel() {
   
   function removePlugin(index: number) {
     updateApp({ plugins: app.plugins.filter((_, i) => i !== index) });
+  }
+  
+  // Allowlist management
+  const sandbox = app.sandbox || { 
+    enabled: false, 
+    allowlist: { auto: [], user: [] },
+    unknown_action: 'ask' as const,
+    approval_timeout: 30,
+    agent_memory_limit_mb: 512,
+    agent_cpu_limit: 1.0,
+    mcp_memory_limit_mb: 256,
+    mcp_cpu_limit: 0.5,
+    run_timeout: 300,
+  };
+  const allowlistPatterns = sandbox.allowlist?.user || [];
+  
+  function updateSandbox(updates: Partial<SandboxConfig>) {
+    updateApp({ sandbox: { ...sandbox, ...updates } });
+  }
+  
+  function addAllowlistPattern() {
+    const newPattern: AllowlistPattern = {
+      id: `pattern_${Date.now().toString(36)}`,
+      pattern: '',
+      pattern_type: 'exact',
+      source: 'user',
+      added_at: new Date().toISOString(),
+    };
+    const newAllowlist = {
+      ...sandbox.allowlist,
+      user: [...allowlistPatterns, newPattern],
+    };
+    updateSandbox({ allowlist: newAllowlist });
+  }
+  
+  function updateAllowlistPattern(index: number, updates: Partial<AllowlistPattern>) {
+    const patterns = [...allowlistPatterns];
+    patterns[index] = { ...patterns[index], ...updates };
+    updateSandbox({ allowlist: { ...sandbox.allowlist, user: patterns } });
+  }
+  
+  function removeAllowlistPattern(index: number) {
+    const patterns = allowlistPatterns.filter((_, i) => i !== index);
+    updateSandbox({ allowlist: { ...sandbox.allowlist, user: patterns } });
   }
   
   // Model management
@@ -1116,6 +1160,85 @@ export default function AppConfigPanel() {
             </div>
           ))
         )}
+      </section>
+      
+      {/* Network Allowlist */}
+      <section className="section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <Shield size={20} />
+            Network Allowlist
+          </h2>
+          <button className="btn btn-secondary btn-sm" onClick={addAllowlistPattern}>
+            <Plus size={14} />
+            Add Pattern
+          </button>
+        </div>
+        
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          Patterns that are automatically allowed when running in sandbox mode.
+          Requests to other domains will prompt for approval.
+        </p>
+        
+        {allowlistPatterns.length === 0 ? (
+          <p className="empty-message">
+            No custom allowlist patterns. LLM API providers are allowed by default.
+          </p>
+        ) : (
+          allowlistPatterns.map((pattern, index) => (
+            <div key={pattern.id || index} className="list-item">
+              <div className="list-item-content" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Globe size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <input
+                  type="text"
+                  value={pattern.pattern}
+                  onChange={(e) => updateAllowlistPattern(index, { pattern: e.target.value })}
+                  placeholder="example.com or *.example.com"
+                  style={{ flex: 1 }}
+                />
+                <select
+                  value={pattern.pattern_type}
+                  onChange={(e) => updateAllowlistPattern(index, { pattern_type: e.target.value as PatternType })}
+                  style={{ width: 100 }}
+                >
+                  <option value="exact">Exact</option>
+                  <option value="wildcard">Wildcard</option>
+                  <option value="regex">Regex</option>
+                </select>
+                <span style={{ 
+                  fontSize: 10, 
+                  padding: '2px 6px', 
+                  backgroundColor: pattern.source === 'approved' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(107, 114, 128, 0.2)',
+                  color: pattern.source === 'approved' ? '#4ade80' : 'var(--text-muted)',
+                  borderRadius: 4,
+                  flexShrink: 0,
+                }}>
+                  {pattern.source}
+                </span>
+              </div>
+              <button className="delete-item" onClick={() => removeAllowlistPattern(index)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
+        
+        {/* Default allowed domains info */}
+        <div style={{ 
+          marginTop: 16, 
+          padding: 12, 
+          backgroundColor: 'var(--bg-tertiary)', 
+          borderRadius: 6,
+          fontSize: 12,
+        }}>
+          <div style={{ fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>
+            Default Allowed Domains:
+          </div>
+          <div style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            generativelanguage.googleapis.com, api.openai.com, api.anthropic.com, 
+            api.together.xyz, api.groq.com, api.mistral.ai
+          </div>
+        </div>
       </section>
     </div>
   );
