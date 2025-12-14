@@ -2043,17 +2043,17 @@ export default function RunPanel() {
     setPendingApproval(null);
   }, [pendingApproval, project, addRunEvent]);
   
-  // Fetch container logs
-  const fetchContainerLogs = useCallback(async () => {
+  // Fetch container logs (tail=500 to limit size)
+  const fetchContainerLogs = useCallback(async (showLoadingState = true) => {
     if (!project) return;
     
     const appId = project.app?.id || `app_${project.id}`;
-    setLogsLoading(true);
+    if (showLoadingState) setLogsLoading(true);
     
     try {
       const [agentResult, gatewayResult] = await Promise.all([
-        fetchJSON(`/sandbox/${appId}/logs?container=agent&tail=1000`).catch(() => null),
-        fetchJSON(`/sandbox/${appId}/logs?container=gateway&tail=1000`).catch(() => null),
+        fetchJSON(`/sandbox/${appId}/logs?container=agent&tail=500`).catch(() => null),
+        fetchJSON(`/sandbox/${appId}/logs?container=gateway&tail=500`).catch(() => null),
       ]);
       
       setContainerLogs({
@@ -2067,7 +2067,7 @@ export default function RunPanel() {
         gateway: `Error fetching logs: ${e}`,
       });
     } finally {
-      setLogsLoading(false);
+      if (showLoadingState) setLogsLoading(false);
     }
   }, [project]);
   
@@ -2088,6 +2088,17 @@ export default function RunPanel() {
       }, 50);
     }
   }, [showLogsModal, logsTab, containerLogs, logsLoading]);
+  
+  // Auto-refresh logs every 3 seconds when modal is open
+  useEffect(() => {
+    if (!showLogsModal) return;
+    
+    const intervalId = setInterval(() => {
+      fetchContainerLogs(false); // Don't show loading state for auto-refresh
+    }, 3000);
+    
+    return () => clearInterval(intervalId);
+  }, [showLogsModal, fetchContainerLogs]);
   
   // Keyboard shortcuts
   useEffect(() => {
