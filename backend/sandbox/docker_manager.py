@@ -54,9 +54,19 @@ class SandboxManager:
     
     The sandbox is App-scoped: one sandbox instance per App, shared by all
     Agents in the App.
+    
+    Uses base images from Docker Hub directly (no build step required):
+    - python:3.11-slim for agent containers
+    - mitmproxy/mitmproxy:latest for gateway containers
+    
+    Scripts are mounted at runtime, eliminating the need to build custom images.
     """
     
-    # Image names
+    # Base images from Docker Hub (no build required)
+    GATEWAY_BASE_IMAGE = "mitmproxy/mitmproxy:latest"
+    AGENT_BASE_IMAGE = "python:3.11-slim"
+    
+    # Legacy custom image names (used if pre-built images exist)
     GATEWAY_IMAGE = "adk-sandbox-gateway"
     AGENT_IMAGE = "adk-sandbox-agent"
     MCP_IMAGE = "adk-sandbox-mcp"
@@ -68,7 +78,7 @@ class SandboxManager:
         """Initialize the sandbox manager.
         
         Args:
-            docker_dir: Directory containing Dockerfiles. Defaults to
+            docker_dir: Directory containing scripts. Defaults to
                         the docker/ subdirectory of this module.
         """
         self.docker_dir = docker_dir or Path(__file__).parent / "docker"
@@ -76,6 +86,7 @@ class SandboxManager:
         self.instances: Dict[str, SandboxInstance] = {}  # app_id -> instance
         self.mcp_managers: Dict[str, MCPContainerManager] = {}  # app_id -> manager
         self._initialized = False
+        self._use_base_images = True  # Use base images by default (no build)
     
     async def initialize(self) -> bool:
         """Initialize Docker client and build images if needed.
@@ -96,49 +107,54 @@ class SandboxManager:
             logger.error(f"Failed to connect to Docker: {e}")
             return False
         
-        # Build images if they don't exist
+        # Ensure images are available (pull base images if needed)
         try:
-            await self._ensure_images_built()
+            await self._ensure_images_available()
         except Exception as e:
-            logger.error(f"Failed to build Docker images: {e}")
+            logger.error(f"Failed to prepare Docker images: {e}")
             return False
         
         self._initialized = True
         return True
     
-    async def _ensure_images_built(self):
-        """Ensure Docker images are built."""
+    async def _ensure_images_available(self):
+        """Ensure Docker images are available (pull base images if needed).
+        
+        This uses base images from Docker Hub directly, eliminating the need
+        to build custom images. Scripts are mounted at runtime.
+        """
         if not self.client:
             return
         
-        images_to_build = [
-            (self.GATEWAY_IMAGE, "Dockerfile.gateway"),
-            (self.AGENT_IMAGE, "Dockerfile.agent"),
-            (self.MCP_IMAGE, "Dockerfile.mcp"),
+        # Check if we have pre-built custom images (legacy support)
+        try:
+            self.client.images.get(self.AGENT_IMAGE)
+            self.client.images.get(self.GATEWAY_IMAGE)
+            logger.info("Using pre-built custom images")
+            self._use_base_images = False
+            return
+        except NotFound:
+            pass
+        
+        # Pull base images from Docker Hub
+        self._use_base_images = True
+        base_images = [
+            self.AGENT_BASE_IMAGE,
+            self.GATEWAY_BASE_IMAGE,
         ]
         
-        for image_name, dockerfile in images_to_build:
+        for image in base_images:
             try:
-                self.client.images.get(image_name)
-                logger.info(f"Image {image_name} already exists")
+                self.client.images.get(image)
+                logger.info(f"Image {image} already available")
             except NotFound:
-                logger.info(f"Building image {image_name}...")
-                dockerfile_path = self.docker_dir / dockerfile
-                if not dockerfile_path.exists():
-                    logger.warning(f"Dockerfile not found: {dockerfile_path}")
-                    continue
-                
-                # Build the image
+                logger.info(f"Pulling image {image}...")
                 try:
-                    self.client.images.build(
-                        path=str(self.docker_dir),
-                        dockerfile=dockerfile,
-                        tag=image_name,
-                        rm=True,
-                    )
-                    logger.info(f"Built image {image_name}")
+                    self.client.images.pull(image)
+                    logger.info(f"Pulled image {image}")
                 except Exception as e:
-                    logger.error(f"Failed to build {image_name}: {e}")
+                    logger.error(f"Failed to pull {image}: {e}")
+                    raise
     
     async def start_sandbox(
         self,
@@ -481,9 +497,29 @@ class SandboxManager:
                 "pattern_type": p.pattern_type.value,  # Gateway expects "pattern_type"
             })
         
+        # Choose image and command based on mode
+        if self._use_base_images:
+            # Use base mitmproxy image + mount scripts
+            image = self.GATEWAY_BASE_IMAGE
+            addon_script = self.docker_dir / "gateway_addon.py"
+            volumes = {
+                str(addon_script): {"bind": "/app/gateway_addon.py", "mode": "ro"},
+            }
+            # Need to install aiohttp and run mitmdump
+            command = [
+                "sh", "-c",
+                "pip install --quiet aiohttp && "
+                "mitmdump --mode regular --set block_global=false -s /app/gateway_addon.py"
+            ]
+        else:
+            # Use pre-built custom image
+            image = self.GATEWAY_IMAGE
+            volumes = {}
+            command = None
+        
         # Create container without any network initially
         container = self.client.containers.create(
-            image=self.GATEWAY_IMAGE,
+            image=image,
             name=f"sandbox-gateway-{app_id}",
             detach=True,
             network_mode="bridge",  # Start with default bridge for internet access
@@ -493,7 +529,10 @@ class SandboxManager:
                 "APPROVAL_TIMEOUT": str(approval_timeout),
                 "WEBHOOK_URL": f"http://host.docker.internal:8080/api/sandbox/webhook/{app_id}",
                 "APP_ID": app_id,
+                "CONTROL_PORT": "8081",
             },
+            volumes=volumes if volumes else None,
+            command=command,
             ports={
                 "8080/tcp": None,  # Proxy port
                 "8081/tcp": None,  # Control API
@@ -509,7 +548,7 @@ class SandboxManager:
         internal_network.connect(container, aliases=["gateway"])
         container.start()
         
-        logger.info(f"Started gateway container: {container.id[:12]} (dual-homed)")
+        logger.info(f"Started gateway container: {container.id[:12]} (dual-homed, base_image={self._use_base_images})")
         return container.id
     
     async def _start_agent(
@@ -603,13 +642,33 @@ class SandboxManager:
                 else:
                     logger.warning(f"Volume mount path does not exist: {host_path}")
         
+        # Choose image and command based on mode
+        if self._use_base_images:
+            # Use base Python image + mount scripts + install deps at runtime
+            image = self.AGENT_BASE_IMAGE
+            agent_script = self.docker_dir / "agent_runner.py"
+            mcp_script = self.docker_dir / "mcp_spawner.py"
+            volumes[str(agent_script)] = {"bind": "/app/agent_runner.py", "mode": "ro"}
+            volumes[str(mcp_script)] = {"bind": "/app/mcp_spawner.py", "mode": "ro"}
+            # Install dependencies and run the agent script
+            command = [
+                "sh", "-c",
+                "pip install --quiet google-adk aiohttp httpx pyyaml mcp 2>/dev/null || true && "
+                "cd /app && python -u agent_runner.py"
+            ]
+        else:
+            # Use pre-built custom image
+            image = self.AGENT_IMAGE
+            command = None
+        
         container = self.client.containers.create(
-            image=self.AGENT_IMAGE,
+            image=image,
             name=f"sandbox-agent-{app_id}",
             detach=True,
             network=network_name,  # Internal network only - isolated from internet
             environment=env_vars,
             volumes=volumes,
+            command=command,
             # No ports exposed - host communicates via gateway proxy
             mem_limit=mem_limit,
             cpu_period=100000,
@@ -618,7 +677,7 @@ class SandboxManager:
         )
         
         container.start()
-        logger.info(f"Started agent container: {container.id[:12]} (isolated, access via proxy only)")
+        logger.info(f"Started agent container: {container.id[:12]} (isolated, base_image={self._use_base_images})")
         return container.id
     
     async def stop_sandbox(self, app_id: str) -> bool:
