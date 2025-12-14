@@ -60,8 +60,20 @@ class MCPSessionManager:
         try:
             config = json.loads(MCP_SERVERS_CONFIG)
             if isinstance(config, dict):
-                self._server_configs = config
-                logger.info(f"Loaded {len(self._server_configs)} MCP server configs")
+                # Handle format from docker_manager: {"stdio_mcp_servers": [{"name": ..., "command": ...}]}
+                if "stdio_mcp_servers" in config:
+                    for server in config["stdio_mcp_servers"]:
+                        name = server.get("name")
+                        if name:
+                            self._server_configs[name] = {
+                                "command": server.get("command", ""),
+                                "args": server.get("args", []),
+                                "env": server.get("env", {}),
+                            }
+                else:
+                    # Direct format: {"server_name": {"command": ...}}
+                    self._server_configs = config
+                logger.info(f"Loaded {len(self._server_configs)} MCP server configs: {list(self._server_configs.keys())}")
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse MCP_SERVERS_CONFIG: {e}")
     
