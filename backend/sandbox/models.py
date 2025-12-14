@@ -105,6 +105,18 @@ class NetworkAllowlist(BaseModel):
         # PyPI (for pip install in containers)
         "pypi.org",
         "files.pythonhosted.org",
+        # npm registry (for npx in containers)
+        "registry.npmjs.org",
+        "npmjs.org",
+        "*.npmjs.org",
+        # GitHub (for package downloads)
+        "github.com",
+        "*.github.com",
+        "raw.githubusercontent.com",
+        "objects.githubusercontent.com",
+        # Node.js downloads
+        "nodejs.org",
+        "*.nodejs.org",
         # Host communication (for agent events going through proxy)
         "host.docker.internal",
         # Internal container communication (host→agent via proxy)

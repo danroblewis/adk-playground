@@ -185,17 +185,41 @@ class SandboxManager:
         logger.info("Cached images ready - future starts will be fast!")
     
     async def _build_cached_agent_image(self):
-        """Build a cached agent image with all dependencies pre-installed."""
+        """Build a cached agent image with all dependencies pre-installed.
+        
+        Includes:
+        - Python packages (google-adk, litellm, etc.)
+        - uv/uvx for Python MCP servers
+        - Node.js/npm/npx for Node MCP servers
+        - tsx for TypeScript MCP servers
+        """
         if not self.client:
             return
         
         deps = " ".join(self.AGENT_DEPENDENCIES)
-        logger.info(f"Building cached agent image with: {deps}")
+        logger.info(f"Building cached agent image with: {deps} + uv + node/npm")
+        
+        # Build command that installs everything
+        # 1. Install curl and ca-certificates for downloading
+        # 2. Install uv (provides uvx)
+        # 3. Install Node.js (provides npm/npx)
+        # 4. Install tsx globally
+        # 5. Install Python packages
+        build_command = """sh -c '
+            apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
+            curl -LsSf https://astral.sh/uv/install.sh | sh && \
+            export PATH="/root/.local/bin:$PATH" && \
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+            apt-get install -y nodejs && \
+            npm install -g tsx && \
+            pip install --no-cache-dir """ + deps + """ && \
+            rm -rf /var/lib/apt/lists/*
+        '"""
         
         # Create a temporary container, install deps, commit as new image
         container = self.client.containers.run(
             self.AGENT_BASE_IMAGE,
-            command=f"pip install --no-cache-dir {deps}",
+            command=build_command,
             detach=True,
             remove=False,
         )
@@ -677,6 +701,8 @@ class SandboxManager:
             "HOST_URL": "http://host.docker.internal:8080",
             # MCP server configuration for stdio servers
             "MCP_SERVERS_CONFIG": json.dumps(stdio_mcp_config),
+            # PATH includes uvx location
+            "PATH": "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
         }
         
         # Pass through app-configured environment variables (API keys, etc.)
