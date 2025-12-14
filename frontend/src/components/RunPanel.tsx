@@ -822,7 +822,7 @@ function applyTransform(text: string, transform: string | undefined): string {
 
 // Tool Watch Panel component
 // Note: Auto-refresh is now handled at the RunPanel level so watches run even when this tab isn't visible
-function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; selectedEventIndex: number | null }) {
+function ToolWatchPanel({ project, selectedEventIndex, sandboxMode }: { project: Project; selectedEventIndex: number | null; sandboxMode: boolean }) {
   // Use global store for watches so they persist across tab switches
   const { watches, updateWatch, addWatch: storeAddWatch, removeWatch: storeRemoveWatch, runEvents } = useStore();
   
@@ -1025,6 +1025,9 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
     const currentEventIndex = eventIndex ?? runEvents.length - 1;
     const timestamp = Date.now();
     
+    // Get the app_id for sandbox mode
+    const appId = project.app?.id || `app_${project.id}`;
+    
     try {
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
         method: 'POST',
@@ -1033,6 +1036,8 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
           server_name: watch.serverName,
           tool_name: watch.toolName,
           arguments: watch.args,
+          sandbox_mode: sandboxMode,  // Execute in Docker sandbox if enabled
+          app_id: sandboxMode ? appId : undefined,
         }),
       });
       
@@ -1048,7 +1053,7 @@ function ToolWatchPanel({ project, selectedEventIndex }: { project: Project; sel
       
       updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: timestamp, history });
     }
-  }, [project.id, updateWatch, runEvents.length]);
+  }, [project.id, project.app?.id, updateWatch, runEvents.length, sandboxMode]);
   
   
   const runAllWatches = () => {
@@ -1363,6 +1368,9 @@ export default function RunPanel() {
     const currentEventIndex = eventIndex ?? runEvents.length - 1;
     const timestamp = Date.now();
     
+    // Get the app_id for sandbox mode
+    const appId = project.app?.id || `app_${project.id}`;
+    
     try {
       const result = await fetchJSON(`/projects/${project.id}/run-mcp-tool`, {
         method: 'POST',
@@ -1371,6 +1379,8 @@ export default function RunPanel() {
           server_name: watch.serverName,
           tool_name: watch.toolName,
           arguments: watch.args,
+          sandbox_mode: sandboxMode,  // Execute in Docker sandbox if enabled
+          app_id: sandboxMode ? appId : undefined,
         }),
       });
       
@@ -1386,7 +1396,7 @@ export default function RunPanel() {
       
       updateWatch(watch.id, { error: String(err), isLoading: false, lastRun: timestamp, history });
     }
-  }, [project?.id, updateWatch, runEvents.length]);
+  }, [project?.id, project?.app?.id, updateWatch, runEvents.length, sandboxMode]);
   
   // Auto-refresh watches when new events are added (runs at panel level, not ToolWatchPanel)
   useEffect(() => {
@@ -3764,7 +3774,7 @@ export default function RunPanel() {
           
           <div className="side-panel-content">
             {showToolRunner ? (
-              <ToolWatchPanel project={project} selectedEventIndex={selectedEventIndex} />
+              <ToolWatchPanel project={project} selectedEventIndex={selectedEventIndex} sandboxMode={sandboxMode} />
             ) : showStatePanel ? (
               <StateSnapshot 
                 events={runEvents} 

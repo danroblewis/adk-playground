@@ -764,13 +764,53 @@ class RunMcpToolRequest(BaseModel):
     server_name: str
     tool_name: str
     arguments: dict = {}
+    sandbox_mode: bool = False  # If true, execute in Docker sandbox
+    app_id: Optional[str] = None  # Required when sandbox_mode is true
 
 
 @app.post("/api/projects/{project_id}/run-mcp-tool")
 async def run_mcp_tool(project_id: str, request: RunMcpToolRequest):
-    """Run an MCP tool and return its result."""
+    """Run an MCP tool and return its result.
+    
+    When sandbox_mode is True and app_id is provided, the tool is executed
+    inside the Docker sandbox container, allowing inspection of the container's
+    filesystem and state.
+    """
     import traceback
     
+    # If sandbox mode, route to sandbox container
+    if request.sandbox_mode and request.app_id:
+        from sandbox.docker_manager import get_sandbox_manager
+        sandbox_manager = get_sandbox_manager()
+        
+        sandbox_result = await sandbox_manager.mcp_call_tool(
+            app_id=request.app_id,
+            server_name=request.server_name,
+            tool_name=request.tool_name,
+            args=request.arguments,
+        )
+        
+        if "error" in sandbox_result:
+            return {"success": False, "error": sandbox_result["error"]}
+        
+        # Extract result from sandbox response
+        result_data = sandbox_result.get("result", sandbox_result)
+        
+        # Handle nested content structure from MCP
+        if isinstance(result_data, dict) and "content" in result_data:
+            content = result_data["content"]
+            if isinstance(content, list):
+                texts = []
+                for part in content:
+                    if isinstance(part, dict) and "text" in part:
+                        texts.append(part["text"])
+                if texts:
+                    return {"success": True, "result": "\n".join(texts), "sandbox": True}
+            return {"success": True, "result": str(content), "sandbox": True}
+        
+        return {"success": True, "result": str(result_data), "sandbox": True}
+    
+    # Original host-based execution
     # Find the server config
     project_path = PROJECTS_DIR / f"{project_id}.yaml"
     server_config = None
@@ -2291,6 +2331,8 @@ class WatchToolRequest(BaseModel):
     tool_name: str
     args: dict = {}
     mcp_server: Optional[str] = None
+    sandbox_mode: bool = False  # If true, execute in Docker sandbox
+    app_id: Optional[str] = None  # Required when sandbox_mode is true
 
 @app.post("/api/projects/{project_id}/execute-tool")
 async def execute_watch_tool(project_id: str, request: WatchToolRequest):
@@ -2298,6 +2340,10 @@ async def execute_watch_tool(project_id: str, request: WatchToolRequest):
     
     This is used by the Watch panel to execute read-only tool calls
     to query external state.
+    
+    When sandbox_mode is True and app_id is provided, MCP tools are
+    executed inside the Docker sandbox container, allowing inspection
+    of the container's filesystem and state.
     """
     project = project_manager.get_project(project_id)
     if not project:
@@ -2348,7 +2394,24 @@ async def execute_watch_tool(project_id: str, request: WatchToolRequest):
             # Execute MCP tool
             if not request.mcp_server:
                 result = {"error": "MCP server name required"}
+            elif request.sandbox_mode and request.app_id:
+                # Execute in Docker sandbox container
+                from sandbox.docker_manager import get_sandbox_manager
+                sandbox_manager = get_sandbox_manager()
+                
+                sandbox_result = await sandbox_manager.mcp_call_tool(
+                    app_id=request.app_id,
+                    server_name=request.mcp_server,
+                    tool_name=request.tool_name,
+                    args=request.args,
+                )
+                
+                if "error" in sandbox_result:
+                    result = {"error": sandbox_result["error"]}
+                else:
+                    result = sandbox_result.get("result", sandbox_result)
             else:
+                # Execute on host (original behavior)
                 # Find the MCP server config
                 mcp_config = next((s for s in project.mcp_servers if s.name == request.mcp_server), None)
                 if not mcp_config:
@@ -2357,8 +2420,16 @@ async def execute_watch_tool(project_id: str, request: WatchToolRequest):
                 if not mcp_config:
                     result = {"error": f"MCP server not found: {request.mcp_server}"}
                 else:
-                    # For now, return a placeholder - MCP execution requires async context
-                    result = {"info": f"MCP tool execution for {request.tool_name} on {request.mcp_server} - not yet implemented"}
+                    # Execute MCP tool on host using mcp_pool
+                    try:
+                        tool_result = await mcp_pool.call_tool(
+                            server_name=request.mcp_server,
+                            tool_name=request.tool_name,
+                            args=request.args,
+                        )
+                        result = tool_result
+                    except Exception as e:
+                        result = {"error": f"MCP tool execution failed: {str(e)}"}
         
         else:
             result = {"error": f"Unknown tool type: {request.type}"}
@@ -2368,6 +2439,7 @@ async def execute_watch_tool(project_id: str, request: WatchToolRequest):
             "result": result,
             "tool_name": request.tool_name,
             "tool_type": request.type,
+            "sandbox_mode": request.sandbox_mode,
         }
         
     except Exception as e:
