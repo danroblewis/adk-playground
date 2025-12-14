@@ -553,7 +553,8 @@ class AgentRunner:
             ):
                 if not self.running:
                     break
-                # Events are handled by TrackingPlugin callbacks, not here
+                # Process the event to extract tool calls/results that plugin callbacks might miss
+                await self._process_event(event)
             
             await runner.close()
             
@@ -569,7 +570,71 @@ class AgentRunner:
         
         return self.session_id
     
-    
+    async def _process_event(self, event):
+        """Process an ADK Event and emit tool_call/tool_result events from it.
+        
+        This catches tool calls that plugin callbacks might miss, especially
+        at the end of agent execution.
+        """
+        try:
+            if not hasattr(event, 'content') or not event.content:
+                return
+            
+            content = event.content
+            if not hasattr(content, 'parts') or not content.parts:
+                return
+            
+            author = getattr(event, 'author', 'system')
+            
+            for part in content.parts:
+                # Handle function calls
+                if hasattr(part, 'function_call') and part.function_call:
+                    fc = part.function_call
+                    args = {}
+                    if hasattr(fc, 'args') and fc.args:
+                        # Safely serialize args
+                        for k, v in fc.args.items():
+                            try:
+                                json.dumps(v)
+                                args[k] = v
+                            except (TypeError, ValueError):
+                                args[k] = str(v)
+                    
+                    await self._emit_event({
+                        "event_type": "tool_call",
+                        "timestamp": time.time(),
+                        "agent_name": author,
+                        "data": {
+                            "tool_name": getattr(fc, 'name', 'unknown'),
+                            "args": args,
+                            "source": "event_stream",  # Mark as from event stream vs plugin callback
+                        },
+                    })
+                
+                # Handle function responses
+                if hasattr(part, 'function_response') and part.function_response:
+                    fr = part.function_response
+                    response = None
+                    if hasattr(fr, 'response') and fr.response:
+                        try:
+                            json.dumps(fr.response)
+                            response = fr.response
+                        except (TypeError, ValueError):
+                            response = str(fr.response)
+                    
+                    await self._emit_event({
+                        "event_type": "tool_result",
+                        "timestamp": time.time(),
+                        "agent_name": author,
+                        "data": {
+                            "tool_name": getattr(fr, 'name', 'unknown'),
+                            "result": response,
+                            "source": "event_stream",
+                        },
+                    })
+                    
+        except Exception as e:
+            logger.error(f"Error processing event: {e}", exc_info=True)
     
     async def _emit_event(self, event: Dict[str, Any]):
         """Emit an event to the queue and notify host."""
