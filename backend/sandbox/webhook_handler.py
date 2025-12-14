@@ -73,8 +73,8 @@ class SandboxEvents:
             if request_id in self.pending_approvals:
                 self.pending_approvals.remove(request_id)
         
-        # Notify subscribers
-        self._notify({"type": "network_request", "data": existing})
+        # Notify subscribers (convert to dict for JSON serialization)
+        self._notify({"type": "network_request", "data": existing.model_dump()})
     
     def _notify(self, event: dict):
         """Notify all subscribers of an event."""

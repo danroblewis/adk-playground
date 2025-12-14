@@ -353,3 +353,16 @@ class ProjectManager:
                 code_lines.append("")
             
             file_path.write_text("\n".join(code_lines))
+
+
+# Singleton instance - uses same default path logic as main.py
+def _get_projects_dir() -> Path:
+    """Get projects directory from environment or default."""
+    env_dir = os.environ.get("ADK_PLAYGROUND_PROJECTS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.home() / ".adk-playground" / "projects"
+
+
+# Module-level singleton for imports from other modules
+project_manager = ProjectManager(str(_get_projects_dir()))
