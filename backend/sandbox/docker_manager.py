@@ -692,9 +692,21 @@ class SandboxManager:
         # All HTTP/HTTPS traffic goes through the mitmproxy gateway
         # Agent is on internal network and can ONLY reach the gateway
         env_vars = {
+            # Standard proxy environment variables
             "HTTP_PROXY": "http://gateway:8080",
             "HTTPS_PROXY": "http://gateway:8080",
-            "NO_PROXY": "localhost,127.0.0.1,gateway",  # Only local and gateway are direct
+            "http_proxy": "http://gateway:8080",  # Some tools check lowercase
+            "https_proxy": "http://gateway:8080",
+            # uv/uvx specific proxy variables
+            "UV_HTTP_PROXY": "http://gateway:8080",
+            "UV_HTTPS_PROXY": "http://gateway:8080",
+            # npm proxy configuration
+            "npm_config_proxy": "http://gateway:8080",
+            "npm_config_https_proxy": "http://gateway:8080",
+            # No proxy for local and gateway
+            "NO_PROXY": "localhost,127.0.0.1,gateway",
+            "no_proxy": "localhost,127.0.0.1,gateway",
+            # Paths and config
             "WORKSPACE_PATH": "/workspace",
             "PROJECT_CONFIG_PATH": "/config/project.json",
             # Host URL goes through proxy - gateway will forward to host
