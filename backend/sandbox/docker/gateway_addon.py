@@ -129,18 +129,35 @@ class AllowlistGateway:
         host_lower = host.lower()
         url_lower = url.lower()
         
+        # Extract host:port from URL for more accurate matching
+        # URL format: http://host:port/path or https://host:port/path
+        url_host = ""
+        try:
+            if "://" in url_lower:
+                after_scheme = url_lower.split("://", 1)[1]
+                url_host = after_scheme.split("/", 1)[0]  # host:port part
+        except Exception:
+            pass
+        
         # Check exact patterns
         for pattern in self.exact_patterns:
-            if host_lower == pattern or url_lower.startswith(pattern):
+            # Match against host, host:port from URL, or check if URL contains pattern
+            if (host_lower == pattern or 
+                url_host == pattern or
+                pattern in url_lower or
+                # Also match host without port against pattern without port
+                host_lower == pattern.split(":")[0]):
                 return pattern
         
         # Check wildcard patterns
         for pattern in self.wildcard_patterns:
             # Convert wildcard to regex-like matching
             if "*" in pattern:
-                if fnmatch.fnmatch(host_lower, pattern) or fnmatch.fnmatch(url_lower, pattern):
+                if (fnmatch.fnmatch(host_lower, pattern) or 
+                    fnmatch.fnmatch(url_lower, pattern) or
+                    fnmatch.fnmatch(url_host, pattern)):
                     return pattern
-            elif host_lower == pattern:
+            elif host_lower == pattern or url_host == pattern:
                 return pattern
         
         # Check regex patterns
