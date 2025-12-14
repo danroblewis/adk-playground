@@ -1767,8 +1767,12 @@ export default function RunPanel() {
     
     const appId = project.app?.id || project.id;
     const action = pattern ? 'allow_pattern' : 'allow_once';
+    // Include project_id as query param for persistence
+    const url = persist 
+      ? `/sandbox/${appId}/approval?project_id=${project.id}`
+      : `/sandbox/${appId}/approval`;
     try {
-      await fetchJSON(`/sandbox/${appId}/approval`, {
+      await fetchJSON(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

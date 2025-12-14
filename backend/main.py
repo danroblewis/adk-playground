@@ -872,6 +872,7 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
             from sandbox.docker_manager import get_sandbox_manager
             from sandbox.models import SandboxConfig
             from sandbox.webhook_handler import webhook_handler
+            from sandbox.allowlist_persistence import load_sandbox_config_from_project
             
             sandbox_manager = get_sandbox_manager()
             app_id = project.app.id if project.app else project_id
@@ -888,8 +889,15 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
             # Get workspace path (use PROJECTS_DIR / project_id)
             workspace_path = PROJECTS_DIR / project_id if PROJECTS_DIR.exists() else Path.cwd()
             
-            # Start or get existing sandbox
-            config = SandboxConfig(enabled=True)
+            # Load persisted sandbox config from project (includes saved allowlist patterns)
+            config = load_sandbox_config_from_project(workspace_path)
+            config.enabled = True  # Ensure sandbox is enabled for this run
+            
+            if config.allowlist.user:
+                logger.info(f"📋 Loaded {len(config.allowlist.user)} saved allowlist patterns from project")
+                for p in config.allowlist.user:
+                    logger.info(f"   - {p.pattern} ({p.pattern_type.value})")
+            
             sandbox_instance = await sandbox_manager.start_sandbox(
                 app_id=app_id,
                 config=config,
