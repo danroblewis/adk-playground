@@ -164,6 +164,22 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
     setMcpJsonEditorValue(JSON.stringify(mcpJson, null, 2));
   }, [project?.mcp_servers]);
   
+  // Auto-test MCP servers when switching to MCP tab or when servers change
+  useEffect(() => {
+    if (activeTab === 'mcp' && projectMcpServers.length > 0) {
+      // Only test servers that haven't been tested yet
+      const untestedServers = projectMcpServers.filter(
+        s => !mcpServerStatus[s.name] || mcpServerStatus[s.name] === 'unknown'
+      );
+      if (untestedServers.length > 0) {
+        // Test each untested server
+        untestedServers.forEach(server => {
+          testMcpServerConnection(server.name);
+        });
+      }
+    }
+  }, [activeTab, projectMcpServers.length]);
+  
   // Convert our MCP server config to standard mcp.json format
   function convertToMcpJson(servers: MCPServerConfig[]): { mcpServers: Record<string, any> } {
     const mcpServers: Record<string, any> = {};
