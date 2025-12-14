@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff, Shield, Globe } from 'lucide-react';
+import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff, Shield, Globe, HardDrive, FolderOpen } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig, AllowlistPattern, PatternType, SandboxConfig, NetworkAllowlist } from '../utils/types';
+import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig, AllowlistPattern, PatternType, SandboxConfig, NetworkAllowlist, VolumeMount } from '../utils/types';
 import { ModelConfigForm } from './ModelConfigForm';
 
 // Common environment variables with descriptions
@@ -147,8 +147,10 @@ export default function AppConfigPanel() {
     mcp_memory_limit_mb: 256,
     mcp_cpu_limit: 0.5,
     run_timeout: 300,
+    volume_mounts: [],
   };
   const allowlistPatterns = sandbox.allowlist?.user || [];
+  const volumeMounts = sandbox.volume_mounts || [];
   
   function updateSandbox(updates: Partial<SandboxConfig>) {
     updateApp({ sandbox: { ...sandbox, ...updates } });
@@ -204,6 +206,27 @@ export default function AppConfigPanel() {
     const patterns = allowlistPatterns.filter((_, i) => i !== index);
     updateSandbox({ allowlist: { ...sandbox.allowlist, user: patterns } });
     // Note: We can't "remove" from gateway, but new patterns won't require approval
+  }
+  
+  // Volume mounts management
+  function addVolumeMount() {
+    const newMount: VolumeMount = {
+      host_path: '',
+      container_path: '/mnt/data',
+      mode: 'ro',
+    };
+    updateSandbox({ volume_mounts: [...volumeMounts, newMount] });
+  }
+  
+  function updateVolumeMount(index: number, updates: Partial<VolumeMount>) {
+    const mounts = [...volumeMounts];
+    mounts[index] = { ...mounts[index], ...updates };
+    updateSandbox({ volume_mounts: mounts });
+  }
+  
+  function removeVolumeMount(index: number) {
+    const mounts = volumeMounts.filter((_, i) => i !== index);
+    updateSandbox({ volume_mounts: mounts });
   }
   
   // Model management
@@ -1263,6 +1286,85 @@ export default function AppConfigPanel() {
           <div style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
             generativelanguage.googleapis.com, api.openai.com, api.anthropic.com, 
             api.together.xyz, api.groq.com, api.mistral.ai
+          </div>
+        </div>
+      </section>
+      
+      {/* Volume Mounts */}
+      <section className="section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <HardDrive size={20} />
+            Volume Mounts
+          </h2>
+          <button className="btn btn-secondary btn-sm" onClick={addVolumeMount}>
+            <Plus size={14} />
+            Add Mount
+          </button>
+        </div>
+        
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+          Mount local directories into the Docker sandbox so MCP servers and tools can access files.
+        </p>
+        
+        {volumeMounts.length === 0 ? (
+          <p className="empty-message">
+            No volume mounts configured. Add mounts to allow MCP servers to access local files.
+          </p>
+        ) : (
+          volumeMounts.map((mount, index) => (
+            <div key={index} className="list-item">
+              <div className="list-item-content" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <FolderOpen size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <input
+                  type="text"
+                  value={mount.host_path}
+                  onChange={(e) => updateVolumeMount(index, { host_path: e.target.value })}
+                  placeholder="~/Documents or /path/to/folder"
+                  style={{ flex: 1, minWidth: 150 }}
+                  title="Host path (local directory)"
+                />
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>
+                <input
+                  type="text"
+                  value={mount.container_path}
+                  onChange={(e) => updateVolumeMount(index, { container_path: e.target.value })}
+                  placeholder="/mnt/data"
+                  style={{ width: 140 }}
+                  title="Container path (where it appears in sandbox)"
+                />
+                <select
+                  value={mount.mode}
+                  onChange={(e) => updateVolumeMount(index, { mode: e.target.value as 'ro' | 'rw' })}
+                  style={{ width: 100 }}
+                  title="Access mode"
+                >
+                  <option value="ro">Read Only</option>
+                  <option value="rw">Read/Write</option>
+                </select>
+              </div>
+              <button className="delete-item" onClick={() => removeVolumeMount(index)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))
+        )}
+        
+        {/* Usage hint */}
+        <div style={{ 
+          marginTop: 16, 
+          padding: 12, 
+          backgroundColor: 'var(--bg-tertiary)', 
+          borderRadius: 6,
+          fontSize: 12,
+        }}>
+          <div style={{ fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>
+            Usage Tips:
+          </div>
+          <div style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            • Use <code style={{ background: 'var(--bg-primary)', padding: '1px 4px', borderRadius: 3 }}>~/Documents</code> to mount your Documents folder<br/>
+            • MCP filesystem server needs access to directories it should manage<br/>
+            • Use "Read Only" mode for safety unless write access is needed
           </div>
         </div>
       </section>

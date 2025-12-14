@@ -23,6 +23,7 @@ from .models import (
     MCPContainerStatus,
     MCPServerSandboxConfig,
     NetworkAllowlist,
+    VolumeMount,
     SandboxConfig,
     SandboxInstance,
     SandboxStatus,
@@ -242,6 +243,7 @@ class SandboxManager:
                 cpu_limit=config.agent_cpu_limit,
                 mcp_configs=mcp_configs,
                 app_env_vars=app_env_vars,
+                volume_mounts=config.volume_mounts,
             )
             instance.agent_container_id = agent_id
             
@@ -520,6 +522,7 @@ class SandboxManager:
         cpu_limit: float,
         mcp_configs: Optional[List[MCPServerSandboxConfig]] = None,
         app_env_vars: Optional[Dict[str, str]] = None,
+        volume_mounts: Optional[List[VolumeMount]] = None,
     ) -> str:
         """Start the agent runner container.
         
@@ -578,16 +581,35 @@ class SandboxManager:
         
         # Create agent on the internal network (internal=True means no direct internet)
         # Agent is only accessible via the gateway proxy, not directly from host
+        
+        # Build volumes dict with workspace, config, and user-specified mounts
+        volumes = {
+            str(workspace_path): {"bind": "/workspace", "mode": "ro"},
+            str(config_file): {"bind": "/config/project.json", "mode": "ro"},
+        }
+        
+        # Add user-specified volume mounts (for MCP filesystem access, etc.)
+        if volume_mounts:
+            for mount in volume_mounts:
+                # Expand ~ to home directory and resolve to absolute path
+                host_path = os.path.expanduser(mount.host_path)
+                host_path = os.path.abspath(host_path)
+                if os.path.exists(host_path):
+                    volumes[host_path] = {
+                        "bind": mount.container_path,
+                        "mode": mount.mode,
+                    }
+                    logger.info(f"Mounting {host_path} -> {mount.container_path} ({mount.mode})")
+                else:
+                    logger.warning(f"Volume mount path does not exist: {host_path}")
+        
         container = self.client.containers.create(
             image=self.AGENT_IMAGE,
             name=f"sandbox-agent-{app_id}",
             detach=True,
             network=network_name,  # Internal network only - isolated from internet
             environment=env_vars,
-            volumes={
-                str(workspace_path): {"bind": "/workspace", "mode": "ro"},
-                str(config_file): {"bind": "/config/project.json", "mode": "ro"},
-            },
+            volumes=volumes,
             # No ports exposed - host communicates via gateway proxy
             mem_limit=mem_limit,
             cpu_period=100000,

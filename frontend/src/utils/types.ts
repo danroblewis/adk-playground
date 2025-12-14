@@ -302,6 +302,12 @@ export interface NetworkAllowlist {
   user: AllowlistPattern[];
 }
 
+export interface VolumeMount {
+  host_path: string;      // Path on the host machine
+  container_path: string; // Path inside the container
+  mode: 'ro' | 'rw';      // Read-only or read-write
+}
+
 export interface SandboxConfig {
   enabled: boolean;
   allowlist: NetworkAllowlist;
@@ -312,6 +318,7 @@ export interface SandboxConfig {
   mcp_memory_limit_mb: number;
   mcp_cpu_limit: number;
   run_timeout: number;
+  volume_mounts: VolumeMount[];
 }
 
 export interface NetworkRequest {

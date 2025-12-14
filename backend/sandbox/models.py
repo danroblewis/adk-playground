@@ -195,6 +195,17 @@ class MCPServerSandboxConfig(BaseModel):
     cpu_limit: float = 0.5
 
 
+class VolumeMount(BaseModel):
+    """A volume mount configuration for the Docker sandbox."""
+    host_path: str  # Path on the host machine
+    container_path: str  # Path inside the container
+    mode: str = "ro"  # "ro" (read-only) or "rw" (read-write)
+    
+    def to_docker_volume(self) -> Dict[str, Any]:
+        """Convert to Docker SDK volume format."""
+        return {self.host_path: {"bind": self.container_path, "mode": self.mode}}
+
+
 class SandboxConfig(BaseModel):
     """App-scoped sandbox configuration (persisted in project YAML)."""
     enabled: bool = False
@@ -206,6 +217,7 @@ class SandboxConfig(BaseModel):
     mcp_memory_limit_mb: int = 256  # Per MCP container
     mcp_cpu_limit: float = 0.5  # Per MCP container
     run_timeout: int = 300
+    volume_mounts: List[VolumeMount] = Field(default_factory=list)  # Host directories to mount
 
 
 class NetworkRequestStatus(str, Enum):
