@@ -209,24 +209,33 @@ class TrackingPlugin:
     
     async def _emit(self, event: Dict[str, Any]):
         """Emit an event."""
-        await self.emit_callback(event)
+        try:
+            await self.emit_callback(event)
+        except Exception as e:
+            logger.error(f"Failed to emit event {event.get('event_type')}: {e}")
     
     async def before_agent_callback(self, *, agent, callback_context, **kwargs):
-        await self._emit({
-            "event_type": "agent_start",
-            "timestamp": time.time(),
-            "agent_name": agent.name,
-            "data": {"instruction": getattr(agent, "instruction", "") or ""},
-        })
+        try:
+            await self._emit({
+                "event_type": "agent_start",
+                "timestamp": time.time(),
+                "agent_name": agent.name,
+                "data": {"instruction": getattr(agent, "instruction", "") or ""},
+            })
+        except Exception as e:
+            logger.error(f"Error in before_agent_callback for {agent.name}: {e}")
         return None
     
     async def after_agent_callback(self, *, agent, callback_context, **kwargs):
-        await self._emit({
-            "event_type": "agent_end",
-            "timestamp": time.time(),
-            "agent_name": agent.name,
-            "data": {},
-        })
+        try:
+            await self._emit({
+                "event_type": "agent_end",
+                "timestamp": time.time(),
+                "agent_name": agent.name,
+                "data": {},
+            })
+        except Exception as e:
+            logger.error(f"Error in after_agent_callback for {agent.name}: {e}")
         return None
     
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
@@ -240,89 +249,118 @@ class TrackingPlugin:
         return None
     
     async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
-        contents = self._serialize_contents(getattr(llm_request, "contents", None))
-        
-        system_instruction = None
-        if hasattr(llm_request, "config") and llm_request.config:
-            si = getattr(llm_request.config, "system_instruction", None)
-            if si:
-                if isinstance(si, str):
-                    system_instruction = si
-                elif hasattr(si, "parts"):
-                    system_instruction = "".join(
-                        getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
-                    )
-        
-        tool_names = list(getattr(llm_request, "tools_dict", {}).keys())
-        
-        await self._emit({
-            "event_type": "model_call",
-            "timestamp": time.time(),
-            "agent_name": getattr(callback_context, "agent_name", None) or "system",
-            "data": {
-                "contents": contents,
-                "system_instruction": system_instruction,
-                "tool_names": tool_names,
-                "tool_count": len(tool_names),
-            },
-        })
+        try:
+            contents = self._serialize_contents(getattr(llm_request, "contents", None))
+            
+            system_instruction = None
+            if hasattr(llm_request, "config") and llm_request.config:
+                si = getattr(llm_request.config, "system_instruction", None)
+                if si:
+                    if isinstance(si, str):
+                        system_instruction = si
+                    elif hasattr(si, "parts"):
+                        system_instruction = "".join(
+                            getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
+                        )
+            
+            tool_names = list(getattr(llm_request, "tools_dict", {}).keys())
+            
+            await self._emit({
+                "event_type": "model_call",
+                "timestamp": time.time(),
+                "agent_name": getattr(callback_context, "agent_name", None) or "system",
+                "data": {
+                    "contents": contents,
+                    "system_instruction": system_instruction,
+                    "tool_names": tool_names,
+                    "tool_count": len(tool_names),
+                },
+            })
+        except Exception as e:
+            logger.error(f"Error in before_model_callback: {e}")
         return None
     
     async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
-        response_parts = []
-        if hasattr(llm_response, "content") and llm_response.content:
-            if hasattr(llm_response.content, "parts") and llm_response.content.parts:
-                for part in llm_response.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        part_data = {"type": "text", "text": part.text}
-                        if hasattr(part, "thought") and part.thought:
-                            part_data["thought"] = True
-                        response_parts.append(part_data)
-                    elif hasattr(part, "function_call") and part.function_call:
-                        fc = part.function_call
-                        response_parts.append({
-                            "type": "function_call",
-                            "name": getattr(fc, "name", "unknown"),
-                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
-                        })
-        
-        if hasattr(llm_response, "usage_metadata") and llm_response.usage_metadata:
-            usage = llm_response.usage_metadata
-            self.token_counts["input"] += getattr(usage, "prompt_token_count", 0) or 0
-            self.token_counts["output"] += getattr(usage, "candidates_token_count", 0) or 0
-        
-        await self._emit({
-            "event_type": "model_response",
-            "timestamp": time.time(),
-            "agent_name": getattr(callback_context, "agent_name", None) or "system",
-            "data": {"parts": response_parts, "token_counts": dict(self.token_counts)},
-        })
+        try:
+            response_parts = []
+            if hasattr(llm_response, "content") and llm_response.content:
+                if hasattr(llm_response.content, "parts") and llm_response.content.parts:
+                    for part in llm_response.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            part_data = {"type": "text", "text": part.text}
+                            if hasattr(part, "thought") and part.thought:
+                                part_data["thought"] = True
+                            response_parts.append(part_data)
+                        elif hasattr(part, "function_call") and part.function_call:
+                            fc = part.function_call
+                            response_parts.append({
+                                "type": "function_call",
+                                "name": getattr(fc, "name", "unknown"),
+                                "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
+                            })
+            
+            if hasattr(llm_response, "usage_metadata") and llm_response.usage_metadata:
+                usage = llm_response.usage_metadata
+                self.token_counts["input"] += getattr(usage, "prompt_token_count", 0) or 0
+                self.token_counts["output"] += getattr(usage, "candidates_token_count", 0) or 0
+            
+            await self._emit({
+                "event_type": "model_response",
+                "timestamp": time.time(),
+                "agent_name": getattr(callback_context, "agent_name", None) or "system",
+                "data": {"parts": response_parts, "token_counts": dict(self.token_counts)},
+            })
+        except Exception as e:
+            logger.error(f"Error in after_model_callback: {e}")
         return None
     
     async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
-        await self._emit({
-            "event_type": "tool_call",
-            "timestamp": time.time(),
-            "agent_name": getattr(tool_context, "agent_name", None) or "system",
-            "data": {"tool_name": tool.name, "args": tool_args},
-        })
+        try:
+            # Serialize args safely
+            safe_args = {}
+            if tool_args:
+                for k, v in tool_args.items():
+                    try:
+                        json.dumps(v)  # Test if serializable
+                        safe_args[k] = v
+                    except (TypeError, ValueError):
+                        safe_args[k] = str(v)
+            
+            await self._emit({
+                "event_type": "tool_call",
+                "timestamp": time.time(),
+                "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                "data": {"tool_name": tool.name, "args": safe_args},
+            })
+        except Exception as e:
+            logger.error(f"Error in before_tool_callback for {tool.name}: {e}")
         return None
     
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
-        if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
+        try:
+            if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
+                await self._emit({
+                    "event_type": "state_change",
+                    "timestamp": time.time(),
+                    "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                    "data": {"state_delta": dict(tool_context._event_actions.state_delta)},
+                })
+            
+            # Serialize result safely
+            safe_result = result
+            try:
+                json.dumps(result)
+            except (TypeError, ValueError):
+                safe_result = str(result)
+            
             await self._emit({
-                "event_type": "state_change",
+                "event_type": "tool_result",
                 "timestamp": time.time(),
                 "agent_name": getattr(tool_context, "agent_name", None) or "system",
-                "data": {"state_delta": dict(tool_context._event_actions.state_delta)},
+                "data": {"tool_name": tool.name, "result": safe_result},
             })
-        
-        await self._emit({
-            "event_type": "tool_result",
-            "timestamp": time.time(),
-            "agent_name": getattr(tool_context, "agent_name", None) or "system",
-            "data": {"tool_name": tool.name, "result": result},
-        })
+        except Exception as e:
+            logger.error(f"Error in after_tool_callback for {tool.name}: {e}")
         return None
     
     def _serialize_contents(self, contents) -> list:
