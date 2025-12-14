@@ -361,6 +361,42 @@ async def get_mcp_status(app_id: str):
     }
 
 
+@router.get("/{app_id}/logs")
+async def get_container_logs(
+    app_id: str, 
+    container: str = "agent",  # "agent" or "gateway"
+    tail: int = 500,
+    since: Optional[int] = None,
+):
+    """Get logs from a sandbox container.
+    
+    Args:
+        app_id: The App ID
+        container: Which container to get logs from ("agent" or "gateway")
+        tail: Number of lines to return from the end (default 500)
+        since: Only return logs since this Unix timestamp
+    
+    Returns:
+        Container logs as text
+    """
+    manager = get_sandbox_manager()
+    
+    result = await manager.get_container_logs(
+        app_id=app_id,
+        container_type=container,
+        tail=tail,
+        since=since,
+    )
+    
+    if "error" in result:
+        raise HTTPException(
+            status_code=404 if "not found" in result["error"].lower() else 500,
+            detail=result["error"]
+        )
+    
+    return result
+
+
 # =============================================================================
 # MCP Tool Execution - for Tool Watches and debugging
 # =============================================================================

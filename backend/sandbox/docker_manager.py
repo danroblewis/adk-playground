@@ -1346,6 +1346,58 @@ class SandboxManager:
             logger.error(f"Failed to disconnect MCP: {e}")
             return {"error": str(e)}
     
+    async def get_container_logs(
+        self, 
+        app_id: str, 
+        container_type: str = "agent",  # "agent" or "gateway"
+        tail: int = 500,
+        since: Optional[int] = None,  # Unix timestamp
+    ) -> Dict[str, Any]:
+        """Get logs from a sandbox container.
+        
+        Args:
+            app_id: The App ID
+            container_type: "agent" or "gateway"
+            tail: Number of lines to return from the end
+            since: Only return logs since this Unix timestamp
+        
+        Returns:
+            Dict with "logs" key containing the log text, or "error" key
+        """
+        instance = self.instances.get(app_id)
+        if not instance:
+            return {"error": "Sandbox not found"}
+        
+        try:
+            if container_type == "agent" and instance.agent_container_id:
+                container = self.client.containers.get(instance.agent_container_id)
+            elif container_type == "gateway" and instance.gateway_container_id:
+                container = self.client.containers.get(instance.gateway_container_id)
+            else:
+                return {"error": f"Container type '{container_type}' not found"}
+            
+            # Get logs
+            logs = container.logs(
+                tail=tail,
+                since=since,
+                timestamps=True,
+            )
+            
+            # Decode bytes to string
+            if isinstance(logs, bytes):
+                logs = logs.decode("utf-8", errors="replace")
+            
+            return {
+                "logs": logs,
+                "container_id": container.id[:12],
+                "container_type": container_type,
+                "status": container.status,
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get container logs: {e}")
+            return {"error": str(e)}
+    
     async def cleanup(self):
         """Cleanup all sandboxes on shutdown."""
         for app_id in list(self.instances.keys()):

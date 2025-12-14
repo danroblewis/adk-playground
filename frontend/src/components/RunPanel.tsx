@@ -1334,6 +1334,10 @@ export default function RunPanel() {
   const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end']));
   const [sandboxMode, setSandboxMode] = useState(true);  // Run in Docker sandbox (enabled by default)
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);  // Pending network approval request
+  const [showLogsModal, setShowLogsModal] = useState(false);  // Show container logs modal
+  const [containerLogs, setContainerLogs] = useState<{ agent?: string; gateway?: string }>({});
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsTab, setLogsTab] = useState<'agent' | 'gateway'>('agent');
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
@@ -1866,6 +1870,40 @@ export default function RunPanel() {
     }
     setPendingApproval(null);
   }, [pendingApproval, project, addRunEvent]);
+  
+  // Fetch container logs
+  const fetchContainerLogs = useCallback(async () => {
+    if (!project) return;
+    
+    const appId = project.app?.id || `app_${project.id}`;
+    setLogsLoading(true);
+    
+    try {
+      const [agentResult, gatewayResult] = await Promise.all([
+        fetchJSON(`/sandbox/${appId}/logs?container=agent&tail=1000`).catch(() => null),
+        fetchJSON(`/sandbox/${appId}/logs?container=gateway&tail=1000`).catch(() => null),
+      ]);
+      
+      setContainerLogs({
+        agent: agentResult?.logs || agentResult?.error || 'No logs available',
+        gateway: gatewayResult?.logs || gatewayResult?.error || 'No logs available',
+      });
+    } catch (e) {
+      console.error('Failed to fetch logs:', e);
+      setContainerLogs({
+        agent: `Error fetching logs: ${e}`,
+        gateway: `Error fetching logs: ${e}`,
+      });
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [project]);
+  
+  // Open logs modal and fetch logs
+  const openLogsModal = useCallback(() => {
+    setShowLogsModal(true);
+    fetchContainerLogs();
+  }, [fetchContainerLogs]);
   
   // Keyboard shortcuts
   useEffect(() => {
@@ -3570,6 +3608,29 @@ export default function RunPanel() {
           />
           🐳 Sandbox
         </label>
+        
+        {/* View container logs button */}
+        {sandboxMode && (
+          <button
+            onClick={openLogsModal}
+            style={{
+              background: 'transparent',
+              border: '1px solid #3f3f46',
+              borderRadius: '4px',
+              padding: '2px 8px',
+              marginLeft: '8px',
+              fontSize: '11px',
+              color: '#a1a1aa',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+            title="View container logs"
+          >
+            📋 Logs
+          </button>
+        )}
       </div>
       
       {/* Toolbar */}
@@ -3983,6 +4044,147 @@ export default function RunPanel() {
           onDeny={handleDeny}
           onClose={() => setPendingApproval(null)}
         />
+      )}
+      
+      {/* Container Logs Modal */}
+      {showLogsModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowLogsModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#18181b',
+              borderRadius: '8px',
+              border: '1px solid #3f3f46',
+              width: '80%',
+              maxWidth: '900px',
+              height: '70%',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 16px',
+              borderBottom: '1px solid #3f3f46',
+              backgroundColor: '#27272a',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Terminal size={16} />
+                <span style={{ fontWeight: 600 }}>Container Logs</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={fetchContainerLogs}
+                  disabled={logsLoading}
+                  style={{
+                    background: '#3f3f46',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '4px 8px',
+                    color: '#e4e4e7',
+                    cursor: logsLoading ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                  }}
+                >
+                  <RefreshCw size={12} className={logsLoading ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+                <button
+                  onClick={() => setShowLogsModal(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#71717a',
+                    cursor: 'pointer',
+                    padding: '4px',
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            
+            {/* Tabs */}
+            <div style={{
+              display: 'flex',
+              gap: '0',
+              borderBottom: '1px solid #3f3f46',
+              backgroundColor: '#27272a',
+            }}>
+              <button
+                onClick={() => setLogsTab('agent')}
+                style={{
+                  padding: '8px 16px',
+                  background: logsTab === 'agent' ? '#18181b' : 'transparent',
+                  border: 'none',
+                  borderBottom: logsTab === 'agent' ? '2px solid #22d3ee' : '2px solid transparent',
+                  color: logsTab === 'agent' ? '#22d3ee' : '#a1a1aa',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                }}
+              >
+                🤖 Agent
+              </button>
+              <button
+                onClick={() => setLogsTab('gateway')}
+                style={{
+                  padding: '8px 16px',
+                  background: logsTab === 'gateway' ? '#18181b' : 'transparent',
+                  border: 'none',
+                  borderBottom: logsTab === 'gateway' ? '2px solid #22d3ee' : '2px solid transparent',
+                  color: logsTab === 'gateway' ? '#22d3ee' : '#a1a1aa',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                }}
+              >
+                🌐 Gateway
+              </button>
+            </div>
+            
+            {/* Log content */}
+            <div style={{
+              flex: 1,
+              overflow: 'auto',
+              padding: '12px',
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: '11px',
+              lineHeight: '1.5',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              color: '#d4d4d8',
+              backgroundColor: '#09090b',
+            }}>
+              {logsLoading ? (
+                <div style={{ color: '#71717a', textAlign: 'center', padding: '20px' }}>
+                  Loading logs...
+                </div>
+              ) : (
+                containerLogs[logsTab] || 'No logs available'
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
