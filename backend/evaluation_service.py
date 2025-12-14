@@ -559,7 +559,16 @@ class EvaluationService:
         invocation_results: list,
     ) -> MetricResult:
         """Run an LLM-based judge evaluation."""
+        import os
         from google import genai
+        
+        # Set API key from project env_vars
+        env_vars = project.app.env_vars or {} if project.app else {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
         
         # Get judge model from config or use app's default model
         judge_model = eval_config.judge_model if hasattr(eval_config, 'judge_model') and eval_config.judge_model else None
@@ -592,6 +601,13 @@ class EvaluationService:
             score = self._parse_judge_response(response_text, metric)
             passed = score >= threshold
             
+            # Restore environment variables
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            
             return MetricResult(
                 metric=metric,
                 score=score,
@@ -600,6 +616,13 @@ class EvaluationService:
                 details=f"Judge model: {judge_model}",
             )
         except Exception as e:
+            # Restore environment variables
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            
             return MetricResult(
                 metric=metric,
                 score=None,
@@ -740,7 +763,16 @@ Respond with ONLY a number between 0.0 and 1.0."""
         invocation_results: list,
     ) -> dict:
         """Evaluate a custom rubric using an LLM judge."""
+        import os
         from google import genai
+        
+        # Set API key from project env_vars
+        env_vars = project.app.env_vars or {} if project.app else {}
+        old_env = {}
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY"]:
+            if key in env_vars:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = env_vars[key]
         
         # Get judge model from config or use app's default model
         judge_model = eval_config.judge_model if hasattr(eval_config, 'judge_model') and eval_config.judge_model else None
@@ -805,6 +837,13 @@ RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
                 passed = response_text.upper().startswith('YES')
                 rationale = response_text
             
+            # Restore environment variables
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            
             return {
                 'rubric': rubric,
                 'passed': passed,
@@ -813,6 +852,13 @@ RATIONALE: Brief explanation of your judgment (1-2 sentences)"""
                 'judge_model': judge_model,
             }
         except Exception as e:
+            # Restore environment variables
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            
             return {
                 'rubric': rubric,
                 'passed': False,
