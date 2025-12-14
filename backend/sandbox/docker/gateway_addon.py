@@ -484,6 +484,12 @@ class ControlHandler(BaseHTTPRequestHandler):
                 "pending": pending_ids,
                 "count": len(pending_ids),
             })
+        elif self.path == "/allowlist":
+            self._send_json({
+                "exact": gateway.exact_patterns,
+                "wildcard": gateway.wildcard_patterns,
+                "regex_count": len(gateway.regex_patterns),
+            })
         else:
             self._send_json({"error": "Not found"}, 404)
     

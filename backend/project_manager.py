@@ -23,6 +23,17 @@ class ProjectManager:
     def _project_path(self, project_id: str) -> Path:
         return self.projects_dir / f"{project_id}.yaml"
     
+    def get_project_path(self, project_id: str) -> Optional[str]:
+        """Get the path to a project's YAML file.
+        
+        Returns:
+            The path as a string if the project exists, None otherwise.
+        """
+        path = self._project_path(project_id)
+        if path.exists():
+            return str(path)
+        return None
+    
     def _tools_dir(self, project_id: str) -> Path:
         tools_dir = self.projects_dir / project_id / "tools"
         tools_dir.mkdir(parents=True, exist_ok=True)
