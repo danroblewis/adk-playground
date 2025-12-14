@@ -90,6 +90,7 @@ class AllowlistGateway:
             "aiplatform.googleapis.com",
             "api.anthropic.com",
             "api.openai.com",
+            "openai.azure.com",  # Azure OpenAI (e.g., companyname.openai.azure.com)
             "api.together.xyz",
             "api.mistral.ai",
             "api.cohere.ai",

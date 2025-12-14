@@ -98,6 +98,7 @@ class NetworkAllowlist(BaseModel):
         "generativelanguage.googleapis.com",
         "api.anthropic.com",
         "api.openai.com",
+        "*.openai.azure.com",  # Azure OpenAI (e.g., companyname.openai.azure.com)
         "api.groq.com",
         "api.mistral.ai",
         "api.together.xyz",
