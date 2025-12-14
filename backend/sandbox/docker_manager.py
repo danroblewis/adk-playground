@@ -827,6 +827,78 @@ class SandboxManager:
         
         return False
     
+    async def add_pattern_to_gateway(
+        self,
+        app_id: str,
+        pattern: str,
+        pattern_type: str = "exact",
+    ) -> bool:
+        """Add a pattern to the running gateway's allowlist.
+        
+        Args:
+            app_id: The App ID
+            pattern: The pattern to add
+            pattern_type: Type of pattern (exact, wildcard, regex)
+        
+        Returns:
+            True if added successfully
+        """
+        instance = self.instances.get(app_id)
+        if not instance or instance.status != SandboxStatus.RUNNING:
+            logger.info(f"No running sandbox for {app_id}")
+            return False
+        
+        if not instance.gateway_container_id or not self.client:
+            return False
+        
+        try:
+            container = self.client.containers.get(instance.gateway_container_id)
+            ports = container.ports.get("8081/tcp")
+            if not ports:
+                return False
+            host_port = ports[0]["HostPort"]
+            
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"http://localhost:{host_port}/add_pattern",
+                    json={"pattern": pattern, "pattern_type": pattern_type},
+                ) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Added pattern {pattern} to gateway for {app_id}")
+                        return True
+                    else:
+                        body = await resp.text()
+                        logger.warning(f"Failed to add pattern: {body}")
+        except Exception as e:
+            logger.error(f"Failed to add pattern to gateway: {e}")
+        
+        return False
+    
+    async def sync_allowlist_to_gateway(
+        self,
+        app_id: str,
+        patterns: List[Dict[str, Any]],
+    ) -> int:
+        """Sync multiple patterns to the running gateway's allowlist.
+        
+        Args:
+            app_id: The App ID
+            patterns: List of pattern dicts with 'pattern' and 'pattern_type'
+        
+        Returns:
+            Number of patterns successfully added
+        """
+        count = 0
+        for p in patterns:
+            pattern = p.get("pattern", "")
+            pattern_type = p.get("pattern_type", "exact")
+            if pattern:
+                success = await self.add_pattern_to_gateway(app_id, pattern, pattern_type)
+                if success:
+                    count += 1
+        return count
+    
     async def send_message(
         self,
         app_id: str,

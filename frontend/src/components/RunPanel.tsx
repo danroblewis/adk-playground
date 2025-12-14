@@ -1318,7 +1318,7 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
 export default function RunPanel() {
-  const { project, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch, currentSessionId, setCurrentSessionId } = useStore();
+  const { project, updateProject, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch, currentSessionId, setCurrentSessionId } = useStore();
   
   // UI state
   const [userInput, setUserInput] = useState('');
@@ -1767,6 +1767,9 @@ export default function RunPanel() {
     
     const appId = project.app?.id || project.id;
     const action = pattern ? 'allow_pattern' : 'allow_once';
+    const patternValue = pattern || pendingApproval.host;
+    const patternTypeValue = patternType || 'exact';
+    
     // Include project_id as query param for persistence
     const url = persist 
       ? `/sandbox/${appId}/approval?project_id=${project.id}`
@@ -1778,22 +1781,55 @@ export default function RunPanel() {
         body: JSON.stringify({
           request_id: pendingApproval.id,
           action,
-          pattern: pattern || pendingApproval.host,
-          pattern_type: patternType || 'exact',
+          pattern: patternValue,
+          pattern_type: patternTypeValue,
           persist: persist || false,
         }),
       });
+      
+      // If persisting, update the local project state so App config shows the pattern
+      if (persist && action === 'allow_pattern') {
+        const existingPatterns = project.app?.sandbox?.allowlist?.user || [];
+        const newPattern = {
+          id: `pattern_${Date.now().toString(36)}`,
+          pattern: patternValue,
+          pattern_type: patternTypeValue,
+          source: 'approved',
+          added_at: new Date().toISOString(),
+        };
+        updateProject({
+          app: {
+            ...project.app,
+            sandbox: {
+              ...project.app?.sandbox,
+              enabled: project.app?.sandbox?.enabled ?? false,
+              allowlist: {
+                auto: project.app?.sandbox?.allowlist?.auto || [],
+                user: [...existingPatterns, newPattern],
+              },
+              unknown_action: project.app?.sandbox?.unknown_action ?? 'ask',
+              approval_timeout: project.app?.sandbox?.approval_timeout ?? 30,
+              agent_memory_limit_mb: project.app?.sandbox?.agent_memory_limit_mb ?? 512,
+              agent_cpu_limit: project.app?.sandbox?.agent_cpu_limit ?? 1.0,
+              mcp_memory_limit_mb: project.app?.sandbox?.mcp_memory_limit_mb ?? 256,
+              mcp_cpu_limit: project.app?.sandbox?.mcp_cpu_limit ?? 0.5,
+              run_timeout: project.app?.sandbox?.run_timeout ?? 300,
+            },
+          },
+        });
+      }
+      
       addRunEvent({
         timestamp: Date.now() / 1000,
         event_type: 'callback_end',
         agent_name: 'sandbox',
-        data: { message: `✅ Approved: ${pattern || pendingApproval.host}` }
+        data: { message: `✅ Approved: ${patternValue}` }
       });
     } catch (e) {
       console.error('Failed to approve:', e);
     }
     setPendingApproval(null);
-  }, [pendingApproval, project, addRunEvent]);
+  }, [pendingApproval, project, addRunEvent, updateProject]);
 
   // Handle network denial
   const handleDeny = useCallback(async () => {

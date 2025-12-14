@@ -154,6 +154,26 @@ export default function AppConfigPanel() {
     updateApp({ sandbox: { ...sandbox, ...updates } });
   }
   
+  // Sync allowlist patterns to running gateway
+  async function syncAllowlistToGateway(patterns: AllowlistPattern[]) {
+    const appId = app.id;
+    try {
+      await fetch(`/api/sandbox/${appId}/allowlist/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patterns: patterns.map(p => ({
+            pattern: p.pattern,
+            pattern_type: p.pattern_type,
+          })).filter(p => p.pattern), // Only sync non-empty patterns
+        }),
+      });
+    } catch (e) {
+      // Ignore errors - gateway might not be running
+      console.debug('Could not sync allowlist to gateway:', e);
+    }
+  }
+  
   function addAllowlistPattern() {
     const newPattern: AllowlistPattern = {
       id: `pattern_${Date.now().toString(36)}`,
@@ -172,12 +192,18 @@ export default function AppConfigPanel() {
   function updateAllowlistPattern(index: number, updates: Partial<AllowlistPattern>) {
     const patterns = [...allowlistPatterns];
     patterns[index] = { ...patterns[index], ...updates };
-    updateSandbox({ allowlist: { ...sandbox.allowlist, user: patterns } });
+    const newPatterns = patterns;
+    updateSandbox({ allowlist: { ...sandbox.allowlist, user: newPatterns } });
+    // Sync to gateway when pattern is updated (debounced by user typing)
+    if (updates.pattern) {
+      syncAllowlistToGateway(newPatterns);
+    }
   }
   
   function removeAllowlistPattern(index: number) {
     const patterns = allowlistPatterns.filter((_, i) => i !== index);
     updateSandbox({ allowlist: { ...sandbox.allowlist, user: patterns } });
+    // Note: We can't "remove" from gateway, but new patterns won't require approval
   }
   
   // Model management

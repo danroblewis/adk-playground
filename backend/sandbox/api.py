@@ -359,6 +359,28 @@ async def get_mcp_status(app_id: str):
     }
 
 
+class SyncAllowlistRequest(BaseModel):
+    """Request to sync allowlist patterns to a running gateway."""
+    patterns: List[Dict[str, Any]]
+
+
+@router.post("/{app_id}/allowlist/sync")
+async def sync_allowlist_to_gateway(app_id: str, request: SyncAllowlistRequest):
+    """Sync allowlist patterns to a running gateway.
+    
+    This pushes patterns to the mitmproxy gateway without restarting it.
+    Called when the allowlist is updated in the App configurator.
+    """
+    manager = get_sandbox_manager()
+    
+    count = await manager.sync_allowlist_to_gateway(app_id, request.patterns)
+    
+    return {
+        "status": "synced",
+        "patterns_added": count,
+    }
+
+
 @router.post("/{app_id}/allowlist/persist")
 async def persist_allowlist(app_id: str, project_id: str):
     """Persist the entire allowlist to project YAML.
