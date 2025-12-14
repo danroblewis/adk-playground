@@ -82,7 +82,12 @@ def generate_tool_code(tool: ToolConfig, project: Project, agent_var_names: Dict
 
 
 def generate_mcp_toolset_code(server: MCPServerConfig) -> str:
-    """Generate Python code for an MCP toolset."""
+    """Generate Python code for an MCP toolset.
+    
+    Note: For stdio connections, we always inject proxy environment variables
+    because the MCP library only inherits a limited set of env vars to the
+    subprocess (PATH, HOME, etc. but NOT HTTP_PROXY).
+    """
     lines = []
     
     if server.connection_type == "stdio":
@@ -93,8 +98,17 @@ def generate_mcp_toolset_code(server: MCPServerConfig) -> str:
             lines.append(f'            command="{server.command}",')
         if server.args:
             lines.append(f"            args={json.dumps(server.args)},")
+        
+        # Always generate env with proxy variables merged in
+        # The MCP library only inherits PATH, HOME, etc. - NOT proxy vars
+        lines.append("            env={")
+        lines.append('                **{k: v for k, v in os.environ.items() if k.upper() in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "UV_HTTP_PROXY", "UV_HTTPS_PROXY", "NPM_CONFIG_PROXY", "NPM_CONFIG_HTTPS_PROXY") or k.lower() in ("http_proxy", "https_proxy", "no_proxy")},')
         if server.env:
-            lines.append(f"            env={json.dumps(server.env)},")
+            # Add user-specified env vars
+            for key, value in server.env.items():
+                lines.append(f'                "{key}": {json.dumps(value)},')
+        lines.append("            },")
+        
         lines.append("        ),")
         if server.timeout:
             lines.append(f"        timeout={server.timeout},")
@@ -383,6 +397,7 @@ def generate_python_code(project: Project) -> str:
         has_stdio = any(s.connection_type == "stdio" for s in project.mcp_servers)
         has_sse = any(s.connection_type == "sse" for s in project.mcp_servers)
         if has_stdio:
+            imports.add("import os")  # Needed for proxy env var injection
             imports.add("from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams")
             imports.add("from mcp import StdioServerParameters")
         if has_sse:

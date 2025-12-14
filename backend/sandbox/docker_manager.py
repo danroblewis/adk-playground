@@ -403,6 +403,11 @@ class SandboxManager:
         This network is internal=True, meaning containers on it cannot
         directly access the internet. The gateway container will be on
         both this network AND the default bridge network to route traffic.
+        
+        Note: The MCP library only inherits a limited set of env vars to
+        subprocesses (PATH, HOME, etc.) but NOT proxy variables. We handle
+        this by injecting proxy env vars directly into the MCP server's
+        StdioServerParameters.env in the code generator.
         """
         if not self.client:
             raise RuntimeError("Docker client not initialized")
@@ -415,11 +420,11 @@ class SandboxManager:
         except NotFound:
             pass
         
-        # Create INTERNAL network - no direct internet access
+        # Create INTERNAL network - no direct internet access from this network
         network = self.client.networks.create(
             network_name,
             driver="bridge",
-            internal=True,  # No direct internet access from this network
+            internal=True,  # No direct internet access
         )
         logger.info(f"Created internal network {network_name}")
         return network
@@ -733,8 +738,8 @@ class SandboxManager:
             if key not in env_vars and os.environ.get(key):
                 env_vars[key] = os.environ[key]
         
-        # Create agent on the internal network (internal=True means no direct internet)
-        # Agent is only accessible via the gateway proxy, not directly from host
+        # Create agent on the sandbox network
+        # All HTTP/HTTPS traffic is routed through the gateway proxy via env vars
         
         # Build volumes dict with workspace, config, and user-specified mounts
         volumes = {
