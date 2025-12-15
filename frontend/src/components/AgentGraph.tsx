@@ -143,7 +143,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     
     // Debug: log what we have
     console.log('=== AgentGraph Debug ===');
+    console.log('agents prop:', agents.map(a => ({ name: a.name, id: a.id, type: a.type })));
     console.log('visitedAgents:', [...visitedAgents]);
+    console.log('agents matching visitedAgents:', agents.filter(a => visitedAgents.has(a.name)).map(a => a.name));
     console.log('transitions:', [...transitions.entries()]);
     console.log('nodeIds:', [...nodeIds]);
     console.log('nameToId:', [...nameToId.entries()]);
