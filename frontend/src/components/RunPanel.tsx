@@ -652,7 +652,7 @@ function StringMarkdownModal({ content, onClose }: { content: string; onClose: (
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Eye size={16} />
-            <span style={{ fontWeight: 600 }}>String Content (Markdown)</span>
+            <span style={{ fontWeight: 600 }}>String Content</span>
             <span style={{ color: '#71717a', fontSize: '12px' }}>({content.length} chars)</span>
           </div>
           <button
@@ -677,13 +677,17 @@ function StringMarkdownModal({ content, onClose }: { content: string; onClose: (
           overflow: 'auto',
           padding: '20px',
         }}>
-          <div className="markdown-content" style={{
-            fontSize: '14px',
-            lineHeight: '1.7',
+          <pre style={{
+            fontSize: '13px',
+            lineHeight: '1.6',
             color: '#e4e4e7',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+            margin: 0,
           }}>
-            <ReactMarkdown>{content}</ReactMarkdown>
-          </div>
+            {content}
+          </pre>
         </div>
         
         {/* Footer with raw view toggle */}
