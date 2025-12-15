@@ -225,6 +225,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Create container group for zoom/pan
     const g = svg.append('g');
     
+    // Track current scale for boundary calculation (mutable reference)
+    const scaleRef = { current: lastTransformRef.current?.k || 1 };
+    
     // Setup zoom behavior
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.3, 3])
@@ -232,6 +235,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         g.attr('transform', event.transform);
         // Save transform for next render
         lastTransformRef.current = event.transform;
+        // Update scale for boundary force
+        scaleRef.current = event.transform.k;
       });
     
     svg.call(zoom);
@@ -239,6 +244,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Restore last transform immediately if we have one
     if (lastTransformRef.current) {
       svg.call(zoom.transform, lastTransformRef.current);
+      scaleRef.current = lastTransformRef.current.k;
     }
     
     // Function to calculate the ideal transform to fit graph to view
@@ -280,6 +286,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Apply transform smoothly (used on tick for continuous centering)
     const applyTransformSmooth = (transform: d3.ZoomTransform) => {
       lastTransformRef.current = transform;
+      scaleRef.current = transform.k;
       svg.call(zoom.transform, transform);
     };
     
@@ -288,9 +295,13 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
     
     // Custom boundary force to keep nodes within the circular area
-    // The visible area is roughly a circle with some margin
-    const boundaryRadius = 120; // Max distance from center
+    // The visible radius in screen pixels (accounting for the rounded panel shape)
+    const visibleRadiusPixels = 140; // Approximate radius of usable area
+    
     const boundaryForce = () => {
+      // Boundary radius in simulation coordinates = screen radius / zoom scale
+      const boundaryRadius = visibleRadiusPixels / scaleRef.current;
+      
       for (const node of graphData.nodes) {
         if (node.x === undefined || node.y === undefined) continue;
         
