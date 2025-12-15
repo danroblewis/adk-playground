@@ -309,7 +309,8 @@ def generate_agent_code(
                     else:
                         params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         
-        return f"{var_name} = Agent(\n    {',\n    '.join(params)},\n)"
+        params_str = ',\n    '.join(params)
+        return f"{var_name} = Agent(\n    {params_str},\n)"
     
     elif isinstance(agent, SequentialAgentConfig) or agent.type == "SequentialAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -331,7 +332,8 @@ def generate_agent_code(
                             fn = cb.module_path.split(".")[-1]
                             callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f'{var_name} = SequentialAgent(\n    {",\n    ".join(params)},\n)'
+        params_str = ',\n    '.join(params)
+        return f'{var_name} = SequentialAgent(\n    {params_str},\n)'
     
     elif isinstance(agent, LoopAgentConfig) or agent.type == "LoopAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -355,7 +357,8 @@ def generate_agent_code(
                             fn = cb.module_path.split(".")[-1]
                             callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f"{var_name} = LoopAgent(\n    {',\n    '.join(params)},\n)"
+        params_str = ',\n    '.join(params)
+        return f"{var_name} = LoopAgent(\n    {params_str},\n)"
     
     elif isinstance(agent, ParallelAgentConfig) or agent.type == "ParallelAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -377,7 +380,8 @@ def generate_agent_code(
                             fn = cb.module_path.split(".")[-1]
                             callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f'{var_name} = ParallelAgent(\n    {",\n    ".join(params)},\n)'
+        params_str = ',\n    '.join(params)
+        return f'{var_name} = ParallelAgent(\n    {params_str},\n)'
     
     return f"# Unknown agent type: {agent.type}"
 
