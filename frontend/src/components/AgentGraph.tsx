@@ -38,7 +38,9 @@ const AGENT_COLORS: Record<string, string> = {
 
 export default function AgentGraph({ agents, events, selectedEventIndex }: AgentGraphProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   // Store node positions to preserve layout across updates
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -278,7 +280,34 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .attr('stroke', d => d.isActive ? '#fff' : d.wasActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)')
       .attr('stroke-width', d => d.isActive ? 3 : 1.5)
       .attr('opacity', d => d.wasActive ? 1 : 0.5)
-      .attr('class', d => d.isActive ? 'active-node' : '');
+      .attr('class', d => d.isActive ? 'active-node' : '')
+      .style('cursor', 'pointer')
+      .on('mouseenter', function(event, d) {
+        // Get container position for tooltip placement
+        const containerRect = containerRef.current?.getBoundingClientRect();
+        if (!containerRect) return;
+        
+        // Get mouse position relative to container
+        const x = event.clientX - containerRect.left;
+        const y = event.clientY - containerRect.top;
+        
+        setTooltip({ x, y, node: d });
+        
+        // Highlight effect
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr('r', d.name === 'system' ? 18 : 24);
+      })
+      .on('mouseleave', function(event, d) {
+        setTooltip(null);
+        
+        // Remove highlight
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr('r', d.name === 'system' ? 14 : 18);
+      });
     
     // Node labels
     node.append('text')
@@ -438,11 +467,57 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
             transform: scale(1.08);
           }
         }
+        
+        .agent-graph-tooltip {
+          position: absolute;
+          pointer-events: none;
+          background: rgba(15, 15, 25, 0.95);
+          border: 1px solid rgba(99, 102, 241, 0.4);
+          border-radius: 8px;
+          padding: 8px 12px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+          z-index: 1001;
+          min-width: 100px;
+          animation: tooltipFadeIn 0.15s ease;
+        }
+        
+        @keyframes tooltipFadeIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .agent-graph-tooltip-name {
+          font-size: 13px;
+          font-weight: 600;
+          color: #f4f4f5;
+          margin-bottom: 4px;
+        }
+        
+        .agent-graph-tooltip-type {
+          font-size: 11px;
+          color: #a1a1aa;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        
+        .agent-graph-tooltip-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        
+        .agent-graph-tooltip-active {
+          font-size: 10px;
+          color: #22c55e;
+          margin-top: 4px;
+          font-weight: 500;
+        }
       `}</style>
       
       <div className={`agent-graph-container ${isOpen ? '' : 'closed'}`}>
         <div className="agent-graph-panel">
-          <div className="agent-graph-content">
+          <div className="agent-graph-content" ref={containerRef}>
             <svg ref={svgRef} className="agent-graph-svg" />
             <div className="agent-graph-legend">
               <div className="legend-item">
@@ -450,6 +525,31 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
                 <span>execution flow</span>
               </div>
             </div>
+            {tooltip && (
+              <div 
+                className="agent-graph-tooltip"
+                style={{ 
+                  left: Math.min(tooltip.x + 15, 180), 
+                  top: Math.max(tooltip.y - 20, 10) 
+                }}
+              >
+                <div className="agent-graph-tooltip-name">{tooltip.node.name}</div>
+                <div className="agent-graph-tooltip-type">
+                  <div 
+                    className="agent-graph-tooltip-dot" 
+                    style={{ 
+                      background: tooltip.node.name === 'system' 
+                        ? '#71717a' 
+                        : (AGENT_COLORS[tooltip.node.type] || '#6366f1') 
+                    }}
+                  />
+                  {tooltip.node.name === 'system' ? 'System' : tooltip.node.type}
+                </div>
+                {tooltip.node.isActive && (
+                  <div className="agent-graph-tooltip-active">● Currently executing</div>
+                )}
+              </div>
+            )}
           </div>
           <button className="agent-graph-toggle" onClick={() => setIsOpen(!isOpen)}>
             <ChevronRight size={20} />
