@@ -86,13 +86,14 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
   // Calculate the active agent, transitions, visited agents, and tool calls up to the selected event
-  const { activeAgent, transitions, visitedAgents, toolCalls } = useMemo(() => {
+  const { activeAgent, activeTool, transitions, visitedAgents, toolCalls } = useMemo(() => {
     // If no event selected, use the most recent event
     const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
     
     if (effectiveIndex < 0 || events.length === 0) {
       return { 
-        activeAgent: null, 
+        activeAgent: null,
+        activeTool: null,
         transitions: new Map<string, number>(), 
         visitedAgents: new Set<string>(),
         toolCalls: new Map<string, number>() // Map of "agent->tool" to count
@@ -113,6 +114,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // When agent_end happens, we pop the stack
     // Start with 'system' as the initial parent
     const agentStack: string[] = ['system'];
+    
+    // Track currently executing tool (between tool_call and tool_result)
+    let currentTool: string | null = null;
     
     for (const event of eventsUpToSelection) {
       if (event.event_type === 'agent_start') {
@@ -143,7 +147,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           visitedTools.add(toolName);
           const key = `${callingAgent}->tool:${toolName}`;
           toolCallMap.set(key, (toolCallMap.get(key) || 0) + 1);
+          // Tool is now executing
+          currentTool = toolName;
         }
+      } else if (event.event_type === 'tool_result') {
+        // Tool finished executing
+        currentTool = null;
       }
     }
     
@@ -153,7 +162,13 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Current active agent is top of stack (or null if only system remains)
     const currentAgent = agentStack.length > 1 ? agentStack[agentStack.length - 1] : null;
     
-    return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited, toolCalls: toolCallMap };
+    return { 
+      activeAgent: currentAgent, 
+      activeTool: currentTool,
+      transitions: transitionMap, 
+      visitedAgents: visited, 
+      toolCalls: toolCallMap 
+    };
   }, [events, selectedEventIndex]);
   
   // Build graph data - create nodes for any agent seen in events
@@ -198,7 +213,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         id,
         name: toolName,
         type: 'Tool',
-        isActive: false,
+        isActive: toolName === activeTool, // Tool is active if currently executing
         wasActive: true,
         x: prevPos?.x,
         y: prevPos?.y,
@@ -245,7 +260,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     }
     
     return { nodes, links };
-  }, [agents, activeAgent, visitedAgents, transitions, toolCalls]);
+  }, [agents, activeAgent, activeTool, visitedAgents, transitions, toolCalls]);
   
   // D3 force simulation
   useEffect(() => {
