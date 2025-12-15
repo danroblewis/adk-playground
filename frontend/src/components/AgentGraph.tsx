@@ -97,68 +97,41 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited };
   }, [events, selectedEventIndex]);
   
-  // Build graph data - only include agents that have been seen in events
+  // Build graph data - create nodes for any agent seen in events
   const graphData = useMemo(() => {
-    const agentByName = new Map(agents.map(a => [a.name, a]));
+    // Build a lookup map from agent name to config (if available)
+    const agentConfigByName = new Map(agents.map(a => [a.name, a]));
     
-    // Start with visited agent nodes
-    const nodes: GraphNode[] = agents
-      .filter(agent => visitedAgents.has(agent.name))
-      .map(agent => {
-        // Restore previous position if available
-        const prevPos = nodePositionsRef.current.get(agent.id);
-        return {
-          id: agent.id,
-          name: agent.name,
-          type: agent.type,
-          isActive: agent.name === activeAgent,
-          wasActive: true, // All nodes in graph have been visited
-          // Use previous position or undefined (D3 will assign random)
-          x: prevPos?.x,
-          y: prevPos?.y,
-        };
-      });
+    const nodes: GraphNode[] = [];
+    const nameToId = new Map<string, string>();
     
-    // Add system node if we have any events
-    if (visitedAgents.has('system')) {
-      const prevPos = nodePositionsRef.current.get('system');
-      nodes.unshift({
-        id: 'system',
-        name: 'system',
-        type: 'LlmAgent', // Use LlmAgent type for coloring, but we'll override it
-        isActive: false,
+    // Create nodes for all visited agents (from events)
+    for (const agentName of visitedAgents) {
+      const config = agentConfigByName.get(agentName);
+      const id = config?.id || agentName; // Use config id if available, otherwise use name as id
+      const prevPos = nodePositionsRef.current.get(id);
+      
+      nodes.push({
+        id,
+        name: agentName,
+        type: config?.type || 'LlmAgent', // Default to LlmAgent if not in config
+        isActive: agentName === activeAgent,
         wasActive: true,
         x: prevPos?.x,
         y: prevPos?.y,
       });
+      
+      nameToId.set(agentName, id);
     }
-    
-    // Build name to id map including system
-    const nameToId = new Map<string, string>();
-    nameToId.set('system', 'system');
-    agents.forEach(a => nameToId.set(a.name, a.id));
     
     const nodeIds = new Set(nodes.map(n => n.id));
     const links: GraphLink[] = [];
     
-    // Debug: log what we have
-    console.log('=== AgentGraph Debug ===');
-    console.log('agents prop:', agents.map(a => ({ name: a.name, id: a.id, type: a.type })));
-    console.log('visitedAgents:', [...visitedAgents]);
-    console.log('agents matching visitedAgents:', agents.filter(a => visitedAgents.has(a.name)).map(a => a.name));
-    console.log('transitions:', [...transitions.entries()]);
-    console.log('nodeIds:', [...nodeIds]);
-    console.log('nameToId:', [...nameToId.entries()]);
-    
-    // Only add transition links from events (these represent actual execution flow)
+    // Add transition links from events (these represent actual execution flow)
     for (const [key, count] of transitions) {
       const [fromName, toName] = key.split('->');
-      
-      // Handle system node specially - it uses 'system' as both name and id
-      const fromId = fromName === 'system' ? 'system' : nameToId.get(fromName);
-      const toId = toName === 'system' ? 'system' : nameToId.get(toName);
-      
-      console.log(`Link ${key}: fromId=${fromId} (in nodes: ${nodeIds.has(fromId || '')}), toId=${toId} (in nodes: ${nodeIds.has(toId || '')})`);
+      const fromId = nameToId.get(fromName);
+      const toId = nameToId.get(toName);
       
       // Only add link if both nodes are in the graph
       if (fromId && toId && nodeIds.has(fromId) && nodeIds.has(toId)) {
@@ -168,13 +141,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           type: 'transition',
           count,
         });
-        console.log('  -> Added link!');
-      } else {
-        console.log('  -> SKIPPED - missing node');
       }
     }
-    
-    console.log('Final result:', links.length, 'links,', nodes.length, 'nodes');
     
     return { nodes, links };
   }, [agents, activeAgent, visitedAgents, transitions]);
