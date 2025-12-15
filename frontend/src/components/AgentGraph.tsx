@@ -147,6 +147,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       const fromId = nameToId.get(fromName);
       const toId = nameToId.get(toName);
       
+      // Debug: log what we're trying to link
+      console.log('Transition:', key, '| fromId:', fromId, '| toId:', toId, '| inNodes:', fromId && nodeIds.has(fromId), toId && nodeIds.has(toId));
+      
       // Only add link if both nodes are in the graph
       if (fromId && toId && nodeIds.has(fromId) && nodeIds.has(toId)) {
         links.push({
@@ -157,6 +160,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         });
       }
     }
+    
+    console.log('Final links:', links.length, 'nodes:', nodes.length);
     
     return { nodes, links };
   }, [agents, activeAgent, visitedAgents, transitions]);
