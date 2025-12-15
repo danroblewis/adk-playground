@@ -401,6 +401,25 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       }
     };
     
+    // Custom force to pull system node toward bottom-left of boundary circle
+    const systemPullForce = () => {
+      for (const node of graphData.nodes as any[]) {
+        if (node.name === 'system' && node.x !== undefined && node.y !== undefined) {
+          // Target: bottom-left of boundary circle (225° angle, 75% of radius)
+          const boundaryRadius = visibleRadiusPixels / scaleRef.current;
+          const targetRadius = boundaryRadius * 0.75; // Inside the boundary
+          const angle = (225 * Math.PI) / 180; // 225° = bottom-left
+          const targetX = targetRadius * Math.cos(angle);
+          const targetY = -targetRadius * Math.sin(angle); // Negative because SVG y is inverted
+          const strength = 0.3; // How strongly to pull
+          
+          // Apply velocity toward target
+          node.vx = (node.vx || 0) + (targetX - node.x) * strength;
+          node.vy = (node.vy || 0) + (targetY - node.y) * strength;
+        }
+      }
+    };
+    
     // Create simulation with stronger forces and slower decay for better spreading
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
@@ -410,6 +429,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .force('center', d3.forceCenter(0, 0))
       .force('collision', d3.forceCollide().radius(40)) // Increased from 35
       .force('boundary', boundaryForce)
+      .force('systemPull', systemPullForce) // Pull system node to bottom-left
       .alphaDecay(0.01); // Much slower decay (default is ~0.0228)
     
     // If all nodes have positions, use lower alpha but still let it spread
