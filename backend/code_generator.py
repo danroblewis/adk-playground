@@ -276,13 +276,16 @@ def generate_agent_code(
                                         break
                         
                         if callback_def and func_name:
-                            # Return the actual function reference, not a string
-                            callback_refs.append(func_name)
+                            # Wrap callback with instrumentation for tracking
+                            wrapped = f'_wrap_callback("{func_name}", "{adk_key}", {func_name})'
+                            callback_refs.append(wrapped)
                         else:
                             # Fallback - try to extract function name from path
                             parts = full_path.rsplit(".", 1)
                             if len(parts) == 2:
-                                callback_refs.append(parts[1])  # Use function name part
+                                fn = parts[1]
+                                wrapped = f'_wrap_callback("{fn}", "{adk_key}", {fn})'
+                                callback_refs.append(wrapped)
                             else:
                                 # Last resort - use full path as string (will likely fail)
                                 callback_refs.append(f'"{full_path}"')
@@ -305,7 +308,10 @@ def generate_agent_code(
                 callbacks = getattr(agent, callback_type) or []
                 if callbacks:
                     adk_key = callback_type.replace("_callbacks", "_callback")
-                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    callback_refs = []
+                    for cb in callbacks:
+                        fn = cb.module_path.split(".")[-1]
+                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f'{var_name} = SequentialAgent(\n    {",".join(params)}\n)'
     
@@ -322,7 +328,10 @@ def generate_agent_code(
                 callbacks = getattr(agent, callback_type) or []
                 if callbacks:
                     adk_key = callback_type.replace("_callbacks", "_callback")
-                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    callback_refs = []
+                    for cb in callbacks:
+                        fn = cb.module_path.split(".")[-1]
+                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f"{var_name} = LoopAgent(\n    {','.join(params)}\n)"
     
@@ -337,7 +346,10 @@ def generate_agent_code(
                 callbacks = getattr(agent, callback_type) or []
                 if callbacks:
                     adk_key = callback_type.replace("_callbacks", "_callback")
-                    callback_refs = [cb.module_path.split(".")[-1] for cb in callbacks]
+                    callback_refs = []
+                    for cb in callbacks:
+                        fn = cb.module_path.split(".")[-1]
+                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f'{var_name} = ParallelAgent(\n    {",".join(params)}\n)'
     
@@ -547,6 +559,44 @@ def generate_python_code(project: Project) -> str:
         for callback in project.custom_callbacks:
             lines.append(callback.code)
             lines.append("")
+        
+        # Generate callback wrapper for instrumentation
+        lines.append("# Callback instrumentation wrapper")
+        lines.append("def _wrap_callback(name: str, callback_type: str, fn):")
+        lines.append("    \"\"\"Wrap a callback to emit tracking events.\"\"\"")
+        lines.append("    import functools")
+        lines.append("    import inspect")
+        lines.append("    import time")
+        lines.append("    ")
+        lines.append("    @functools.wraps(fn)")
+        lines.append("    def sync_wrapper(*args, **kwargs):")
+        lines.append("        # Emit callback_start event via state")
+        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
+        lines.append("        if ctx and hasattr(ctx, 'state'):")
+        lines.append("            ctx.state['_callback_event'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("        try:")
+        lines.append("            result = fn(*args, **kwargs)")
+        lines.append("            return result")
+        lines.append("        finally:")
+        lines.append("            if ctx and hasattr(ctx, 'state'):")
+        lines.append("                ctx.state['_callback_event'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("    ")
+        lines.append("    @functools.wraps(fn)")
+        lines.append("    async def async_wrapper(*args, **kwargs):")
+        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
+        lines.append("        if ctx and hasattr(ctx, 'state'):")
+        lines.append("            ctx.state['_callback_event'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("        try:")
+        lines.append("            result = await fn(*args, **kwargs)")
+        lines.append("            return result")
+        lines.append("        finally:")
+        lines.append("            if ctx and hasattr(ctx, 'state'):")
+        lines.append("                ctx.state['_callback_event'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("    ")
+        lines.append("    if inspect.iscoroutinefunction(fn):")
+        lines.append("        return async_wrapper")
+        lines.append("    return sync_wrapper")
+        lines.append("")
         lines.append("")
     
     # Generate model definitions

@@ -258,12 +258,31 @@ class TrackingPlugin:
     
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
-            await self._emit({
-                "event_type": "state_change",
-                "timestamp": time.time(),
-                "agent_name": getattr(event, "author", None) or "system",
-                "data": {"state_delta": dict(event.actions.state_delta)},
-            })
+            state_delta = dict(event.actions.state_delta)
+            
+            # Check for callback instrumentation events
+            if "_callback_event" in state_delta:
+                cb_event = state_delta.pop("_callback_event")
+                if isinstance(cb_event, dict):
+                    event_type = "callback_start" if cb_event.get("type") == "callback_start" else "callback_end"
+                    await self._emit({
+                        "event_type": event_type,
+                        "timestamp": cb_event.get("ts", time.time()),
+                        "agent_name": getattr(event, "author", None) or "system",
+                        "data": {
+                            "callback_name": cb_event.get("name", "unknown"),
+                            "callback_type": cb_event.get("callback_type", ""),
+                        },
+                    })
+            
+            # Emit state change for remaining state delta (if any)
+            if state_delta:
+                await self._emit({
+                    "event_type": "state_change",
+                    "timestamp": time.time(),
+                    "agent_name": getattr(event, "author", None) or "system",
+                    "data": {"state_delta": state_delta},
+                })
         return None
     
     async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
