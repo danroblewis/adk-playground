@@ -58,10 +58,14 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     const transitionMap = new Map<string, number>();
     const visited = new Set<string>();
     
+    // Always include system node
+    visited.add('system');
+    
     // Use a stack to track the agent hierarchy
     // When agent_start happens, the transition is from the current top of stack (parent) to the new agent
     // When agent_end happens, we pop the stack
-    const agentStack: string[] = [];
+    // Start with 'system' as the initial parent
+    const agentStack: string[] = ['system'];
     
     for (const event of eventsUpToSelection) {
       if (event.event_type === 'agent_start') {
@@ -80,23 +84,24 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         // Push new agent onto stack
         agentStack.push(agentName);
       } else if (event.event_type === 'agent_end') {
-        // Pop the ended agent from stack
-        agentStack.pop();
+        // Pop the ended agent from stack (but never pop 'system')
+        if (agentStack.length > 1) {
+          agentStack.pop();
+        }
       }
     }
     
-    // Current active agent is top of stack
-    const currentAgent = agentStack.length > 0 ? agentStack[agentStack.length - 1] : null;
+    // Current active agent is top of stack (or null if only system remains)
+    const currentAgent = agentStack.length > 1 ? agentStack[agentStack.length - 1] : null;
     
     return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited };
   }, [events, selectedEventIndex]);
   
   // Build graph data - only include agents that have been seen in events
   const graphData = useMemo(() => {
-    const agentById = new Map(agents.map(a => [a.id, a]));
     const agentByName = new Map(agents.map(a => [a.name, a]));
     
-    // Only include nodes that have been visited (seen in events)
+    // Start with visited agent nodes
     const nodes: GraphNode[] = agents
       .filter(agent => visitedAgents.has(agent.name))
       .map(agent => {
@@ -114,20 +119,39 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         };
       });
     
+    // Add system node if we have any events
+    if (visitedAgents.has('system')) {
+      const prevPos = nodePositionsRef.current.get('system');
+      nodes.unshift({
+        id: 'system',
+        name: 'system',
+        type: 'LlmAgent', // Use LlmAgent type for coloring, but we'll override it
+        isActive: false,
+        wasActive: true,
+        x: prevPos?.x,
+        y: prevPos?.y,
+      });
+    }
+    
+    // Build name to id map including system
+    const nameToId = new Map<string, string>();
+    nameToId.set('system', 'system');
+    agents.forEach(a => nameToId.set(a.name, a.id));
+    
     const nodeIds = new Set(nodes.map(n => n.id));
     const links: GraphLink[] = [];
     
     // Only add transition links from events (these represent actual execution flow)
     for (const [key, count] of transitions) {
       const [fromName, toName] = key.split('->');
-      const fromAgent = agentByName.get(fromName);
-      const toAgent = agentByName.get(toName);
+      const fromId = nameToId.get(fromName);
+      const toId = nameToId.get(toName);
       
       // Only add link if both nodes are in the graph
-      if (fromAgent && toAgent && nodeIds.has(fromAgent.id) && nodeIds.has(toAgent.id)) {
+      if (fromId && toId && nodeIds.has(fromId) && nodeIds.has(toId)) {
         links.push({
-          source: fromAgent.id,
-          target: toAgent.id,
+          source: fromId,
+          target: toId,
           type: 'transition',
           count,
         });
@@ -263,8 +287,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     
     // Node circles
     node.append('circle')
-      .attr('r', 18)
-      .attr('fill', d => AGENT_COLORS[d.type] || '#6366f1')
+      .attr('r', d => d.name === 'system' ? 14 : 18)
+      .attr('fill', d => d.name === 'system' ? '#71717a' : (AGENT_COLORS[d.type] || '#6366f1'))
       .attr('stroke', d => d.isActive ? '#fff' : d.wasActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)')
       .attr('stroke-width', d => d.isActive ? 3 : 1.5)
       .attr('opacity', d => d.wasActive ? 1 : 0.5)
