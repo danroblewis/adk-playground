@@ -161,8 +161,56 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     svg.selectAll('*').remove();
     
     // Create container group for zoom/pan
-    const g = svg.append('g')
-      .attr('transform', `translate(${width / 2}, ${height / 2})`);
+    const g = svg.append('g');
+    
+    // Setup zoom behavior
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.3, 3])
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+      });
+    
+    svg.call(zoom);
+    
+    // Function to fit graph to view
+    const fitToView = () => {
+      if (graphData.nodes.length === 0) return;
+      
+      // Calculate bounds
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      graphData.nodes.forEach((d: any) => {
+        if (d.x !== undefined && d.y !== undefined) {
+          minX = Math.min(minX, d.x);
+          maxX = Math.max(maxX, d.x);
+          minY = Math.min(minY, d.y);
+          maxY = Math.max(maxY, d.y);
+        }
+      });
+      
+      if (minX === Infinity) return;
+      
+      const padding = 60;
+      const graphWidth = maxX - minX + padding * 2;
+      const graphHeight = maxY - minY + padding * 2;
+      
+      const scale = Math.min(
+        width / graphWidth,
+        height / graphHeight,
+        1.5 // Max zoom
+      ) * 0.85; // Leave some margin
+      
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      
+      const transform = d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(scale)
+        .translate(-centerX, -centerY);
+      
+      svg.transition()
+        .duration(500)
+        .call(zoom.transform, transform);
+    };
     
     // Arrow marker for directed edges
     svg.append('defs').selectAll('marker')
@@ -253,8 +301,21 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
     });
     
+    // When simulation settles, fit to view
+    simulation.on('end', () => {
+      fitToView();
+    });
+    
+    // Also fit after a short delay in case simulation settles quickly
+    const fitTimeout = setTimeout(() => {
+      if (simulation.alpha() < 0.1) {
+        fitToView();
+      }
+    }, 1000);
+    
     return () => {
       simulation.stop();
+      clearTimeout(fitTimeout);
     };
   }, [graphData, isOpen]);
   
