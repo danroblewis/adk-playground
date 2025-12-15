@@ -42,6 +42,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   // Store node positions to preserve layout across updates
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  // Store the last zoom transform
+  const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
   // Calculate the active agent and transitions up to the selected event
   const { activeAgent, transitions, visitedAgents } = useMemo(() => {
@@ -177,9 +179,16 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .scaleExtent([0.3, 3])
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
+        // Save transform for next render
+        lastTransformRef.current = event.transform;
       });
     
     svg.call(zoom);
+    
+    // Restore last transform immediately if we have one
+    if (lastTransformRef.current) {
+      svg.call(zoom.transform, lastTransformRef.current);
+    }
     
     // Function to fit graph to view
     const fitToView = () => {
@@ -216,6 +225,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         .scale(scale)
         .translate(-centerX, -centerY);
       
+      // Save transform for next render
+      lastTransformRef.current = transform;
+      
       svg.transition()
         .duration(500)
         .call(zoom.transform, transform);
@@ -236,6 +248,10 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .attr('fill', d => d === 'transition' ? '#22c55e' : d === 'sub_agent' ? '#6366f1' : '#f59e0b')
       .attr('d', 'M0,-5L10,0L0,5');
     
+    // Check if all nodes have saved positions
+    const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
+    const hasNewNodes = graphData.nodes.some(n => n.x === undefined || n.y === undefined);
+    
     // Create simulation
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
@@ -244,6 +260,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .force('charge', d3.forceManyBody().strength(-200))
       .force('center', d3.forceCenter(0, 0))
       .force('collision', d3.forceCollide().radius(35));
+    
+    // If all nodes have positions, reduce initial alpha for minimal movement
+    if (allNodesHavePositions) {
+      simulation.alpha(0.1).alphaDecay(0.05);
+    }
     
     simulationRef.current = simulation;
     
@@ -317,14 +338,16 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       });
     });
     
-    // When simulation settles, fit to view
+    // When simulation settles, fit to view only if we have new nodes
     simulation.on('end', () => {
-      fitToView();
+      if (hasNewNodes || !lastTransformRef.current) {
+        fitToView();
+      }
     });
     
-    // Also fit after a short delay in case simulation settles quickly
+    // Also fit after a short delay if we have new nodes or no saved transform
     const fitTimeout = setTimeout(() => {
-      if (simulation.alpha() < 0.1) {
+      if ((hasNewNodes || !lastTransformRef.current) && simulation.alpha() < 0.1) {
         fitToView();
       }
     }, 1000);
