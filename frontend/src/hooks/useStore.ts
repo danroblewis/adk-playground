@@ -195,9 +195,30 @@ export const useStore = create<Store>((set, get) => ({
   addAgent: (agent) => {
     const { project } = get();
     if (project) {
+      // For LlmAgents with an output_key, also add a state key to app.state_keys
+      let updatedApp = project.app;
+      if (agent.type === 'LlmAgent' && (agent as any).output_key) {
+        const outputKey = (agent as any).output_key;
+        const existingKey = project.app.state_keys.find(k => k.name === outputKey);
+        if (!existingKey) {
+          updatedApp = {
+            ...project.app,
+            state_keys: [
+              ...project.app.state_keys,
+              {
+                name: outputKey,
+                description: `Output from ${agent.name} agent`,
+                type: 'string' as const,
+                scope: 'session' as const,
+              },
+            ],
+          };
+        }
+      }
       set({
         project: {
           ...project,
+          app: updatedApp,
           agents: [...project.agents, agent],
         },
       });
@@ -207,9 +228,41 @@ export const useStore = create<Store>((set, get) => ({
   updateAgent: (id, updates) => {
     const { project } = get();
     if (project) {
+      const existingAgent = project.agents.find(a => a.id === id);
+      let updatedApp = project.app;
+      
+      // If this is an LlmAgent and the name/output_key is changing, update state_keys
+      if (existingAgent && existingAgent.type === 'LlmAgent' && updates.output_key) {
+        const oldOutputKey = (existingAgent as any).output_key;
+        const newOutputKey = updates.output_key;
+        
+        if (oldOutputKey !== newOutputKey) {
+          // Remove old state key if it exists, add new one
+          const filteredKeys = project.app.state_keys.filter(k => k.name !== oldOutputKey);
+          const existingNewKey = filteredKeys.find(k => k.name === newOutputKey);
+          if (!existingNewKey) {
+            updatedApp = {
+              ...project.app,
+              state_keys: [
+                ...filteredKeys,
+                {
+                  name: newOutputKey,
+                  description: `Output from ${updates.name || existingAgent.name} agent`,
+                  type: 'string' as const,
+                  scope: 'session' as const,
+                },
+              ],
+            };
+          } else {
+            updatedApp = { ...project.app, state_keys: filteredKeys };
+          }
+        }
+      }
+      
       set({
         project: {
           ...project,
+          app: updatedApp,
           agents: project.agents.map((a) =>
             a.id === id ? { ...a, ...updates } : a
           ) as AgentConfig[],
