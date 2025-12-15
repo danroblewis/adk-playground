@@ -1950,6 +1950,18 @@ function ModelSelector({
 }
 
 
+// Built-in callbacks that are always available
+const BUILTIN_CALLBACKS: CustomCallbackDefinition[] = [
+  {
+    id: 'builtin_exit_loop',
+    name: 'exit_on_EXIT_LOOP_NOW',
+    description: 'Exits LoopAgent when model says "EXIT LOOP NOW". Use as after_model_callback.',
+    module_path: 'exit_on_EXIT_LOOP_NOW',
+    code: '', // Built-in, no code needed
+    state_keys_used: [],
+  },
+];
+
 // Callbacks editor sub-component
 function CallbacksEditor({
   agent,
@@ -1962,6 +1974,9 @@ function CallbacksEditor({
   customCallbacks: CustomCallbackDefinition[];
   isLlmAgent: boolean;
 }) {
+  // Combine custom callbacks with built-in callbacks
+  const allCallbacks = [...BUILTIN_CALLBACKS, ...customCallbacks];
+  
   // All agent types support before_agent and after_agent callbacks
   // Only LlmAgent supports model and tool callbacks
   const agentCallbackTypes: Array<{ key: string; label: string }> = [
@@ -2001,7 +2016,7 @@ function CallbacksEditor({
     <div className="callbacks-editor">
       {callbackTypes.map(({ key, label }) => {
         const callbacks = ((agent as any)[key] as CallbackConfig[]) || [];
-        const availableCallbacks = customCallbacks;
+        const availableCallbacks = allCallbacks;
         
         return (
           <div key={key} className="callback-type-group" style={{ marginBottom: '20px' }}>
@@ -2019,15 +2034,22 @@ function CallbacksEditor({
                   style={{ padding: '4px 8px', fontSize: '12px', width: '200px' }}
                 >
                   <option value="">Add callback...</option>
-                  {availableCallbacks
-                    .filter(cb => {
-                      const modulePath = cb.module_path;
-                      return !callbacks.some(c => c.module_path === modulePath);
-                    })
-                    .map(cb => (
-                      <option key={cb.id} value={cb.id}>{cb.name}</option>
-                    ))
-                  }
+                  <optgroup label="Built-in">
+                    {BUILTIN_CALLBACKS
+                      .filter(cb => !callbacks.some(c => c.module_path === cb.module_path))
+                      .map(cb => (
+                        <option key={cb.id} value={cb.id}>{cb.name}</option>
+                      ))
+                    }
+                  </optgroup>
+                  <optgroup label="Custom">
+                    {customCallbacks
+                      .filter(cb => !callbacks.some(c => c.module_path === cb.module_path))
+                      .map(cb => (
+                        <option key={cb.id} value={cb.id}>{cb.name}</option>
+                      ))
+                    }
+                  </optgroup>
                 </select>
               )}
             </div>
@@ -2038,18 +2060,31 @@ function CallbacksEditor({
             ) : (
               <div className="callback-list">
                 {callbacks.map((callback, index) => {
-                  const customCallback = customCallbacks.find(c => c.module_path === callback.module_path);
+                  const customCallback = allCallbacks.find(c => c.module_path === callback.module_path);
+                  const isBuiltin = BUILTIN_CALLBACKS.some(c => c.module_path === callback.module_path);
                   return (
                     <div key={index} className="callback-chip" style={{ 
                       display: 'flex', 
                       alignItems: 'center', 
                       justifyContent: 'space-between',
                       padding: '6px 10px',
-                      background: 'var(--bg-secondary)',
+                      background: isBuiltin ? 'var(--accent-bg, #1a365d)' : 'var(--bg-secondary)',
                       borderRadius: '4px',
                       marginBottom: '4px'
-                    }}>
-                      <span style={{ fontSize: '12px' }}>
+                    }} title={customCallback?.description || ''}>
+                      <span style={{ fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {isBuiltin && (
+                          <span style={{ 
+                            fontSize: '9px', 
+                            padding: '1px 4px', 
+                            background: 'var(--accent-color, #3182ce)', 
+                            borderRadius: '3px',
+                            textTransform: 'uppercase',
+                            fontWeight: 600
+                          }}>
+                            built-in
+                          </span>
+                        )}
                         {customCallback?.name || callback.module_path}
                       </span>
                       <button

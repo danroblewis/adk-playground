@@ -250,6 +250,9 @@ def generate_agent_code(
             "after_tool_callbacks": "after_tool_callback",
         }
         
+        # Built-in callbacks that are always available
+        BUILTIN_CALLBACKS = {'exit_on_EXIT_LOOP_NOW'}
+        
         for config_key, adk_key in callback_mapping.items():
             if hasattr(agent, config_key):
                 callbacks = getattr(agent, config_key, []) or []
@@ -258,6 +261,13 @@ def generate_agent_code(
                     callback_refs = []
                     for c in callbacks:
                         full_path = c.module_path if hasattr(c, "module_path") else c.get("module_path", "")
+                        
+                        # Check for built-in callbacks first
+                        if full_path in BUILTIN_CALLBACKS:
+                            # Built-in callbacks don't need wrapping
+                            callback_refs.append(full_path)
+                            continue
+                        
                         callback_def = None
                         func_name = None
                         
@@ -307,6 +317,7 @@ def generate_agent_code(
         if sub_agent_vars:
             params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         # Add agent callbacks for SequentialAgent
+        BUILTIN_CALLBACKS = {'exit_on_EXIT_LOOP_NOW'}
         for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
             if hasattr(agent, callback_type):
                 callbacks = getattr(agent, callback_type) or []
@@ -314,8 +325,11 @@ def generate_agent_code(
                     adk_key = callback_type.replace("_callbacks", "_callback")
                     callback_refs = []
                     for cb in callbacks:
-                        fn = cb.module_path.split(".")[-1]
-                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
+                        if cb.module_path in BUILTIN_CALLBACKS:
+                            callback_refs.append(cb.module_path)
+                        else:
+                            fn = cb.module_path.split(".")[-1]
+                            callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f'{var_name} = SequentialAgent(\n    {",\n    ".join(params)},\n)'
     
@@ -327,6 +341,7 @@ def generate_agent_code(
         if hasattr(agent, "max_iterations") and agent.max_iterations:
             params.append(f"max_iterations={agent.max_iterations}")
         # Add agent callbacks for LoopAgent
+        BUILTIN_CALLBACKS = {'exit_on_EXIT_LOOP_NOW'}
         for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
             if hasattr(agent, callback_type):
                 callbacks = getattr(agent, callback_type) or []
@@ -334,8 +349,11 @@ def generate_agent_code(
                     adk_key = callback_type.replace("_callbacks", "_callback")
                     callback_refs = []
                     for cb in callbacks:
-                        fn = cb.module_path.split(".")[-1]
-                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
+                        if cb.module_path in BUILTIN_CALLBACKS:
+                            callback_refs.append(cb.module_path)
+                        else:
+                            fn = cb.module_path.split(".")[-1]
+                            callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f"{var_name} = LoopAgent(\n    {',\n    '.join(params)},\n)"
     
@@ -345,6 +363,7 @@ def generate_agent_code(
         if sub_agent_vars:
             params.append(f"sub_agents=[{', '.join(sub_agent_vars)}]")
         # Add agent callbacks for ParallelAgent
+        BUILTIN_CALLBACKS = {'exit_on_EXIT_LOOP_NOW'}
         for callback_type in ["before_agent_callbacks", "after_agent_callbacks"]:
             if hasattr(agent, callback_type):
                 callbacks = getattr(agent, callback_type) or []
@@ -352,8 +371,11 @@ def generate_agent_code(
                     adk_key = callback_type.replace("_callbacks", "_callback")
                     callback_refs = []
                     for cb in callbacks:
-                        fn = cb.module_path.split(".")[-1]
-                        callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
+                        if cb.module_path in BUILTIN_CALLBACKS:
+                            callback_refs.append(cb.module_path)
+                        else:
+                            fn = cb.module_path.split(".")[-1]
+                            callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         return f'{var_name} = ParallelAgent(\n    {",\n    ".join(params)},\n)'
     
@@ -525,6 +547,40 @@ def generate_python_code(project: Project) -> str:
         lines.append("                ctx.state[f'_cb_end_{event_id}'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
         lines.append("    return async_wrapper if inspect.iscoroutinefunction(fn) else sync_wrapper")
         lines.append("# --- End callback instrumentation ---")
+        lines.append("")
+    
+    # Check if any agent uses the built-in exit_on_EXIT_LOOP_NOW callback
+    uses_exit_loop_callback = False
+    for agent in project.agents:
+        for cb_type in ['before_agent_callbacks', 'after_agent_callbacks', 
+                        'before_model_callbacks', 'after_model_callbacks']:
+            cbs = getattr(agent, cb_type, None) or []
+            for cb in cbs:
+                if cb.module_path == 'exit_on_EXIT_LOOP_NOW':
+                    uses_exit_loop_callback = True
+                    break
+    
+    # Generate built-in callbacks
+    if uses_exit_loop_callback:
+        lines.append("")
+        lines.append("# --- Built-in Callbacks ---")
+        lines.append("# exit_on_EXIT_LOOP_NOW: Use as after_model_callback to exit a LoopAgent")
+        lines.append("# Instruct your agent to say 'EXIT LOOP NOW' when it's done")
+        lines.append("def exit_on_EXIT_LOOP_NOW(*, callback_context, llm_response):")
+        lines.append('    """Exit the current LoopAgent when the model says "EXIT LOOP NOW".')
+        lines.append("    ")
+        lines.append("    Usage: Add as after_model_callback on an agent inside a LoopAgent.")
+        lines.append("    Tell the agent: 'When you are satisfied, respond with EXIT LOOP NOW'")
+        lines.append('    """')
+        lines.append("    text = ''")
+        lines.append("    if llm_response.content and llm_response.content.parts:")
+        lines.append("        for part in llm_response.content.parts:")
+        lines.append("            if hasattr(part, 'text') and part.text:")
+        lines.append("                text += part.text")
+        lines.append("    if 'EXIT LOOP NOW' in text.upper():")
+        lines.append("        callback_context._event_actions.escalate = True")
+        lines.append("    return llm_response")
+        lines.append("# --- End built-in callbacks ---")
         lines.append("")
     
     lines.append("")
