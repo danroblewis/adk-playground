@@ -12,7 +12,7 @@ interface AgentGraphProps {
 interface GraphNode {
   id: string;
   name: string;
-  type: 'LlmAgent' | 'SequentialAgent' | 'LoopAgent' | 'ParallelAgent';
+  type: 'LlmAgent' | 'SequentialAgent' | 'LoopAgent' | 'ParallelAgent' | 'Tool' | 'System';
   isActive: boolean;
   wasActive: boolean;
   x?: number;
@@ -34,6 +34,8 @@ const AGENT_COLORS: Record<string, string> = {
   'SequentialAgent': '#7b2cbf',
   'LoopAgent': '#ffd93d',
   'ParallelAgent': '#ff6b6b',
+  'Tool': '#14b8a6', // Teal to match tool_call event color
+  'System': '#71717a',
 };
 
 export default function AgentGraph({ agents, events, selectedEventIndex }: AgentGraphProps) {
@@ -47,18 +49,25 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   // Store the last zoom transform
   const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
-  // Calculate the active agent and transitions up to the selected event
-  const { activeAgent, transitions, visitedAgents } = useMemo(() => {
+  // Calculate the active agent, transitions, visited agents, and tool calls up to the selected event
+  const { activeAgent, transitions, visitedAgents, toolCalls } = useMemo(() => {
     // If no event selected, use the most recent event
     const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
     
     if (effectiveIndex < 0 || events.length === 0) {
-      return { activeAgent: null, transitions: new Map<string, number>(), visitedAgents: new Set<string>() };
+      return { 
+        activeAgent: null, 
+        transitions: new Map<string, number>(), 
+        visitedAgents: new Set<string>(),
+        toolCalls: new Map<string, number>() // Map of "agent->tool" to count
+      };
     }
     
     const eventsUpToSelection = events.slice(0, effectiveIndex + 1);
     const transitionMap = new Map<string, number>();
+    const toolCallMap = new Map<string, number>(); // Track agent->tool calls
     const visited = new Set<string>();
+    const visitedTools = new Set<string>();
     
     // Always include system node
     visited.add('system');
@@ -90,13 +99,25 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         if (agentStack.length > 1) {
           agentStack.pop();
         }
+      } else if (event.event_type === 'tool_call') {
+        // Track tool calls from the current agent
+        const toolName = event.data?.tool_name;
+        if (toolName && agentStack.length > 0) {
+          const callingAgent = agentStack[agentStack.length - 1];
+          visitedTools.add(toolName);
+          const key = `${callingAgent}->tool:${toolName}`;
+          toolCallMap.set(key, (toolCallMap.get(key) || 0) + 1);
+        }
       }
     }
+    
+    // Add visited tools to visited set with a prefix to distinguish them
+    visitedTools.forEach(tool => visited.add(`tool:${tool}`));
     
     // Current active agent is top of stack (or null if only system remains)
     const currentAgent = agentStack.length > 1 ? agentStack[agentStack.length - 1] : null;
     
-    return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited };
+    return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited, toolCalls: toolCallMap };
   }, [events, selectedEventIndex]);
   
   // Build graph data - create nodes for any agent seen in events
@@ -109,6 +130,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     
     // Create nodes for all visited agents (from events)
     for (const agentName of visitedAgents) {
+      // Skip tool entries (they start with "tool:")
+      if (agentName.startsWith('tool:')) continue;
+      
       const config = agentConfigByName.get(agentName);
       const id = config?.id || agentName; // Use config id if available, otherwise use name as id
       const prevPos = nodePositionsRef.current.get(id);
@@ -116,8 +140,29 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       nodes.push({
         id,
         name: agentName,
-        type: config?.type || 'LlmAgent', // Default to LlmAgent if not in config
+        type: agentName === 'system' ? 'System' : (config?.type || 'LlmAgent'),
         isActive: agentName === activeAgent,
+        wasActive: true,
+        x: prevPos?.x,
+        y: prevPos?.y,
+      });
+      
+      nameToId.set(agentName, id);
+    }
+    
+    // Create nodes for tools
+    for (const agentName of visitedAgents) {
+      if (!agentName.startsWith('tool:')) continue;
+      
+      const toolName = agentName.slice(5); // Remove "tool:" prefix
+      const id = `tool:${toolName}`;
+      const prevPos = nodePositionsRef.current.get(id);
+      
+      nodes.push({
+        id,
+        name: toolName,
+        type: 'Tool',
+        isActive: false,
         wasActive: true,
         x: prevPos?.x,
         y: prevPos?.y,
@@ -146,8 +191,25 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       }
     }
     
+    // Add tool call links
+    for (const [key, count] of toolCalls) {
+      const [fromName, toName] = key.split('->');
+      const fromId = nameToId.get(fromName);
+      const toId = nameToId.get(toName); // toName is already "tool:toolName"
+      
+      // Only add link if both nodes are in the graph
+      if (fromId && toId && nodeIds.has(fromId) && nodeIds.has(toId)) {
+        links.push({
+          source: fromId,
+          target: toId,
+          type: 'tool',
+          count,
+        });
+      }
+    }
+    
     return { nodes, links };
-  }, [agents, activeAgent, visitedAgents, transitions]);
+  }, [agents, activeAgent, visitedAgents, transitions, toolCalls]);
   
   // D3 force simulation
   useEffect(() => {
@@ -273,10 +335,17 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           d.fy = null;
         }));
     
+    // Helper to get node radius
+    const getNodeRadius = (d: GraphNode) => {
+      if (d.type === 'System') return 14;
+      if (d.type === 'Tool') return 12;
+      return 18;
+    };
+    
     // Node circles
     node.append('circle')
-      .attr('r', d => d.name === 'system' ? 14 : 18)
-      .attr('fill', d => d.name === 'system' ? '#71717a' : (AGENT_COLORS[d.type] || '#6366f1'))
+      .attr('r', d => getNodeRadius(d))
+      .attr('fill', d => AGENT_COLORS[d.type] || '#6366f1')
       .attr('stroke', d => d.isActive ? '#fff' : d.wasActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)')
       .attr('stroke-width', d => d.isActive ? 3 : 1.5)
       .attr('opacity', d => d.wasActive ? 1 : 0.5)
@@ -297,7 +366,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         d3.select(this)
           .transition()
           .duration(150)
-          .attr('r', d.name === 'system' ? 18 : 24);
+          .attr('r', getNodeRadius(d) + 6);
       })
       .on('mouseleave', function(event, d) {
         setTooltip(null);
@@ -306,7 +375,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         d3.select(this)
           .transition()
           .duration(150)
-          .attr('r', d.name === 'system' ? 14 : 18);
+          .attr('r', getNodeRadius(d));
       });
     
     // Node labels
@@ -522,7 +591,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
             <div className="agent-graph-legend">
               <div className="legend-item">
                 <div className="legend-line" style={{ background: '#22c55e' }} />
-                <span>execution flow</span>
+                <span>agent flow</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-line" style={{ background: '#f59e0b', borderStyle: 'dashed' }} />
+                <span>tool call</span>
               </div>
             </div>
             {tooltip && (
@@ -537,13 +610,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
                 <div className="agent-graph-tooltip-type">
                   <div 
                     className="agent-graph-tooltip-dot" 
-                    style={{ 
-                      background: tooltip.node.name === 'system' 
-                        ? '#71717a' 
-                        : (AGENT_COLORS[tooltip.node.type] || '#6366f1') 
-                    }}
+                    style={{ background: AGENT_COLORS[tooltip.node.type] || '#6366f1' }}
                   />
-                  {tooltip.node.name === 'system' ? 'System' : tooltip.node.type}
+                  {tooltip.node.type}
                 </div>
                 {tooltip.node.isActive && (
                   <div className="agent-graph-tooltip-active">● Currently executing</div>
