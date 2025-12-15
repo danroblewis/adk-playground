@@ -788,17 +788,44 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         }
         
         .insert-indicator {
-          height: 0px;
-          margin: 0px 0;
-          border-radius: 2px;
-          background: transparent;
-          transition: all 0.15s ease;
+          position: relative;
+          height: 0;
+          margin: 0;
         }
         
-        .insert-indicator:hover,
-        .insert-indicator.active {
+        /* Invisible drop target that extends above/below */
+        .insert-indicator::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: -8px;
+          bottom: -8px;
+          z-index: 10;
+        }
+        
+        /* Visual indicator line - only shows when active */
+        .insert-indicator::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          right: 12px;
+          top: -1px;
+          height: 2px;
+          border-radius: 1px;
+          background: transparent;
+          transition: background 0.15s ease, box-shadow 0.15s ease;
+          pointer-events: none;
+        }
+        
+        .insert-indicator:hover::after,
+        .insert-indicator.active::after {
           background: var(--accent-primary);
           box-shadow: 0 0 8px rgba(124, 58, 237, 0.5);
+        }
+        
+        .sub-agents {
+          position: relative;
         }
 
         .agent-editor-area {
