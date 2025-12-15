@@ -334,11 +334,34 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         .translate(-centerX, -centerY);
     };
     
-    // Apply transform smoothly (used on tick for continuous centering)
-    const applyTransformSmooth = (transform: d3.ZoomTransform) => {
-      lastTransformRef.current = transform;
-      scaleRef.current = transform.k;
-      svg.call(zoom.transform, transform);
+    // LERP helper for smooth interpolation
+    const lerp = (start: number, end: number, t: number) => start + (end - start) * t;
+    
+    // Apply transform smoothly using LERP (used on tick for continuous centering)
+    const applyTransformSmooth = (targetTransform: d3.ZoomTransform) => {
+      const current = lastTransformRef.current;
+      
+      if (!current) {
+        // No previous transform, apply directly
+        lastTransformRef.current = targetTransform;
+        scaleRef.current = targetTransform.k;
+        svg.call(zoom.transform, targetTransform);
+        return;
+      }
+      
+      // LERP factor - lower = smoother but slower, higher = faster but jumpier
+      const t = 0.15;
+      
+      // Interpolate between current and target transforms
+      const newX = lerp(current.x, targetTransform.x, t);
+      const newY = lerp(current.y, targetTransform.y, t);
+      const newK = lerp(current.k, targetTransform.k, t);
+      
+      const interpolatedTransform = d3.zoomIdentity.translate(newX, newY).scale(newK);
+      
+      lastTransformRef.current = interpolatedTransform;
+      scaleRef.current = interpolatedTransform.k;
+      svg.call(zoom.transform, interpolatedTransform);
     };
     
     
@@ -488,13 +511,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         }
       });
       
-      // Continuously re-center and zoom every few ticks
+      // Continuously re-center and zoom every tick for smooth LERP
       tickCount++;
-      if (tickCount % 5 === 0) {
-        const transform = calculateFitTransform();
-        if (transform) {
-          applyTransformSmooth(transform);
-        }
+      const transform = calculateFitTransform();
+      if (transform) {
+        applyTransformSmooth(transform);
       }
     });
     
