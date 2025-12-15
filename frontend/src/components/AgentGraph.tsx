@@ -167,9 +167,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       svg.call(zoom.transform, lastTransformRef.current);
     }
     
-    // Function to fit graph to view
-    const fitToView = () => {
-      if (graphData.nodes.length === 0) return;
+    // Function to calculate the ideal transform to fit graph to view
+    const calculateFitTransform = () => {
+      if (graphData.nodes.length === 0) return null;
       
       // Calculate bounds
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -182,7 +182,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         }
       });
       
-      if (minX === Infinity) return;
+      if (minX === Infinity) return null;
       
       const padding = 60;
       const graphWidth = maxX - minX + padding * 2;
@@ -197,23 +197,21 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       const centerX = (minX + maxX) / 2;
       const centerY = (minY + maxY) / 2;
       
-      const transform = d3.zoomIdentity
+      return d3.zoomIdentity
         .translate(width / 2, height / 2)
         .scale(scale)
         .translate(-centerX, -centerY);
-      
-      // Save transform for next render
+    };
+    
+    // Apply transform smoothly (used on tick for continuous centering)
+    const applyTransformSmooth = (transform: d3.ZoomTransform) => {
       lastTransformRef.current = transform;
-      
-      svg.transition()
-        .duration(500)
-        .call(zoom.transform, transform);
+      svg.call(zoom.transform, transform);
     };
     
     
     // Check if all nodes have saved positions
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
-    const hasNewNodes = graphData.nodes.some(n => n.x === undefined || n.y === undefined);
     
     // Create simulation
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
@@ -281,6 +279,9 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .attr('fill', '#e4e4e7')
       .attr('font-weight', d => d.isActive ? 600 : 400);
     
+    // Track tick count for throttled updates
+    let tickCount = 0;
+    
     // Curved links for multiple transitions
     simulation.on('tick', () => {
       link.attr('d', (d: any) => {
@@ -298,25 +299,25 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           nodePositionsRef.current.set(d.id, { x: d.x, y: d.y });
         }
       });
-    });
-    
-    // When simulation settles, fit to view only if we have new nodes
-    simulation.on('end', () => {
-      if (hasNewNodes || !lastTransformRef.current) {
-        fitToView();
+      
+      // Continuously re-center and zoom every few ticks
+      tickCount++;
+      if (tickCount % 5 === 0) {
+        const transform = calculateFitTransform();
+        if (transform) {
+          applyTransformSmooth(transform);
+        }
       }
     });
     
-    // Also fit after a short delay if we have new nodes or no saved transform
-    const fitTimeout = setTimeout(() => {
-      if ((hasNewNodes || !lastTransformRef.current) && simulation.alpha() < 0.1) {
-        fitToView();
-      }
-    }, 1000);
+    // Initial fit
+    const initialTransform = calculateFitTransform();
+    if (initialTransform) {
+      applyTransformSmooth(initialTransform);
+    }
     
     return () => {
       simulation.stop();
-      clearTimeout(fitTimeout);
     };
   }, [graphData, isOpen]);
   
