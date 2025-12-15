@@ -62,15 +62,18 @@ def create_session_service_from_uri(uri: str):
             return InMemorySessionService()
     elif uri.startswith("file://"):
         try:
-            # Try to import from workspace
-            sys.path.insert(0, WORKSPACE_PATH)
+            # Try to import from /app (mounted) or workspace
+            if "/app" not in sys.path:
+                sys.path.insert(0, "/app")
+            if WORKSPACE_PATH not in sys.path:
+                sys.path.insert(0, WORKSPACE_PATH)
             from file_session_service import FileSessionService
             base_dir = uri[7:]
             Path(base_dir).mkdir(parents=True, exist_ok=True)
             logger.info(f"Using File session service: {base_dir}")
             return FileSessionService(base_dir=base_dir)
-        except ImportError:
-            logger.warning("FileSessionService not available, using in-memory")
+        except ImportError as e:
+            logger.warning(f"FileSessionService not available ({e}), using in-memory")
             return InMemorySessionService()
     else:
         return InMemorySessionService()
@@ -84,14 +87,18 @@ def create_memory_service_from_uri(uri: str):
         return InMemoryMemoryService()
     elif uri.startswith("file://"):
         try:
-            sys.path.insert(0, WORKSPACE_PATH)
+            # Try to import from /app (mounted) or workspace
+            if "/app" not in sys.path:
+                sys.path.insert(0, "/app")
+            if WORKSPACE_PATH not in sys.path:
+                sys.path.insert(0, WORKSPACE_PATH)
             from file_memory_service import FileMemoryService
             base_dir = uri[7:]
             Path(base_dir).mkdir(parents=True, exist_ok=True)
             logger.info(f"Using File memory service: {base_dir}")
             return FileMemoryService(base_dir=base_dir)
-        except ImportError:
-            logger.warning("FileMemoryService not available, using in-memory")
+        except ImportError as e:
+            logger.warning(f"FileMemoryService not available ({e}), using in-memory")
             return InMemoryMemoryService()
     else:
         return InMemoryMemoryService()
@@ -647,7 +654,7 @@ class AgentRunner:
             # Create session
             adk_session = await runner.session_service.create_session(
                 app_name=app.name,
-                user_id="sandbox_user",
+                user_id="playground_user",
                 session_id=self.session_id,
             )
             

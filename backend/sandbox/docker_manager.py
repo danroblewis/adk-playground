@@ -872,6 +872,15 @@ class SandboxManager:
         volumes[str(agent_script)] = {"bind": "/app/agent_runner.py", "mode": "ro"}
         volumes[str(mcp_script)] = {"bind": "/app/mcp_spawner.py", "mode": "ro"}
         
+        # Mount custom service implementations (file_session_service, file_memory_service)
+        # These are in the adk-playground root directory
+        repo_root = self.docker_dir.parent.parent.parent  # sandbox/docker -> sandbox -> backend -> root
+        for service_file in ["file_session_service.py", "file_memory_service.py"]:
+            service_path = repo_root / service_file
+            if service_path.exists():
+                volumes[str(service_path)] = {"bind": f"/app/{service_file}", "mode": "ro"}
+                logger.info(f"Mounting custom service: {service_file}")
+        
         # Use cached image (deps pre-installed) - no pip install needed at runtime
         image = self.AGENT_IMAGE
         command = ["python", "-u", "/app/agent_runner.py"]

@@ -42,6 +42,49 @@ const EVENT_ICONS: Record<string, React.FC<{ size: number }>> = {
   callback_error: AlertTriangle,
 };
 
+// Agent color palette - visually distinct colors for identifying agents
+// Using muted tones that work well as pill backgrounds with light text
+const AGENT_COLORS = [
+  { bg: '#0e7490', fg: '#e0f2fe' },  // Cyan (muted)
+  { bg: '#6d28d9', fg: '#ede9fe' },  // Purple (muted)
+  { bg: '#047857', fg: '#d1fae5' },  // Emerald (muted)
+  { bg: '#b91c1c', fg: '#fee2e2' },  // Red (muted)
+  { bg: '#b45309', fg: '#fef3c7' },  // Amber (muted)
+  { bg: '#1d4ed8', fg: '#dbeafe' },  // Blue (muted)
+  { bg: '#be185d', fg: '#fce7f3' },  // Pink (muted)
+  { bg: '#4d7c0f', fg: '#ecfccb' },  // Lime (muted)
+  { bg: '#7c3aed', fg: '#ede9fe' },  // Violet (muted)
+  { bg: '#0f766e', fg: '#ccfbf1' },  // Teal (muted)
+  { bg: '#c2410c', fg: '#ffedd5' },  // Orange (muted)
+  { bg: '#4338ca', fg: '#e0e7ff' },  // Indigo (muted)
+];
+
+// Cache for agent name -> color index mapping
+const agentColorCache = new Map<string, number>();
+
+// Get a consistent color for an agent name
+function getAgentColor(agentName: string): { bg: string; fg: string } {
+  // Special cases for system agents
+  if (agentName === 'sandbox' || agentName === 'system') {
+    return { bg: '#374151', fg: '#9ca3af' };  // Gray for system
+  }
+  
+  // Check cache first
+  let colorIndex = agentColorCache.get(agentName);
+  if (colorIndex === undefined) {
+    // Generate a hash from the agent name for consistent color assignment
+    let hash = 0;
+    for (let i = 0; i < agentName.length; i++) {
+      hash = ((hash << 5) - hash) + agentName.charCodeAt(i);
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    colorIndex = Math.abs(hash) % AGENT_COLORS.length;
+    agentColorCache.set(agentName, colorIndex);
+  }
+  
+  return AGENT_COLORS[colorIndex];
+}
+
 // Single-line event summary renderer
 function getEventSummary(event: RunEvent): string {
   switch (event.event_type) {
@@ -372,7 +415,18 @@ function EventDetail({ event }: { event: RunEvent }) {
       {/* Header */}
       <div className="detail-header">
         <span className="detail-type">{event.event_type}</span>
-        <span className="detail-agent">{event.agent_name}</span>
+        <span 
+          className="detail-agent"
+          style={{ 
+            backgroundColor: getAgentColor(event.agent_name).bg,
+            color: getAgentColor(event.agent_name).fg,
+            padding: '2px 8px',
+            borderRadius: '4px',
+            fontWeight: 600,
+          }}
+        >
+          {event.agent_name}
+        </span>
         <span className="detail-time">{new Date(event.timestamp * 1000).toISOString()}</span>
       </div>
       
@@ -1656,7 +1710,17 @@ export default function RunPanel() {
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState<Set<string>>(new Set(['agent_start', 'agent_end', 'tool_call', 'tool_result', 'model_call', 'model_response', 'state_change', 'callback_start', 'callback_end', 'callback_error']));
-  const [sandboxMode, setSandboxMode] = useState(true);  // Run in Docker sandbox (enabled by default)
+  const [sandboxMode, setSandboxMode] = useState(() => {
+    // Load from localStorage, default to true
+    const stored = localStorage.getItem('sandboxMode');
+    return stored !== null ? stored === 'true' : true;
+  });
+  
+  // Save sandboxMode to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('sandboxMode', String(sandboxMode));
+  }, [sandboxMode]);
+  
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);  // Pending network approval request
   const [showLogsModal, setShowLogsModal] = useState(false);  // Show container logs modal
   const [containerLogs, setContainerLogs] = useState<{ agent?: string; gateway?: string }>({});
@@ -2821,7 +2885,22 @@ export default function RunPanel() {
         
         .event-row .index { color: #71717a; font-size: 10px; }
         .event-row .time { font-size: 10px; }
-        .event-row .agent { font-weight: 500; }
+        .event-row .agent { 
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+        }
+        .event-row .agent-badge {
+          display: inline-block;
+          padding: 1px 6px;
+          border-radius: 3px;
+          font-size: 10px;
+          font-weight: 600;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
         .event-row .type { 
           font-size: 10px; 
           text-transform: uppercase;
@@ -4285,8 +4364,16 @@ export default function RunPanel() {
                     <div className="time" style={{ color: colors.fg }}>
                       {formatTimestamp(event.timestamp, timeBounds.min)}
                     </div>
-                    <div className="agent" style={{ color: colors.fg }}>
-                      {event.agent_name}
+                    <div className="agent">
+                      <span 
+                        className="agent-badge"
+                        style={{ 
+                          backgroundColor: getAgentColor(event.agent_name).bg,
+                          color: getAgentColor(event.agent_name).fg,
+                        }}
+                      >
+                        {event.agent_name}
+                      </span>
                     </div>
                     <div className="type" style={{ color: colors.fg }}>
                       <Icon size={10} />

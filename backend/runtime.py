@@ -568,7 +568,7 @@ class RuntimeManager:
             session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
             response = await session_service.list_sessions(
                 app_name=project.app.name,
-                user_id="playground_user",
+                user_id=None,  # List all users' sessions
             )
             
             sessions = []
@@ -581,6 +581,7 @@ class RuntimeManager:
                 
                 sessions.append({
                     "id": adk_session.id,
+                    "user_id": adk_session.user_id,  # Include user_id for loading
                     "started_at": adk_session.events[0].timestamp if adk_session.events else adk_session.last_update_time,
                     "ended_at": adk_session.last_update_time if adk_session.events else None,
                     "duration": duration,
@@ -593,15 +594,29 @@ class RuntimeManager:
             logger.error(f"Failed to list sessions: {e}", exc_info=True)
             return []
     
-    async def load_session_from_service(self, project: Project, session_id: str) -> Optional[RunSession]:
+    async def load_session_from_service(self, project: Project, session_id: str, user_id: Optional[str] = None) -> Optional[RunSession]:
         """Load a session from the session service."""
         try:
             session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
-            adk_session = await session_service.get_session(
-                app_name=project.app.name,
-                user_id="playground_user",
-                session_id=session_id,
-            )
+            
+            # Try with provided user_id first, then common fallbacks
+            user_ids_to_try = [user_id] if user_id else []
+            user_ids_to_try.extend(["playground_user", "sandbox_user"])
+            
+            adk_session = None
+            for uid in user_ids_to_try:
+                if uid is None:
+                    continue
+                try:
+                    adk_session = await session_service.get_session(
+                        app_name=project.app.name,
+                        user_id=uid,
+                        session_id=session_id,
+                    )
+                    if adk_session:
+                        break
+                except Exception:
+                    continue
             
             if not adk_session:
                 return None

@@ -162,6 +162,19 @@ class FileSessionService(BaseSessionService):
         # Extract RunEvents metadata before validation
         run_events = data.pop("_run_events", None)
         
+        # Clean up event data to handle schema mismatches
+        # Some fields like interactionId may be present but not allowed by the model
+        if "events" in data and data["events"]:
+            for event in data["events"]:
+                # Remove fields that may cause validation errors
+                event.pop("interactionId", None)
+                event.pop("modelVersion", None)
+                # Remove None values for optional fields that Pydantic doesn't like
+                keys_to_remove = [k for k, v in event.items() if v is None]
+                for k in keys_to_remove:
+                    if k not in ["content", "author", "timestamp"]:  # Keep required fields even if None
+                        event.pop(k, None)
+        
         try:
             session = Session.model_validate(data)
             return session, run_events

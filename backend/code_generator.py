@@ -295,7 +295,7 @@ def generate_agent_code(
                     else:
                         params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
         
-        return f"{var_name} = Agent(\n    {','.join(params)}\n)"
+        return f"{var_name} = Agent(\n    {',\n    '.join(params)},\n)"
     
     elif isinstance(agent, SequentialAgentConfig) or agent.type == "SequentialAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -313,7 +313,7 @@ def generate_agent_code(
                         fn = cb.module_path.split(".")[-1]
                         callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f'{var_name} = SequentialAgent(\n    {",".join(params)}\n)'
+        return f'{var_name} = SequentialAgent(\n    {",\n    ".join(params)},\n)'
     
     elif isinstance(agent, LoopAgentConfig) or agent.type == "LoopAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -333,7 +333,7 @@ def generate_agent_code(
                         fn = cb.module_path.split(".")[-1]
                         callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f"{var_name} = LoopAgent(\n    {','.join(params)}\n)"
+        return f"{var_name} = LoopAgent(\n    {',\n    '.join(params)},\n)"
     
     elif isinstance(agent, ParallelAgentConfig) or agent.type == "ParallelAgent":
         params = [f'name="{escape_double_quoted(agent.name)}"']
@@ -351,7 +351,7 @@ def generate_agent_code(
                         fn = cb.module_path.split(".")[-1]
                         callback_refs.append(f'_wrap_callback("{fn}", "{adk_key}", {fn})')
                     params.append(f"{adk_key}=[{', '.join(callback_refs)}]")
-        return f'{var_name} = ParallelAgent(\n    {",".join(params)}\n)'
+        return f'{var_name} = ParallelAgent(\n    {",\n    ".join(params)},\n)'
     
     return f"# Unknown agent type: {agent.type}"
 
@@ -490,6 +490,39 @@ def generate_python_code(project: Project) -> str:
     for imp in sorted(imports):
         lines.append(imp)
     lines.append("")
+    
+    # Generate callback wrapper right after imports (needed for callback instrumentation)
+    if project.custom_callbacks:
+        lines.append("")
+        lines.append("# --- Callback instrumentation (for event tracking) ---")
+        lines.append("def _wrap_callback(name: str, callback_type: str, fn):")
+        lines.append("    import functools, inspect, time, uuid")
+        lines.append("    @functools.wraps(fn)")
+        lines.append("    def sync_wrapper(*args, **kwargs):")
+        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
+        lines.append("        event_id = str(uuid.uuid4())[:8]")
+        lines.append("        if ctx and hasattr(ctx, 'state'):")
+        lines.append("            ctx.state[f'_cb_start_{event_id}'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("        try:")
+        lines.append("            return fn(*args, **kwargs)")
+        lines.append("        finally:")
+        lines.append("            if ctx and hasattr(ctx, 'state'):")
+        lines.append("                ctx.state[f'_cb_end_{event_id}'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("    @functools.wraps(fn)")
+        lines.append("    async def async_wrapper(*args, **kwargs):")
+        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
+        lines.append("        event_id = str(uuid.uuid4())[:8]")
+        lines.append("        if ctx and hasattr(ctx, 'state'):")
+        lines.append("            ctx.state[f'_cb_start_{event_id}'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("        try:")
+        lines.append("            return await fn(*args, **kwargs)")
+        lines.append("        finally:")
+        lines.append("            if ctx and hasattr(ctx, 'state'):")
+        lines.append("                ctx.state[f'_cb_end_{event_id}'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
+        lines.append("    return async_wrapper if inspect.iscoroutinefunction(fn) else sync_wrapper")
+        lines.append("# --- End callback instrumentation ---")
+        lines.append("")
+    
     lines.append("")
     
     # Build agent variable name map
@@ -559,47 +592,6 @@ def generate_python_code(project: Project) -> str:
         for callback in project.custom_callbacks:
             lines.append(callback.code)
             lines.append("")
-        
-        # Generate callback wrapper for instrumentation
-        lines.append("# Callback instrumentation wrapper")
-        lines.append("def _wrap_callback(name: str, callback_type: str, fn):")
-        lines.append("    \"\"\"Wrap a callback to emit tracking events.\"\"\"")
-        lines.append("    import functools")
-        lines.append("    import inspect")
-        lines.append("    import time")
-        lines.append("    import uuid")
-        lines.append("    ")
-        lines.append("    @functools.wraps(fn)")
-        lines.append("    def sync_wrapper(*args, **kwargs):")
-        lines.append("        # Emit callback_start event via unique state key")
-        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
-        lines.append("        event_id = str(uuid.uuid4())[:8]")
-        lines.append("        if ctx and hasattr(ctx, 'state'):")
-        lines.append("            ctx.state[f'_cb_start_{event_id}'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
-        lines.append("        try:")
-        lines.append("            result = fn(*args, **kwargs)")
-        lines.append("            return result")
-        lines.append("        finally:")
-        lines.append("            if ctx and hasattr(ctx, 'state'):")
-        lines.append("                ctx.state[f'_cb_end_{event_id}'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
-        lines.append("    ")
-        lines.append("    @functools.wraps(fn)")
-        lines.append("    async def async_wrapper(*args, **kwargs):")
-        lines.append("        ctx = kwargs.get('callback_context') or kwargs.get('tool_context')")
-        lines.append("        event_id = str(uuid.uuid4())[:8]")
-        lines.append("        if ctx and hasattr(ctx, 'state'):")
-        lines.append("            ctx.state[f'_cb_start_{event_id}'] = {'type': 'callback_start', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
-        lines.append("        try:")
-        lines.append("            result = await fn(*args, **kwargs)")
-        lines.append("            return result")
-        lines.append("        finally:")
-        lines.append("            if ctx and hasattr(ctx, 'state'):")
-        lines.append("                ctx.state[f'_cb_end_{event_id}'] = {'type': 'callback_end', 'name': name, 'callback_type': callback_type, 'ts': time.time()}")
-        lines.append("    ")
-        lines.append("    if inspect.iscoroutinefunction(fn):")
-        lines.append("        return async_wrapper")
-        lines.append("    return sync_wrapper")
-        lines.append("")
         lines.append("")
     
     # Generate model definitions

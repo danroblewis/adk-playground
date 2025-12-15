@@ -351,6 +351,26 @@ async def update_project_yaml(project_id: str, data: dict):
     return {"project": project.model_dump(mode="json", by_alias=True)}
 
 
+@app.get("/api/projects/{project_id}/code")
+async def get_project_code(project_id: str):
+    """Get the generated Python code for a project.
+    
+    This is the actual code that runs when agents are executed.
+    """
+    from code_generator import generate_python_code
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        code = generate_python_code(project)
+        return {"code": code}
+    except Exception as e:
+        logger.error(f"Failed to generate code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # Agent Endpoints
 # ============================================================================
