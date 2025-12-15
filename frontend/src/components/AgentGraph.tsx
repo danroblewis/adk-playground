@@ -141,14 +141,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     const nodeIds = new Set(nodes.map(n => n.id));
     const links: GraphLink[] = [];
     
+    // Debug: log what we have
+    console.log('=== AgentGraph Debug ===');
+    console.log('visitedAgents:', [...visitedAgents]);
+    console.log('transitions:', [...transitions.entries()]);
+    console.log('nodeIds:', [...nodeIds]);
+    console.log('nameToId:', [...nameToId.entries()]);
+    
     // Only add transition links from events (these represent actual execution flow)
     for (const [key, count] of transitions) {
       const [fromName, toName] = key.split('->');
-      const fromId = nameToId.get(fromName);
-      const toId = nameToId.get(toName);
       
-      // Debug: log what we're trying to link
-      console.log('Transition:', key, '| fromId:', fromId, '| toId:', toId, '| inNodes:', fromId && nodeIds.has(fromId), toId && nodeIds.has(toId));
+      // Handle system node specially - it uses 'system' as both name and id
+      const fromId = fromName === 'system' ? 'system' : nameToId.get(fromName);
+      const toId = toName === 'system' ? 'system' : nameToId.get(toName);
+      
+      console.log(`Link ${key}: fromId=${fromId} (in nodes: ${nodeIds.has(fromId || '')}), toId=${toId} (in nodes: ${nodeIds.has(toId || '')})`);
       
       // Only add link if both nodes are in the graph
       if (fromId && toId && nodeIds.has(fromId) && nodeIds.has(toId)) {
@@ -158,10 +166,13 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           type: 'transition',
           count,
         });
+        console.log('  -> Added link!');
+      } else {
+        console.log('  -> SKIPPED - missing node');
       }
     }
     
-    console.log('Final links:', links.length, 'nodes:', nodes.length);
+    console.log('Final result:', links.length, 'links,', nodes.length, 'nodes');
     
     return { nodes, links };
   }, [agents, activeAgent, visitedAgents, transitions]);
