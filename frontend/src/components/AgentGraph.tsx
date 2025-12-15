@@ -54,26 +54,36 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     const eventsUpToSelection = events.slice(0, selectedEventIndex + 1);
     const transitionMap = new Map<string, number>();
     const visited = new Set<string>();
-    let lastAgent: string | null = null;
-    let currentAgent: string | null = null;
+    
+    // Use a stack to track the agent hierarchy
+    // When agent_start happens, the transition is from the current top of stack (parent) to the new agent
+    // When agent_end happens, we pop the stack
+    const agentStack: string[] = [];
     
     for (const event of eventsUpToSelection) {
       if (event.event_type === 'agent_start') {
         const agentName = event.agent_name;
         visited.add(agentName);
         
-        if (lastAgent && lastAgent !== agentName) {
-          const key = `${lastAgent}->${agentName}`;
-          transitionMap.set(key, (transitionMap.get(key) || 0) + 1);
+        // Transition is from current active agent (top of stack) to this new agent
+        if (agentStack.length > 0) {
+          const parentAgent = agentStack[agentStack.length - 1];
+          if (parentAgent !== agentName) {
+            const key = `${parentAgent}->${agentName}`;
+            transitionMap.set(key, (transitionMap.get(key) || 0) + 1);
+          }
         }
         
-        lastAgent = currentAgent;
-        currentAgent = agentName;
+        // Push new agent onto stack
+        agentStack.push(agentName);
       } else if (event.event_type === 'agent_end') {
-        // Agent ended, go back to parent
-        lastAgent = currentAgent;
+        // Pop the ended agent from stack
+        agentStack.pop();
       }
     }
+    
+    // Current active agent is top of stack
+    const currentAgent = agentStack.length > 0 ? agentStack[agentStack.length - 1] : null;
     
     return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited };
   }, [events, selectedEventIndex]);
