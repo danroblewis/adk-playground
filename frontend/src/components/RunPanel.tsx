@@ -252,6 +252,7 @@ function HighlightedLogs({ content }: { content: string }) {
 // Full event detail renderer
 function EventDetail({ event }: { event: RunEvent }) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['instruction', 'messages', 'result', 'response', 'state_delta', 'data']));
+  const [stringModalContent, setStringModalContent] = useState<string | null>(null);
   
   const toggleSection = (section: string) => {
     const next = new Set(expandedSections);
@@ -271,10 +272,28 @@ function EventDetail({ event }: { event: RunEvent }) {
     if (typeof value === 'string') {
       // Escape special characters for display
       const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+      // Make strings clickable to open in markdown modal
+      const handleClick = () => setStringModalContent(value);
       if (escaped.length > 300 && depth > 0) {
-        return <span className="json-string">"{escaped.slice(0, 300)}..." <span className="json-truncated">({value.length} chars)</span></span>;
+        return (
+          <span 
+            className="json-string json-string-clickable" 
+            onClick={handleClick}
+            title="Click to view as Markdown"
+          >
+            "{escaped.slice(0, 300)}..." <span className="json-truncated">({value.length} chars)</span>
+          </span>
+        );
       }
-      return <span className="json-string">"{escaped}"</span>;
+      return (
+        <span 
+          className="json-string json-string-clickable" 
+          onClick={handleClick}
+          title="Click to view as Markdown"
+        >
+          "{escaped}"
+        </span>
+      );
     }
     if (Array.isArray(value)) {
       if (value.length === 0) return <span className="json-bracket">[]</span>;
@@ -578,6 +597,124 @@ function EventDetail({ event }: { event: RunEvent }) {
           )}
         </div>
       )}
+      
+      {/* String Markdown Modal */}
+      {stringModalContent && (
+        <StringMarkdownModal 
+          content={stringModalContent} 
+          onClose={() => setStringModalContent(null)} 
+        />
+      )}
+    </div>
+  );
+}
+
+// String Markdown Modal - for viewing JSON strings as formatted markdown
+function StringMarkdownModal({ content, onClose }: { content: string; onClose: () => void }) {
+  return (
+    <div 
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 2000,
+      }}
+      onClick={onClose}
+    >
+      <div 
+        style={{
+          backgroundColor: '#1a1a1e',
+          borderRadius: '8px',
+          border: '1px solid #3f3f46',
+          width: '90%',
+          maxWidth: '1200px',
+          height: '85%',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          borderBottom: '1px solid #3f3f46',
+          backgroundColor: '#27272a',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Eye size={16} />
+            <span style={{ fontWeight: 600 }}>String Content (Markdown)</span>
+            <span style={{ color: '#71717a', fontSize: '12px' }}>({content.length} chars)</span>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#a1a1aa',
+              cursor: 'pointer',
+              padding: '4px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        
+        {/* Content */}
+        <div style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: '20px',
+        }}>
+          <div className="markdown-content" style={{
+            fontSize: '14px',
+            lineHeight: '1.7',
+            color: '#e4e4e7',
+          }}>
+            <ReactMarkdown>{content}</ReactMarkdown>
+          </div>
+        </div>
+        
+        {/* Footer with raw view toggle */}
+        <div style={{
+          padding: '8px 16px',
+          borderTop: '1px solid #3f3f46',
+          backgroundColor: '#27272a',
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: '8px',
+        }}>
+          <button
+            onClick={() => navigator.clipboard.writeText(content)}
+            style={{
+              background: '#3f3f46',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '6px 12px',
+              color: '#e4e4e7',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontSize: '12px',
+            }}
+          >
+            <Copy size={12} />
+            Copy
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2807,6 +2944,16 @@ export default function RunPanel() {
 
         .json-key { color: #93c5fd; }
         .json-string { color: #86efac; }
+        .json-string-clickable { 
+          cursor: pointer; 
+          text-decoration: underline;
+          text-decoration-style: dotted;
+          text-underline-offset: 2px;
+        }
+        .json-string-clickable:hover { 
+          color: #4ade80;
+          text-decoration-style: solid;
+        }
         .json-number { color: #fde047; }
         .json-boolean { color: #f472b6; }
         .json-null { color: #71717a; }
