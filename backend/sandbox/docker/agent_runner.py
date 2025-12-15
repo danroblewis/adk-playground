@@ -259,16 +259,18 @@ class TrackingPlugin:
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
             state_delta = dict(event.actions.state_delta)
+            author = getattr(event, "author", None) or "system"
             
-            # Check for callback instrumentation events
-            if "_callback_event" in state_delta:
-                cb_event = state_delta.pop("_callback_event")
+            # Check for callback instrumentation events (keys like _cb_start_xxx or _cb_end_xxx)
+            callback_keys = [k for k in state_delta.keys() if k.startswith("_cb_start_") or k.startswith("_cb_end_")]
+            for key in callback_keys:
+                cb_event = state_delta.pop(key)
                 if isinstance(cb_event, dict):
                     event_type = "callback_start" if cb_event.get("type") == "callback_start" else "callback_end"
                     await self._emit({
                         "event_type": event_type,
                         "timestamp": cb_event.get("ts", time.time()),
-                        "agent_name": getattr(event, "author", None) or "system",
+                        "agent_name": author,
                         "data": {
                             "callback_name": cb_event.get("name", "unknown"),
                             "callback_type": cb_event.get("callback_type", ""),
@@ -280,7 +282,7 @@ class TrackingPlugin:
                 await self._emit({
                     "event_type": "state_change",
                     "timestamp": time.time(),
-                    "agent_name": getattr(event, "author", None) or "system",
+                    "agent_name": author,
                     "data": {"state_delta": state_delta},
                 })
         return None
