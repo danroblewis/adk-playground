@@ -287,6 +287,23 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Check if all nodes have saved positions
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
     
+    // Custom boundary force to keep nodes within the circular area
+    // The visible area is roughly a circle with some margin
+    const boundaryRadius = 120; // Max distance from center
+    const boundaryForce = () => {
+      for (const node of graphData.nodes) {
+        if (node.x === undefined || node.y === undefined) continue;
+        
+        const dist = Math.sqrt(node.x * node.x + node.y * node.y);
+        if (dist > boundaryRadius) {
+          // Push node back toward center
+          const scale = boundaryRadius / dist;
+          node.x *= scale;
+          node.y *= scale;
+        }
+      }
+    };
+    
     // Create simulation
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
@@ -294,7 +311,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         .distance(80))
       .force('charge', d3.forceManyBody().strength(-200))
       .force('center', d3.forceCenter(0, 0))
-      .force('collision', d3.forceCollide().radius(35));
+      .force('collision', d3.forceCollide().radius(35))
+      .force('boundary', boundaryForce);
     
     // If all nodes have positions, reduce initial alpha for minimal movement
     if (allNodesHavePositions) {
