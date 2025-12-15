@@ -43,6 +43,80 @@ API_PORT = int(os.environ.get("API_PORT", "5000"))
 MCP_SERVERS_CONFIG = os.environ.get("MCP_SERVERS_CONFIG", "{}")
 
 
+def create_session_service_from_uri(uri: str):
+    """Create a session service from a URI."""
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    
+    if uri.startswith("memory://"):
+        return InMemorySessionService()
+    elif uri.startswith("sqlite://"):
+        try:
+            from google.adk.sessions.sqlite_session_service import SqliteSessionService
+            db_path = uri[9:]
+            # Ensure parent directory exists
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using SQLite session service: {db_path}")
+            return SqliteSessionService(db_path=db_path)
+        except ImportError as e:
+            logger.warning(f"SqliteSessionService not available: {e}")
+            return InMemorySessionService()
+    elif uri.startswith("file://"):
+        try:
+            # Try to import from workspace
+            sys.path.insert(0, WORKSPACE_PATH)
+            from file_session_service import FileSessionService
+            base_dir = uri[7:]
+            Path(base_dir).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using File session service: {base_dir}")
+            return FileSessionService(base_dir=base_dir)
+        except ImportError:
+            logger.warning("FileSessionService not available, using in-memory")
+            return InMemorySessionService()
+    else:
+        return InMemorySessionService()
+
+
+def create_memory_service_from_uri(uri: str):
+    """Create a memory service from a URI."""
+    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+    
+    if uri.startswith("memory://"):
+        return InMemoryMemoryService()
+    elif uri.startswith("file://"):
+        try:
+            sys.path.insert(0, WORKSPACE_PATH)
+            from file_memory_service import FileMemoryService
+            base_dir = uri[7:]
+            Path(base_dir).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using File memory service: {base_dir}")
+            return FileMemoryService(base_dir=base_dir)
+        except ImportError:
+            logger.warning("FileMemoryService not available, using in-memory")
+            return InMemoryMemoryService()
+    else:
+        return InMemoryMemoryService()
+
+
+def create_artifact_service_from_uri(uri: str):
+    """Create an artifact service from a URI."""
+    from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+    
+    if uri.startswith("memory://"):
+        return InMemoryArtifactService()
+    elif uri.startswith("file://"):
+        try:
+            from google.adk.artifacts.file_artifact_service import FileArtifactService
+            root_dir = uri[7:]
+            Path(root_dir).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Using File artifact service: {root_dir}")
+            return FileArtifactService(root_dir=root_dir)
+        except ImportError:
+            logger.warning("FileArtifactService not available, using in-memory")
+            return InMemoryArtifactService()
+    else:
+        return InMemoryArtifactService()
+
+
 class MCPSessionManager:
     """Manages MCP server connections for tool execution.
     
@@ -448,6 +522,7 @@ class AgentRunner:
         self.generated_code: Optional[str] = None
         self.project_name: Optional[str] = None
         self.app_id: Optional[str] = None
+        self.project_config: Optional[Dict[str, Any]] = None
         self.running = False
         self.session_id: Optional[str] = None
         self.events: List[Dict[str, Any]] = []
@@ -462,6 +537,17 @@ class AgentRunner:
         self.generated_code = data.get("code")
         self.project_name = data.get("project_name", "sandbox_app")
         self.app_id = data.get("app_id")
+        
+        # Load project config from mounted file for service URIs
+        try:
+            if Path(PROJECT_CONFIG_PATH).exists():
+                with open(PROJECT_CONFIG_PATH) as f:
+                    self.project_config = json.load(f)
+                logger.info(f"Loaded project config from {PROJECT_CONFIG_PATH}")
+        except Exception as e:
+            logger.warning(f"Failed to load project config: {e}")
+            self.project_config = None
+        
         logger.info(f"Loaded project: {self.project_name} (app_id={self.app_id}, {len(self.generated_code or '')} chars)")
     
     async def run_agent(
@@ -489,9 +575,6 @@ class AgentRunner:
             
             # Import ADK components
             from google.adk.runners import Runner
-            from google.adk.sessions.in_memory_session_service import InMemorySessionService
-            from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-            from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
             from google.adk.plugins import BasePlugin
             from google.genai import types
             
@@ -541,10 +624,17 @@ class AgentRunner:
             else:
                 app.plugins = [TrackingPluginWrapper(tracker)]
             
-            # Create services
-            session_service = InMemorySessionService()
-            artifact_service = InMemoryArtifactService()
-            memory_service = InMemoryMemoryService()
+            # Create services from project config URIs (or use in-memory defaults)
+            app_config = self.project_config.get("app", {}) if self.project_config else {}
+            session_uri = app_config.get("session_service_uri", "memory://")
+            memory_uri = app_config.get("memory_service_uri", "memory://")
+            artifact_uri = app_config.get("artifact_service_uri", "memory://")
+            
+            logger.info(f"Creating services: session={session_uri}, memory={memory_uri}, artifact={artifact_uri}")
+            
+            session_service = create_session_service_from_uri(session_uri)
+            memory_service = create_memory_service_from_uri(memory_uri)
+            artifact_service = create_artifact_service_from_uri(artifact_uri)
             
             # Create runner
             runner = Runner(

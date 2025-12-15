@@ -1669,6 +1669,52 @@ export default function RunPanel() {
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   
+  // Prompt history and suggestions
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [promptHistory, setPromptHistory] = useState<Array<{ prompt: string; count: number }>>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  
+  // Load prompt history from LocalStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('promptHistory');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as Record<string, number>;
+        const history = Object.entries(parsed)
+          .map(([prompt, count]) => ({ prompt, count }))
+          .sort((a, b) => b.count - a.count);
+        setPromptHistory(history);
+      } catch (e) {
+        console.error('Failed to parse prompt history:', e);
+      }
+    }
+  }, []);
+  
+  // Save prompt to history
+  const savePromptToHistory = useCallback((prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    
+    const stored = localStorage.getItem('promptHistory');
+    const history: Record<string, number> = stored ? JSON.parse(stored) : {};
+    history[trimmed] = (history[trimmed] || 0) + 1;
+    localStorage.setItem('promptHistory', JSON.stringify(history));
+    
+    // Update state
+    const updated = Object.entries(history)
+      .map(([p, count]) => ({ prompt: p, count }))
+      .sort((a, b) => b.count - a.count);
+    setPromptHistory(updated);
+  }, []);
+  
+  // Filter suggestions based on current input
+  const filteredSuggestions = useMemo(() => {
+    const query = userInput.toLowerCase().trim();
+    return promptHistory
+      .filter(h => !query || h.prompt.toLowerCase().includes(query))
+      .slice(0, 10); // Limit to top 10
+  }, [promptHistory, userInput]);
+  
   // Column widths for resizable table columns
   const [columnWidths, setColumnWidths] = useState([60, 80, 100, 80, 1]); // Last one is flex (fr)
   const [resizingColumn, setResizingColumn] = useState<number | null>(null);
@@ -1971,8 +2017,14 @@ export default function RunPanel() {
   }, [runEvents.length, isRunning]);
   
   // Handle run
-  const handleRun = useCallback(() => {
-    if (!project || !userInput.trim() || isRunning) return;
+  const handleRun = useCallback((messageOverride?: string) => {
+    const message = messageOverride ?? userInput;
+    if (!project || !message.trim() || isRunning) return;
+    
+    // Save prompt to history
+    savePromptToHistory(message);
+    setShowSuggestions(false);
+    setUserInput(message);
     
     // Close existing connection
     if (ws) {
@@ -1997,7 +2049,7 @@ export default function RunPanel() {
     
     websocket.onopen = () => {
       websocket.send(JSON.stringify({ 
-        message: userInput,
+        message: message,
         agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
         session_id: currentSessionId || undefined,  // Reuse existing session if loaded
         sandbox_mode: sandboxMode,  // Run in Docker sandbox
@@ -2098,7 +2150,7 @@ export default function RunPanel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
-  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId, sandboxMode]);
+  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId, sandboxMode, savePromptToHistory]);
   
   // Handle stop
   const handleStop = useCallback(() => {
@@ -2950,7 +3002,6 @@ export default function RunPanel() {
         .json-string { color: #86efac; }
         .json-string-clickable { 
           cursor: pointer; 
-          text-decoration: underline;
           text-decoration-style: dotted;
           text-underline-offset: 2px;
         }
@@ -3942,14 +3993,85 @@ export default function RunPanel() {
             );
           })}
         </select>
-        <input
-          type="text"
-          placeholder="Enter your query..."
-          value={userInput}
-          onChange={e => setUserInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleRun()}
-          disabled={isRunning}
-        />
+        <div style={{ position: 'relative', flex: 1, display: 'flex' }}>
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Enter your query..."
+            value={userInput}
+            onChange={e => setUserInput(e.target.value)}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                handleRun();
+              } else if (e.key === 'Escape') {
+                setShowSuggestions(false);
+              }
+            }}
+            disabled={isRunning}
+            style={{ flex: 1 }}
+          />
+          {showSuggestions && filteredSuggestions.length > 0 && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              background: '#18181b',
+              border: '1px solid #3f3f46',
+              borderRadius: '6px',
+              marginTop: '4px',
+              maxHeight: '240px',
+              overflowY: 'auto',
+              zIndex: 100,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            }}>
+              {filteredSuggestions.map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '12px',
+                    color: '#e4e4e7',
+                    cursor: 'pointer',
+                    borderBottom: idx < filteredSuggestions.length - 1 ? '1px solid #27272a' : 'none',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleRun(item.prompt);
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#27272a';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                >
+                  <span style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                    marginRight: '8px',
+                  }}>
+                    {item.prompt}
+                  </span>
+                  <span style={{ 
+                    fontSize: '10px', 
+                    color: '#71717a',
+                    flexShrink: 0,
+                  }}>
+                    ×{item.count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         {isRunning ? (
           <button className="stop" onClick={handleStop}>
             <Square size={14} />

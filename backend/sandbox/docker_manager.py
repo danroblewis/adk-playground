@@ -36,6 +36,82 @@ from backend.models import Project
 
 logger = logging.getLogger(__name__)
 
+
+def extract_storage_paths_from_project(project_config: Dict[str, Any]) -> List[VolumeMount]:
+    """Extract filesystem paths from storage service URIs and create volume mounts.
+    
+    Checks session_service_uri, memory_service_uri, and artifact_service_uri for
+    file:// and sqlite:// schemes and creates appropriate volume mounts.
+    
+    Args:
+        project_config: Full project configuration dict
+        
+    Returns:
+        List of VolumeMount objects for storage paths
+    """
+    mounts = []
+    app = project_config.get("app", {})
+    
+    def expand_path(path_str: str) -> Optional[Path]:
+        """Expand ~ and resolve path, return None if invalid."""
+        if not path_str:
+            return None
+        try:
+            path = Path(path_str).expanduser().resolve()
+            return path
+        except Exception:
+            return None
+    
+    def add_mount_for_path(path: Path, is_file: bool = False):
+        """Add a mount for a path (file or directory)."""
+        # For files, mount the parent directory
+        mount_path = path.parent if is_file else path
+        
+        # Ensure the directory exists on host
+        mount_path.mkdir(parents=True, exist_ok=True)
+        
+        # Check if we already have this mount
+        for existing in mounts:
+            if Path(existing.host_path).resolve() == mount_path:
+                return
+        
+        mounts.append(VolumeMount(
+            host_path=str(mount_path),
+            container_path=str(mount_path),  # Use same path in container
+            mode="rw"
+        ))
+    
+    # Session service
+    session_uri = app.get("session_service_uri", "")
+    if session_uri.startswith("sqlite://"):
+        db_path = expand_path(session_uri[9:])
+        if db_path:
+            add_mount_for_path(db_path, is_file=True)
+    elif session_uri.startswith("file://"):
+        dir_path = expand_path(session_uri[7:])
+        if dir_path:
+            add_mount_for_path(dir_path, is_file=False)
+    
+    # Memory service
+    memory_uri = app.get("memory_service_uri", "")
+    if memory_uri.startswith("file://"):
+        dir_path = expand_path(memory_uri[7:])
+        if dir_path:
+            add_mount_for_path(dir_path, is_file=False)
+    
+    # Artifact service
+    artifact_uri = app.get("artifact_service_uri", "")
+    if artifact_uri.startswith("file://"):
+        dir_path = expand_path(artifact_uri[7:])
+        if dir_path:
+            add_mount_for_path(dir_path, is_file=False)
+    
+    if mounts:
+        logger.info(f"Auto-mounting storage paths: {[m.host_path for m in mounts]}")
+    
+    return mounts
+
+
 # Check if docker is available
 try:
     import docker
@@ -315,6 +391,15 @@ class SandboxManager:
                 # Failed to adopt, clean up
                 await self._cleanup_existing_containers(app_id)
         
+        # Auto-mount storage paths from service URIs
+        storage_mounts = extract_storage_paths_from_project(project_config)
+        if storage_mounts:
+            # Combine with existing volume_mounts (if any)
+            existing_paths = {m.host_path for m in config.volume_mounts}
+            for mount in storage_mounts:
+                if mount.host_path not in existing_paths:
+                    config.volume_mounts.append(mount)
+        
         # Create instance
         instance = SandboxInstance(
             app_id=app_id,
@@ -587,10 +672,29 @@ class SandboxManager:
             logger.error(f"Failed to load project into container: {e}")
     
     async def _write_config_file(self, project_config: Dict[str, Any]) -> Path:
-        """Write project config to a temp file."""
+        """Write project config to a temp file.
+        
+        Expands ~ in service URIs so paths work correctly in the container.
+        """
+        # Deep copy to avoid modifying original
+        config = json.loads(json.dumps(project_config))
+        
+        # Expand paths in service URIs
+        if "app" in config:
+            app = config["app"]
+            for uri_key in ["session_service_uri", "memory_service_uri", "artifact_service_uri"]:
+                uri = app.get(uri_key, "")
+                if uri.startswith("sqlite://") or uri.startswith("file://"):
+                    # Extract path portion and expand ~
+                    prefix = uri.split("://")[0] + "://"
+                    path_part = uri[len(prefix):]
+                    expanded = str(Path(path_part).expanduser().resolve())
+                    app[uri_key] = prefix + expanded
+                    logger.debug(f"Expanded {uri_key}: {uri} -> {app[uri_key]}")
+        
         fd, path = tempfile.mkstemp(suffix=".json", prefix="sandbox_config_")
         with os.fdopen(fd, "w") as f:
-            json.dump(project_config, f)
+            json.dump(config, f)
         return Path(path)
     
     async def _start_gateway(
@@ -772,6 +876,13 @@ class SandboxManager:
         image = self.AGENT_IMAGE
         command = ["python", "-u", "/app/agent_runner.py"]
         
+        # Run as current user to match host filesystem permissions for mounted volumes
+        # This allows the container to write to mounted storage directories
+        import platform
+        user_spec = None
+        if platform.system() != "Darwin":  # On Linux, need to match UID/GID
+            user_spec = f"{os.getuid()}:{os.getgid()}"
+        
         container = self.client.containers.create(
             image=image,
             name=f"sandbox-agent-{app_id}",
@@ -784,6 +895,7 @@ class SandboxManager:
             mem_limit=mem_limit,
             cpu_period=100000,
             cpu_quota=int(cpu_limit * 100000),
+            user=user_spec,  # Match host user for volume write permissions
             # No extra_hosts - all traffic goes through gateway proxy
         )
         
