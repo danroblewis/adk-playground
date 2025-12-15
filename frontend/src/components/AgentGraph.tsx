@@ -28,15 +28,50 @@ interface GraphLink {
   count: number; // For multiple transitions
 }
 
-// Agent type colors matching the AgentsPanel
-const AGENT_COLORS: Record<string, string> = {
-  'LlmAgent': '#6366f1',
-  'SequentialAgent': '#7b2cbf',
-  'LoopAgent': '#ffd93d',
-  'ParallelAgent': '#ff6b6b',
-  'Tool': '#14b8a6', // Teal to match tool_call event color
-  'System': '#71717a',
-};
+// Agent color palette - same as RunPanel for consistency
+const AGENT_COLOR_PALETTE = [
+  { bg: '#0e7490', fg: '#e0f2fe' },  // Cyan
+  { bg: '#6d28d9', fg: '#ede9fe' },  // Purple
+  { bg: '#047857', fg: '#d1fae5' },  // Emerald
+  { bg: '#b91c1c', fg: '#fee2e2' },  // Red
+  { bg: '#b45309', fg: '#fef3c7' },  // Amber
+  { bg: '#0369a1', fg: '#e0f2fe' },  // Sky
+  { bg: '#7e22ce', fg: '#f3e8ff' },  // Violet
+  { bg: '#15803d', fg: '#dcfce7' },  // Green
+  { bg: '#0f766e', fg: '#ccfbf1' },  // Teal
+  { bg: '#c2410c', fg: '#ffedd5' },  // Orange
+  { bg: '#4338ca', fg: '#e0e7ff' },  // Indigo
+];
+
+// Cache for agent name -> color mapping
+const agentColorCache = new Map<string, { bg: string; fg: string }>();
+
+// Get a consistent color for an agent name (matches RunPanel)
+function getAgentColor(agentName: string): { bg: string; fg: string } {
+  // Special cases
+  if (agentName === 'system') {
+    return { bg: '#374151', fg: '#9ca3af' };  // Gray for system
+  }
+  
+  // Check cache
+  const cached = agentColorCache.get(agentName);
+  if (cached) return cached;
+  
+  // Generate hash from name for consistent color
+  let hash = 0;
+  for (let i = 0; i < agentName.length; i++) {
+    hash = ((hash << 5) - hash) + agentName.charCodeAt(i);
+    hash = hash & hash;
+  }
+  const colorIndex = Math.abs(hash) % AGENT_COLOR_PALETTE.length;
+  const color = AGENT_COLOR_PALETTE[colorIndex];
+  agentColorCache.set(agentName, color);
+  
+  return color;
+}
+
+// Special colors for tools
+const TOOL_COLOR = { bg: '#14b8a6', fg: '#ccfbf1' }; // Teal for tools
 
 export default function AgentGraph({ agents, events, selectedEventIndex }: AgentGraphProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -374,7 +409,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     // Node circles
     node.append('circle')
       .attr('r', d => getNodeRadius(d))
-      .attr('fill', d => AGENT_COLORS[d.type] || '#6366f1')
+      .attr('fill', d => d.type === 'Tool' ? TOOL_COLOR.bg : getAgentColor(d.name).bg)
       .attr('stroke', d => d.isActive ? '#fff' : d.wasActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)')
       .attr('stroke-width', d => d.isActive ? 3 : 1.5)
       .attr('opacity', d => d.wasActive ? 1 : 0.5)
@@ -639,7 +674,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
                 <div className="agent-graph-tooltip-type">
                   <div 
                     className="agent-graph-tooltip-dot" 
-                    style={{ background: AGENT_COLORS[tooltip.node.type] || '#6366f1' }}
+                    style={{ 
+                      background: tooltip.node.type === 'Tool' 
+                        ? TOOL_COLOR.bg 
+                        : getAgentColor(tooltip.node.name).bg 
+                    }}
                   />
                   {tooltip.node.type}
                 </div>
