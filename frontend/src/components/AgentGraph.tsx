@@ -346,7 +346,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
           width: 300px;
           height: 400px;
           background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-          border-radius: 0 0 200px 0;
+          border-radius: 0 200px 200px 0;
           border: 1px solid rgba(99, 102, 241, 0.3);
           border-left: none;
           box-shadow: 4px 0 20px rgba(0,0,0,0.4);
