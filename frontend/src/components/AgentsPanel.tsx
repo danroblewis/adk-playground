@@ -29,6 +29,11 @@ function appModelToModelConfig(appModel: AppModelConfig): ModelConfig {
   };
 }
 
+// Convert agent name to a valid state key (lowercase, underscores)
+function nameToOutputKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'output';
+}
+
 function createDefaultAgent(type: string, defaultModel?: AppModelConfig): AgentConfig {
   const id = generateId();
   const base = { id, name: `New ${type}`, description: '' };
@@ -50,6 +55,7 @@ function createDefaultAgent(type: string, defaultModel?: AppModelConfig): AgentC
         disallow_transfer_to_peers: false,
         tools: [],
         sub_agents: [],
+        output_key: nameToOutputKey(`New ${type}`),  // Auto-assign output_key based on name
         before_agent_callbacks: [],
         after_agent_callbacks: [],
         before_model_callbacks: [],

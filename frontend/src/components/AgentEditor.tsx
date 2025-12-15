@@ -15,6 +15,11 @@ function isValidName(name: string): boolean {
   return /^[a-zA-Z0-9_]+$/.test(name);
 }
 
+// Convert agent name to a valid state key (lowercase, underscores)
+function nameToOutputKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'output';
+}
+
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRunAgentId } = useStore();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
@@ -43,7 +48,12 @@ export default function AgentEditor({ agent }: Props) {
       setNameError(null);
     }
     
-    update({ name: value });
+    // For LlmAgents, also update the output_key to match the new name
+    if (agent.type === 'LlmAgent') {
+      update({ name: value, output_key: nameToOutputKey(value) });
+    } else {
+      update({ name: value });
+    }
   }
   
   function toggleSection(section: string) {
