@@ -40,6 +40,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   const [isOpen, setIsOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
+  // Store node positions to preserve layout across updates
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   
   // Calculate the active agent and transitions up to the selected event
   const { activeAgent, transitions, visitedAgents } = useMemo(() => {
@@ -76,13 +78,20 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   
   // Build graph data from agents
   const graphData = useMemo(() => {
-    const nodes: GraphNode[] = agents.map(agent => ({
-      id: agent.id,
-      name: agent.name,
-      type: agent.type,
-      isActive: agent.name === activeAgent,
-      wasActive: visitedAgents.has(agent.name),
-    }));
+    const nodes: GraphNode[] = agents.map(agent => {
+      // Restore previous position if available
+      const prevPos = nodePositionsRef.current.get(agent.id);
+      return {
+        id: agent.id,
+        name: agent.name,
+        type: agent.type,
+        isActive: agent.name === activeAgent,
+        wasActive: visitedAgents.has(agent.name),
+        // Use previous position or undefined (D3 will assign random)
+        x: prevPos?.x,
+        y: prevPos?.y,
+      };
+    });
     
     const links: GraphLink[] = [];
     const agentById = new Map(agents.map(a => [a.id, a]));
@@ -299,6 +308,13 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       });
       
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+      
+      // Save positions for next render
+      graphData.nodes.forEach((d: any) => {
+        if (d.x !== undefined && d.y !== undefined) {
+          nodePositionsRef.current.set(d.id, { x: d.x, y: d.y });
+        }
+      });
     });
     
     // When simulation settles, fit to view
