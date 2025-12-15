@@ -53,25 +53,25 @@ function getEventSummary(event: RunEvent): string {
       const args = Object.entries(event.data?.args || {})
         .map(([k, v]) => {
           const valStr = v !== undefined && v !== null ? JSON.stringify(v) : 'null';
-          return `${k}=${valStr.slice(0, 20)}`;
+          return `${k}=${valStr.slice(0, 500)}${valStr.length > 500 ? '...' : ''}`;
         })
         .join(', ');
       const argsStr = args || '';
-      return `CALL ${event.data?.tool_name || 'unknown'}(${argsStr.slice(0, 60)}${argsStr.length > 60 ? '...' : ''})`;
+      return `CALL ${event.data?.tool_name || 'unknown'}(${argsStr.slice(0, 1000)}${argsStr.length > 1000 ? '...' : ''})`;
     case 'tool_result':
       const result = event.data?.result;
       let resultPreview = '';
       if (result?.content?.[0]?.text) {
-        resultPreview = String(result.content[0].text).slice(0, 60);
+        resultPreview = String(result.content[0].text).slice(0, 500);
       } else if (typeof result === 'string') {
-        resultPreview = result.slice(0, 60);
+        resultPreview = result.slice(0, 500);
       } else if (result !== undefined && result !== null) {
         const jsonStr = JSON.stringify(result);
-        resultPreview = jsonStr ? jsonStr.slice(0, 60) : '';
+        resultPreview = jsonStr ? jsonStr.slice(0, 500) : '';
       } else {
         resultPreview = '';
       }
-      return `RESULT ${event.data?.tool_name || 'unknown'} → ${resultPreview}${resultPreview.length >= 60 ? '...' : ''}`;
+      return `RESULT ${event.data?.tool_name || 'unknown'} → ${resultPreview}${resultPreview.length >= 500 ? '...' : ''}`;
     case 'model_call':
       return `LLM_REQ ${event.data?.contents?.length || 0} msgs, ${event.data?.tool_count || 0} tools`;
     case 'model_response':
