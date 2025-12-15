@@ -207,11 +207,12 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
   
   function handleAddCallback() {
     const id = generateId();
+    const callbackName = 'new_callback';
     const callback: CustomCallbackDefinition = {
       id,
-      name: 'new_callback',
+      name: callbackName,
       description: '',
-      module_path: 'callbacks.custom',
+      module_path: `callbacks.${callbackName}`,
       code: getCallbackTemplate('before_agent'),
       state_keys_used: []
     };
@@ -259,7 +260,7 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
       code: editingCode,
       name,
       description: latestCallback.description,
-      module_path: latestCallback.module_path,
+      module_path: `callbacks.${name}`,  // Update module_path to match the function name
       state_keys_used: latestCallback.state_keys_used
     });
     setCallbackNameError(null);
@@ -533,7 +534,11 @@ export default function CallbacksPanel({ onSelectCallback }: CallbacksPanelProps
                   value={selectedCallback.name}
                   onChange={(e) => {
                     const name = e.target.value;
-                    updateCustomCallback(selectedCallback.id, { name });
+                    // Update both name and module_path to keep them in sync
+                    updateCustomCallback(selectedCallback.id, { 
+                      name,
+                      module_path: `callbacks.${name.trim() || 'callback'}`
+                    });
                     if (callbackNameError && isValidName(name)) {
                       setCallbackNameError(null);
                     }
