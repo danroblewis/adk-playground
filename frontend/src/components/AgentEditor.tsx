@@ -1997,7 +1997,8 @@ function CallbacksEditor({
   
   function addCallback(type: string, callbackId: string) {
     const current = ((agent as any)[type] as CallbackConfig[]) || [];
-    const callback = customCallbacks.find(c => c.id === callbackId);
+    // Look in both built-in and custom callbacks
+    const callback = allCallbacks.find(c => c.id === callbackId);
     if (!callback) return;
     
     onUpdate({
