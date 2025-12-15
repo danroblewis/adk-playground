@@ -91,82 +91,46 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
     return { activeAgent: currentAgent, transitions: transitionMap, visitedAgents: visited };
   }, [events, selectedEventIndex]);
   
-  // Build graph data from agents
+  // Build graph data - only include agents that have been seen in events
   const graphData = useMemo(() => {
-    const nodes: GraphNode[] = agents.map(agent => {
-      // Restore previous position if available
-      const prevPos = nodePositionsRef.current.get(agent.id);
-      return {
-        id: agent.id,
-        name: agent.name,
-        type: agent.type,
-        isActive: agent.name === activeAgent,
-        wasActive: visitedAgents.has(agent.name),
-        // Use previous position or undefined (D3 will assign random)
-        x: prevPos?.x,
-        y: prevPos?.y,
-      };
-    });
-    
-    const links: GraphLink[] = [];
     const agentById = new Map(agents.map(a => [a.id, a]));
     const agentByName = new Map(agents.map(a => [a.name, a]));
     
-    // Add sub_agent relationships
-    for (const agent of agents) {
-      if ('sub_agents' in agent && agent.sub_agents) {
-        for (const subAgentId of agent.sub_agents) {
-          const subAgent = agentById.get(subAgentId);
-          if (subAgent) {
-            links.push({
-              source: agent.id,
-              target: subAgentId,
-              type: 'sub_agent',
-              count: 1,
-            });
-          }
-        }
-      }
-      
-      // Add tool relationships (agent-as-tool)
-      if (agent.type === 'LlmAgent' && 'tools' in agent) {
-        for (const tool of agent.tools || []) {
-          if (tool.type === 'agent' && tool.agent_id) {
-            links.push({
-              source: agent.id,
-              target: tool.agent_id,
-              type: 'tool',
-              count: 1,
-            });
-          }
-        }
-      }
-    }
+    // Only include nodes that have been visited (seen in events)
+    const nodes: GraphNode[] = agents
+      .filter(agent => visitedAgents.has(agent.name))
+      .map(agent => {
+        // Restore previous position if available
+        const prevPos = nodePositionsRef.current.get(agent.id);
+        return {
+          id: agent.id,
+          name: agent.name,
+          type: agent.type,
+          isActive: agent.name === activeAgent,
+          wasActive: true, // All nodes in graph have been visited
+          // Use previous position or undefined (D3 will assign random)
+          x: prevPos?.x,
+          y: prevPos?.y,
+        };
+      });
     
-    // Add transition links from events
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const links: GraphLink[] = [];
+    
+    // Only add transition links from events (these represent actual execution flow)
     for (const [key, count] of transitions) {
       const [fromName, toName] = key.split('->');
       const fromAgent = agentByName.get(fromName);
       const toAgent = agentByName.get(toName);
       
-      if (fromAgent && toAgent) {
-        // Check if this link already exists
-        const existingLink = links.find(l => 
-          (typeof l.source === 'string' ? l.source : l.source.id) === fromAgent.id &&
-          (typeof l.target === 'string' ? l.target : l.target.id) === toAgent.id &&
-          l.type === 'transition'
-        );
-        
-        if (existingLink) {
-          existingLink.count = count;
-        } else {
-          links.push({
-            source: fromAgent.id,
-            target: toAgent.id,
-            type: 'transition',
-            count,
-          });
-        }
+      // Only add link if both nodes are in the graph
+      if (fromAgent && toAgent && nodeIds.has(fromAgent.id) && nodeIds.has(toAgent.id)) {
+        links.push({
+          source: fromAgent.id,
+          target: toAgent.id,
+          type: 'transition',
+          count,
+        });
       }
     }
     
@@ -471,12 +435,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
             <svg ref={svgRef} className="agent-graph-svg" />
             <div className="agent-graph-legend">
               <div className="legend-item">
-                <div className="legend-line" style={{ background: '#6366f1' }} />
-                <span>sub-agent</span>
-              </div>
-              <div className="legend-item">
-                <div className="legend-line" style={{ background: '#f59e0b', borderStyle: 'dashed' }} />
-                <span>tool</span>
+                <div className="legend-line" style={{ background: '#22c55e' }} />
+                <span>execution flow</span>
               </div>
             </div>
           </div>
