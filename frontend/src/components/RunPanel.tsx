@@ -92,11 +92,23 @@ function getEventSummary(event: RunEvent): string {
     case 'callback_start':
       const callbackName = event.data?.callback_name || 'unknown';
       const callbackType = event.data?.callback_type || '';
+      // Special handling for network_approval
+      if (callbackName === 'network_approval') {
+        return `⏳ AWAITING APPROVAL ${event.data?.host || event.data?.url || ''}`;
+      }
       return `CALLBACK START ${callbackType ? `[${callbackType}]` : ''} ${callbackName}`;
     case 'callback_end':
       const endCallbackName = event.data?.callback_name || 'unknown';
       const endCallbackType = event.data?.callback_type || '';
       const hadError = event.data?.error ? ' [ERROR]' : '';
+      // Special handling for network_approval
+      if (endCallbackName === 'network_approval') {
+        const action = event.data?.action;
+        if (action === 'deny') {
+          return `🚫 DENIED ${event.data?.host || ''}`;
+        }
+        return `✅ APPROVED ${event.data?.pattern || event.data?.host || ''}`;
+      }
       return `CALLBACK END ${endCallbackType ? `[${endCallbackType}]` : ''} ${endCallbackName}${hadError}`;
     case 'callback_error':
       const errorSource = event.data?.source || 'unknown';
@@ -1908,7 +1920,13 @@ export default function RunPanel() {
           timestamp: Date.now() / 1000,
           event_type: 'callback_start',
           agent_name: 'sandbox',
-          data: { message: `⚠️ Network request to ${data.host} requires approval` }
+          data: { 
+            callback_name: 'network_approval',
+            callback_type: 'approval',
+            message: `⚠️ Network request to ${data.host} requires approval`,
+            host: data.host,
+            url: data.url,
+          }
         });
       } else if (data.type === 'completed') {
         setIsRunning(false);
@@ -2009,7 +2027,13 @@ export default function RunPanel() {
         timestamp: Date.now() / 1000,
         event_type: 'callback_end',
         agent_name: 'sandbox',
-        data: { message: `✅ Approved: ${patternValue}` }
+        data: { 
+          callback_name: 'network_approval',
+          callback_type: 'approval',
+          message: `✅ Approved: ${patternValue}`,
+          pattern: patternValue,
+          action: action,
+        }
       });
     } catch (e) {
       console.error('Failed to approve:', e);
@@ -2035,7 +2059,13 @@ export default function RunPanel() {
         timestamp: Date.now() / 1000,
         event_type: 'callback_end',
         agent_name: 'sandbox',
-        data: { message: `❌ Denied: ${pendingApproval.host}` }
+        data: { 
+          callback_name: 'network_approval',
+          callback_type: 'approval',
+          message: `❌ Denied: ${pendingApproval.host}`,
+          host: pendingApproval.host,
+          action: 'deny',
+        }
       });
     } catch (e) {
       console.error('Failed to deny:', e);
