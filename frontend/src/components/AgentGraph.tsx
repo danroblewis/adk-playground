@@ -401,19 +401,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       }
     };
     
-    // Create simulation
+    // Create simulation with stronger forces and slower decay for better spreading
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
         .id(d => d.id)
-        .distance(80))
-      .force('charge', d3.forceManyBody().strength(-200))
+        .distance(100)) // Increased from 80 for more spread
+      .force('charge', d3.forceManyBody().strength(-400)) // Increased from -200 for stronger repulsion
       .force('center', d3.forceCenter(0, 0))
-      .force('collision', d3.forceCollide().radius(35))
-      .force('boundary', boundaryForce);
+      .force('collision', d3.forceCollide().radius(40)) // Increased from 35
+      .force('boundary', boundaryForce)
+      .alphaDecay(0.01); // Much slower decay (default is ~0.0228)
     
-    // If all nodes have positions, reduce initial alpha for minimal movement
+    // If all nodes have positions, use lower alpha but still let it spread
     if (allNodesHavePositions) {
-      simulation.alpha(0.1).alphaDecay(0.05);
+      simulation.alpha(0.3); // Higher than before (was 0.1) to allow more movement
+    } else {
+      simulation.alpha(1); // Full energy for new graphs
     }
     
     simulationRef.current = simulation;
