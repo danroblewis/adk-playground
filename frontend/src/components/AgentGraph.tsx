@@ -447,7 +447,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .data(graphData.links)
       .join('path')
       .attr('stroke', d => d.type === 'transition' ? '#22c55e' : d.type === 'sub_agent' ? '#6366f1' : '#f59e0b')
-      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count * 3 + 2, 20) : 1.5)
+      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 20) : 1.5)
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.4)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '4,2' : 'none')
       .attr('fill', 'none');
