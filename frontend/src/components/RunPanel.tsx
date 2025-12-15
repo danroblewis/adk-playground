@@ -678,8 +678,8 @@ function StringMarkdownModal({ content, onClose }: { content: string; onClose: (
           padding: '20px',
         }}>
           <pre style={{
-            fontSize: '13px',
-            lineHeight: '1.6',
+            fontSize: '12px',
+            lineHeight: '1.5',
             color: '#e4e4e7',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
