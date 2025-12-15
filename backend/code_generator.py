@@ -18,12 +18,16 @@ from models import (
 def escape_triple_quoted(s: str) -> str:
     """Escape a string for use in Python triple-quoted strings (triple double-quotes).
     
-    Handles: backslashes, triple-quote sequences
+    Handles: backslashes, triple-quote sequences, and trailing quotes
     """
     if not s:
         return ""
     # Escape backslashes first, then triple-quotes
-    return s.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    s = s.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+    # If the string ends with a quote, add a space to prevent """" syntax issues
+    if s.endswith('"'):
+        s = s + " "
+    return s
 
 
 def escape_double_quoted(s: str) -> str:
