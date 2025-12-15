@@ -547,14 +547,6 @@ export default function AppConfigPanel() {
               ))}
             </select>
           </div>
-          <div className="form-group full-width">
-            <label>Description</label>
-            <textarea
-              value={app.description}
-              onChange={(e) => updateApp({ description: e.target.value })}
-              rows={2}
-            />
-          </div>
         </div>
       </section>
       
@@ -930,138 +922,138 @@ export default function AppConfigPanel() {
         )}
       </section>
       
-      {/* Configuration Options */}
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">
-            <Zap size={20} />
-            Advanced Options
-          </h2>
-        </div>
-        
-        <div className="toggle-group">
-          <div 
-            className={`toggle ${app.compaction.enabled ? 'active' : ''}`}
-            onClick={() => updateApp({ 
-              compaction: { ...app.compaction, enabled: !app.compaction.enabled } 
-            })}
-          />
-          <div className="toggle-label">
-            <strong>Event Compaction</strong>
-            <span>Automatically summarize old events to reduce context size</span>
+      {/* State Keys & Advanced Options - Two Column Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* State Keys */}
+        <section className="section" style={{ margin: 0 }}>
+          <div className="section-header">
+            <h2 className="section-title">
+              <Key size={20} />
+              State Keys
+            </h2>
+            <button className="btn btn-secondary btn-sm" onClick={addStateKey}>
+              <Plus size={14} />
+              Add
+            </button>
           </div>
-          {app.compaction.enabled && (
-            <input
-              type="number"
-              value={app.compaction.max_events}
-              onChange={(e) => updateApp({
-                compaction: { ...app.compaction, max_events: parseInt(e.target.value) || 100 }
-              })}
-              style={{ width: 80 }}
-              placeholder="Max events"
-            />
-          )}
-        </div>
-        
-        <div className="toggle-group" style={{ marginTop: 12 }}>
-          <div 
-            className={`toggle ${app.context_cache.enabled ? 'active' : ''}`}
-            onClick={() => updateApp({ 
-              context_cache: { ...app.context_cache, enabled: !app.context_cache.enabled } 
-            })}
-          />
-          <div className="toggle-label">
-            <strong>Context Caching</strong>
-            <span>Cache static instructions for better performance</span>
-          </div>
-          {app.context_cache.enabled && (
-            <input
-              type="number"
-              value={app.context_cache.ttl_seconds}
-              onChange={(e) => updateApp({
-                context_cache: { ...app.context_cache, ttl_seconds: parseInt(e.target.value) || 3600 }
-              })}
-              style={{ width: 100 }}
-              placeholder="TTL (seconds)"
-            />
-          )}
-        </div>
-        
-        <div className="toggle-group" style={{ marginTop: 12 }}>
-          <div 
-            className={`toggle ${app.resumability.enabled ? 'active' : ''}`}
-            onClick={() => updateApp({ 
-              resumability: { ...app.resumability, enabled: !app.resumability.enabled } 
-            })}
-          />
-          <div className="toggle-label">
-            <strong>Resumability</strong>
-            <span>Allow pausing and resuming agent execution</span>
-          </div>
-        </div>
-      </section>
-      
-      {/* State Keys */}
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">
-            <Key size={20} />
-            Session State Keys
-          </h2>
-          <button className="btn btn-secondary btn-sm" onClick={addStateKey}>
-            <Plus size={14} />
-            Add Key
-          </button>
-        </div>
-        
-        {app.state_keys.length === 0 ? (
-          <p className="empty-message">
-            No state keys defined. Add keys to declare what data agents can share.
-          </p>
-        ) : (
-          app.state_keys.map((key, index) => (
-            <div key={index} className="list-item">
-              <div className="list-item-content">
-                <input
-                  type="text"
-                  value={key.name}
-                  onChange={(e) => updateStateKey(index, { name: e.target.value })}
-                  placeholder="Key name"
-                />
-                <select
-                  value={key.type}
-                  onChange={(e) => updateStateKey(index, { type: e.target.value as any })}
-                >
-                  <option value="string">String</option>
-                  <option value="number">Number</option>
-                  <option value="boolean">Boolean</option>
-                  <option value="object">Object</option>
-                  <option value="array">Array</option>
-                </select>
-                <select
-                  value={key.scope}
-                  onChange={(e) => updateStateKey(index, { scope: e.target.value as any })}
-                >
-                  <option value="session">Session</option>
-                  <option value="user">User</option>
-                  <option value="app">App</option>
-                  <option value="temp">Temporary</option>
-                </select>
-                <input
-                  type="text"
-                  value={key.description}
-                  onChange={(e) => updateStateKey(index, { description: e.target.value })}
-                  placeholder="Description"
-                  style={{ gridColumn: 'span 2' }}
-                />
-              </div>
-              <button className="delete-item" onClick={() => removeStateKey(index)}>
-                <Trash2 size={16} />
-              </button>
+          
+          {app.state_keys.length === 0 ? (
+            <p className="empty-message">
+              No state keys. Auto-created when you add LlmAgents.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {app.state_keys.map((key, index) => (
+                <div key={index} style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 8,
+                  padding: '6px 8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 4,
+                }}>
+                  <input
+                    type="text"
+                    value={key.name}
+                    onChange={(e) => updateStateKey(index, { name: e.target.value })}
+                    placeholder="Key name"
+                    style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                  />
+                  <select
+                    value={key.type}
+                    onChange={(e) => updateStateKey(index, { type: e.target.value as any })}
+                    style={{ padding: '4px 6px', fontSize: 11 }}
+                  >
+                    <option value="string">str</option>
+                    <option value="number">num</option>
+                    <option value="boolean">bool</option>
+                    <option value="object">obj</option>
+                    <option value="array">arr</option>
+                  </select>
+                  <button 
+                    className="delete-item" 
+                    onClick={() => removeStateKey(index)}
+                    style={{ padding: 4 }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))
-        )}
-      </section>
+          )}
+        </section>
+        
+        {/* Advanced Options */}
+        <section className="section" style={{ margin: 0 }}>
+          <div className="section-header">
+            <h2 className="section-title">
+              <Zap size={20} />
+              Advanced Options
+            </h2>
+          </div>
+          
+          <div className="toggle-group">
+            <div 
+              className={`toggle ${app.compaction.enabled ? 'active' : ''}`}
+              onClick={() => updateApp({ 
+                compaction: { ...app.compaction, enabled: !app.compaction.enabled } 
+              })}
+            />
+            <div className="toggle-label">
+              <strong>Event Compaction</strong>
+              <span>Summarize old events</span>
+            </div>
+            {app.compaction.enabled && (
+              <input
+                type="number"
+                value={app.compaction.max_events}
+                onChange={(e) => updateApp({
+                  compaction: { ...app.compaction, max_events: parseInt(e.target.value) || 100 }
+                })}
+                style={{ width: 60, padding: '4px 6px', fontSize: 12 }}
+                placeholder="Max"
+              />
+            )}
+          </div>
+          
+          <div className="toggle-group" style={{ marginTop: 10 }}>
+            <div 
+              className={`toggle ${app.context_cache.enabled ? 'active' : ''}`}
+              onClick={() => updateApp({ 
+                context_cache: { ...app.context_cache, enabled: !app.context_cache.enabled } 
+              })}
+            />
+            <div className="toggle-label">
+              <strong>Context Caching</strong>
+              <span>Cache static instructions</span>
+            </div>
+            {app.context_cache.enabled && (
+              <input
+                type="number"
+                value={app.context_cache.ttl_seconds}
+                onChange={(e) => updateApp({
+                  context_cache: { ...app.context_cache, ttl_seconds: parseInt(e.target.value) || 3600 }
+                })}
+                style={{ width: 70, padding: '4px 6px', fontSize: 12 }}
+                placeholder="TTL"
+              />
+            )}
+          </div>
+          
+          <div className="toggle-group" style={{ marginTop: 10 }}>
+            <div 
+              className={`toggle ${app.resumability.enabled ? 'active' : ''}`}
+              onClick={() => updateApp({ 
+                resumability: { ...app.resumability, enabled: !app.resumability.enabled } 
+              })}
+            />
+            <div className="toggle-label">
+              <strong>Resumability</strong>
+              <span>Pause/resume execution</span>
+            </div>
+          </div>
+        </section>
+      </div>
       
       {/* Plugins */}
       <section className="section">
@@ -1211,163 +1203,133 @@ export default function AppConfigPanel() {
         )}
       </section>
       
-      {/* Network Allowlist */}
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">
-            <Shield size={20} />
-            Network Allowlist
-          </h2>
-          <button className="btn btn-secondary btn-sm" onClick={addAllowlistPattern}>
-            <Plus size={14} />
-            Add Pattern
-          </button>
-        </div>
-        
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Patterns that are automatically allowed when running in sandbox mode.
-          Requests to other domains will prompt for approval.
-        </p>
-        
-        {allowlistPatterns.length === 0 ? (
-          <p className="empty-message">
-            No custom allowlist patterns. LLM API providers are allowed by default.
-          </p>
-        ) : (
-          allowlistPatterns.map((pattern, index) => (
-            <div key={pattern.id || index} className="list-item">
-              <div className="list-item-content" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <Globe size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <input
-                  type="text"
-                  value={pattern.pattern}
-                  onChange={(e) => updateAllowlistPattern(index, { pattern: e.target.value })}
-                  placeholder="example.com or *.example.com"
-                  style={{ flex: 1 }}
-                />
-                <select
-                  value={pattern.pattern_type}
-                  onChange={(e) => updateAllowlistPattern(index, { pattern_type: e.target.value as PatternType })}
-                  style={{ width: 100 }}
-                >
-                  <option value="exact">Exact</option>
-                  <option value="wildcard">Wildcard</option>
-                  <option value="regex">Regex</option>
-                </select>
-                <span style={{ 
-                  fontSize: 10, 
-                  padding: '2px 6px', 
-                  backgroundColor: pattern.source === 'approved' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(107, 114, 128, 0.2)',
-                  color: pattern.source === 'approved' ? '#4ade80' : 'var(--text-muted)',
+      {/* Network Allowlist & Volume Mounts - Two Column Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Network Allowlist */}
+        <section className="section" style={{ margin: 0 }}>
+          <div className="section-header">
+            <h2 className="section-title">
+              <Shield size={20} />
+              Network Allowlist
+            </h2>
+            <button className="btn btn-secondary btn-sm" onClick={addAllowlistPattern}>
+              <Plus size={14} />
+              Add
+            </button>
+          </div>
+          
+          {allowlistPatterns.length === 0 ? (
+            <p className="empty-message" style={{ fontSize: 11 }}>
+              No custom patterns. LLM APIs allowed by default.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {allowlistPatterns.map((pattern, index) => (
+                <div key={pattern.id || index} style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 6,
+                  padding: '6px 8px',
+                  background: 'var(--bg-secondary)',
                   borderRadius: 4,
-                  flexShrink: 0,
                 }}>
-                  {pattern.source}
-                </span>
-              </div>
-              <button className="delete-item" onClick={() => removeAllowlistPattern(index)}>
-                <Trash2 size={16} />
-              </button>
+                  <Globe size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={pattern.pattern}
+                    onChange={(e) => updateAllowlistPattern(index, { pattern: e.target.value })}
+                    placeholder="*.example.com"
+                    style={{ flex: 1, padding: '4px 6px', fontSize: 11 }}
+                  />
+                  <select
+                    value={pattern.pattern_type}
+                    onChange={(e) => updateAllowlistPattern(index, { pattern_type: e.target.value as PatternType })}
+                    style={{ padding: '4px', fontSize: 10, width: 70 }}
+                  >
+                    <option value="exact">exact</option>
+                    <option value="wildcard">wild</option>
+                    <option value="regex">regex</option>
+                  </select>
+                  <button 
+                    className="delete-item" 
+                    onClick={() => removeAllowlistPattern(index)}
+                    style={{ padding: 4 }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))
-        )}
+          )}
+        </section>
         
-        {/* Default allowed domains info */}
-        <div style={{ 
-          marginTop: 16, 
-          padding: 12, 
-          backgroundColor: 'var(--bg-tertiary)', 
-          borderRadius: 6,
-          fontSize: 12,
-        }}>
-          <div style={{ fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>
-            Default Allowed Domains:
+        {/* Volume Mounts */}
+        <section className="section" style={{ margin: 0 }}>
+          <div className="section-header">
+            <h2 className="section-title">
+              <HardDrive size={20} />
+              Volume Mounts
+            </h2>
+            <button className="btn btn-secondary btn-sm" onClick={addVolumeMount}>
+              <Plus size={14} />
+              Add
+            </button>
           </div>
-          <div style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            generativelanguage.googleapis.com, api.openai.com, api.anthropic.com, 
-            api.together.xyz, api.groq.com, api.mistral.ai
-          </div>
-        </div>
-      </section>
-      
-      {/* Volume Mounts */}
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">
-            <HardDrive size={20} />
-            Volume Mounts
-          </h2>
-          <button className="btn btn-secondary btn-sm" onClick={addVolumeMount}>
-            <Plus size={14} />
-            Add Mount
-          </button>
-        </div>
-        
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Mount local directories into the Docker sandbox so MCP servers and tools can access files.
-        </p>
-        
-        {volumeMounts.length === 0 ? (
-          <p className="empty-message">
-            No volume mounts configured. Add mounts to allow MCP servers to access local files.
-          </p>
-        ) : (
-          volumeMounts.map((mount, index) => (
-            <div key={index} className="list-item">
-              <div className="list-item-content" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <FolderOpen size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <input
-                  type="text"
-                  value={mount.host_path}
-                  onChange={(e) => updateVolumeMount(index, { host_path: e.target.value })}
-                  placeholder="~/Documents or /path/to/folder"
-                  style={{ flex: 1, minWidth: 150 }}
-                  title="Host path (local directory)"
-                />
-                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>
-                <input
-                  type="text"
-                  value={mount.container_path}
-                  onChange={(e) => updateVolumeMount(index, { container_path: e.target.value })}
-                  placeholder="/mnt/data"
-                  style={{ width: 140 }}
-                  title="Container path (where it appears in sandbox)"
-                />
-                <select
-                  value={mount.mode}
-                  onChange={(e) => updateVolumeMount(index, { mode: e.target.value as 'ro' | 'rw' })}
-                  style={{ width: 100 }}
-                  title="Access mode"
-                >
-                  <option value="ro">Read Only</option>
-                  <option value="rw">Read/Write</option>
-                </select>
-              </div>
-              <button className="delete-item" onClick={() => removeVolumeMount(index)}>
-                <Trash2 size={16} />
-              </button>
+          
+          {volumeMounts.length === 0 ? (
+            <p className="empty-message" style={{ fontSize: 11 }}>
+              No mounts. Add to give sandbox file access.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {volumeMounts.map((mount, index) => (
+                <div key={index} style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 6,
+                  padding: '6px 8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 4,
+                }}>
+                  <FolderOpen size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={mount.host_path}
+                    onChange={(e) => updateVolumeMount(index, { host_path: e.target.value })}
+                    placeholder="~/path"
+                    style={{ flex: 1, padding: '4px 6px', fontSize: 11 }}
+                    title="Host path"
+                  />
+                  <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>→</span>
+                  <input
+                    type="text"
+                    value={mount.container_path}
+                    onChange={(e) => updateVolumeMount(index, { container_path: e.target.value })}
+                    placeholder="/mnt"
+                    style={{ width: 70, padding: '4px 6px', fontSize: 11 }}
+                    title="Container path"
+                  />
+                  <select
+                    value={mount.mode}
+                    onChange={(e) => updateVolumeMount(index, { mode: e.target.value as 'ro' | 'rw' })}
+                    style={{ padding: '4px', fontSize: 10, width: 50 }}
+                  >
+                    <option value="ro">ro</option>
+                    <option value="rw">rw</option>
+                  </select>
+                  <button 
+                    className="delete-item" 
+                    onClick={() => removeVolumeMount(index)}
+                    style={{ padding: 4 }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
-          ))
-        )}
-        
-        {/* Usage hint */}
-        <div style={{ 
-          marginTop: 16, 
-          padding: 12, 
-          backgroundColor: 'var(--bg-tertiary)', 
-          borderRadius: 6,
-          fontSize: 12,
-        }}>
-          <div style={{ fontWeight: 500, marginBottom: 6, color: 'var(--text-secondary)' }}>
-            Usage Tips:
-          </div>
-          <div style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            • Use <code style={{ background: 'var(--bg-primary)', padding: '1px 4px', borderRadius: 3 }}>~/Documents</code> to mount your Documents folder<br/>
-            • MCP filesystem server needs access to directories it should manage<br/>
-            • Use "Read Only" mode for safety unless write access is needed
-          </div>
-        </div>
-      </section>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
