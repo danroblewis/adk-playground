@@ -1733,6 +1733,7 @@ export default function RunPanel() {
   const [showToolRunner, setShowToolRunner] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
+  const [isAgentGraphOpen, setIsAgentGraphOpen] = useState(false);
   
   // Prompt history and suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -2085,6 +2086,9 @@ export default function RunPanel() {
   const handleRun = useCallback((messageOverride?: string) => {
     const message = messageOverride ?? userInput;
     if (!project || !message.trim() || isRunning) return;
+    
+    // Open the agent graph drawer when run starts
+    setIsAgentGraphOpen(true);
     
     // Save prompt to history
     savePromptToHistory(message);
@@ -4039,6 +4043,8 @@ export default function RunPanel() {
         agents={project.agents}
         events={runEvents}
         selectedEventIndex={selectedEventIndex}
+        isOpen={isAgentGraphOpen}
+        onOpenChange={setIsAgentGraphOpen}
       />
       
       {/* Input Area */}
@@ -4165,7 +4171,7 @@ export default function RunPanel() {
             Stop
           </button>
         ) : (
-          <button onClick={handleRun} disabled={!userInput.trim()}>
+          <button onClick={() => handleRun()} disabled={!userInput.trim()}>
             <Play size={14} />
             Run
           </button>

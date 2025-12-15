@@ -7,6 +7,8 @@ interface AgentGraphProps {
   agents: AgentConfig[];
   events: RunEvent[];
   selectedEventIndex: number | null;
+  isOpen?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
 }
 
 interface GraphNode {
@@ -74,8 +76,18 @@ function getAgentColor(agentName: string): { bg: string; fg: string } {
 // Special colors for tools
 const TOOL_COLOR = { bg: '#14b8a6', fg: '#ccfbf1' }; // Teal for tools
 
-export default function AgentGraph({ agents, events, selectedEventIndex }: AgentGraphProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export default function AgentGraph({ agents, events, selectedEventIndex, isOpen: controlledIsOpen, onOpenChange }: AgentGraphProps) {
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  
+  // Support both controlled and uncontrolled modes
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
+  const setIsOpen = (value: boolean) => {
+    if (onOpenChange) {
+      onOpenChange(value);
+    } else {
+      setInternalIsOpen(value);
+    }
+  };
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
