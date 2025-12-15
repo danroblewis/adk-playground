@@ -243,20 +243,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
         .call(zoom.transform, transform);
     };
     
-    // Arrow marker for directed edges
-    svg.append('defs').selectAll('marker')
-      .data(['transition', 'sub_agent', 'tool'])
-      .join('marker')
-      .attr('id', d => `arrow-${d}`)
-      .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 25)
-      .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('fill', d => d === 'transition' ? '#22c55e' : d === 'sub_agent' ? '#6366f1' : '#f59e0b')
-      .attr('d', 'M0,-5L10,0L0,5');
     
     // Check if all nodes have saved positions
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
@@ -287,8 +273,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
       .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count * 1.5 + 1, 6) : 1.5)
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.4)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '4,2' : 'none')
-      .attr('fill', 'none')
-      .attr('marker-end', d => `url(#arrow-${d.type})`);
+      .attr('fill', 'none');
     
     // Create nodes
     const node = g.append('g')
@@ -489,10 +474,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
               <div className="legend-item">
                 <div className="legend-line" style={{ background: '#f59e0b', borderStyle: 'dashed' }} />
                 <span>tool</span>
-              </div>
-              <div className="legend-item">
-                <div className="legend-line" style={{ background: '#22c55e' }} />
-                <span>transition</span>
               </div>
             </div>
           </div>
