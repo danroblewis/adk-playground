@@ -47,11 +47,14 @@ export default function AgentGraph({ agents, events, selectedEventIndex }: Agent
   
   // Calculate the active agent and transitions up to the selected event
   const { activeAgent, transitions, visitedAgents } = useMemo(() => {
-    if (selectedEventIndex === null || selectedEventIndex < 0) {
+    // If no event selected, use the most recent event
+    const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
+    
+    if (effectiveIndex < 0 || events.length === 0) {
       return { activeAgent: null, transitions: new Map<string, number>(), visitedAgents: new Set<string>() };
     }
     
-    const eventsUpToSelection = events.slice(0, selectedEventIndex + 1);
+    const eventsUpToSelection = events.slice(0, effectiveIndex + 1);
     const transitionMap = new Map<string, number>();
     const visited = new Set<string>();
     
