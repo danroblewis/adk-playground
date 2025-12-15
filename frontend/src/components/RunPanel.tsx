@@ -10,6 +10,7 @@ import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig, ApprovalRequest, PatternType } from '../utils/types';
 import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession } from '../utils/api';
 import { NetworkApprovalDialog } from './sandbox/NetworkApprovalDialog';
+import AgentGraph from './AgentGraph';
 
 // Wireshark-inspired color scheme for event types
 const EVENT_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
@@ -4032,6 +4033,13 @@ export default function RunPanel() {
           font-weight: 700;
         }
       `}</style>
+      
+      {/* Agent Network Graph */}
+      <AgentGraph 
+        agents={project.agents}
+        events={runEvents}
+        selectedEventIndex={selectedEventIndex}
+      />
       
       {/* Input Area */}
       <div className="input-area">
