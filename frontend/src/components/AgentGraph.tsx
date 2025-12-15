@@ -28,19 +28,20 @@ interface GraphLink {
   count: number; // For multiple transitions
 }
 
-// Agent color palette - same as RunPanel for consistency
+// Agent color palette - MUST match RunPanel exactly for consistency
 const AGENT_COLOR_PALETTE = [
-  { bg: '#0e7490', fg: '#e0f2fe' },  // Cyan
-  { bg: '#6d28d9', fg: '#ede9fe' },  // Purple
-  { bg: '#047857', fg: '#d1fae5' },  // Emerald
-  { bg: '#b91c1c', fg: '#fee2e2' },  // Red
-  { bg: '#b45309', fg: '#fef3c7' },  // Amber
-  { bg: '#0369a1', fg: '#e0f2fe' },  // Sky
-  { bg: '#7e22ce', fg: '#f3e8ff' },  // Violet
-  { bg: '#15803d', fg: '#dcfce7' },  // Green
-  { bg: '#0f766e', fg: '#ccfbf1' },  // Teal
-  { bg: '#c2410c', fg: '#ffedd5' },  // Orange
-  { bg: '#4338ca', fg: '#e0e7ff' },  // Indigo
+  { bg: '#0e7490', fg: '#e0f2fe' },  // Cyan (muted)
+  { bg: '#6d28d9', fg: '#ede9fe' },  // Purple (muted)
+  { bg: '#047857', fg: '#d1fae5' },  // Emerald (muted)
+  { bg: '#b91c1c', fg: '#fee2e2' },  // Red (muted)
+  { bg: '#b45309', fg: '#fef3c7' },  // Amber (muted)
+  { bg: '#1d4ed8', fg: '#dbeafe' },  // Blue (muted)
+  { bg: '#be185d', fg: '#fce7f3' },  // Pink (muted)
+  { bg: '#4d7c0f', fg: '#ecfccb' },  // Lime (muted)
+  { bg: '#7c3aed', fg: '#ede9fe' },  // Violet (muted)
+  { bg: '#0f766e', fg: '#ccfbf1' },  // Teal (muted)
+  { bg: '#c2410c', fg: '#ffedd5' },  // Orange (muted)
+  { bg: '#4338ca', fg: '#e0e7ff' },  // Indigo (muted)
 ];
 
 // Cache for agent name -> color mapping
@@ -48,8 +49,8 @@ const agentColorCache = new Map<string, { bg: string; fg: string }>();
 
 // Get a consistent color for an agent name (matches RunPanel)
 function getAgentColor(agentName: string): { bg: string; fg: string } {
-  // Special cases
-  if (agentName === 'system') {
+  // Special cases for system agents (must match RunPanel)
+  if (agentName === 'sandbox' || agentName === 'system') {
     return { bg: '#374151', fg: '#9ca3af' };  // Gray for system
   }
   
