@@ -541,6 +541,7 @@ class ListModelsRequest(BaseModel):
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    together_api_key: Optional[str] = None
     check_ollama: bool = True
 
 
@@ -558,6 +559,7 @@ async def list_available_models(request: ListModelsRequest):
         anthropic_api_key=request.anthropic_api_key,
         openai_api_key=request.openai_api_key,
         groq_api_key=request.groq_api_key,
+        together_api_key=request.together_api_key,
         check_ollama=request.check_ollama,
     )
     
@@ -579,7 +581,7 @@ async def list_models_for_project(
     """
     from model_service import (
         list_gemini_models, list_anthropic_models, list_openai_models,
-        list_groq_models, list_ollama_models, ProviderModels
+        list_groq_models, list_together_models, list_ollama_models, ProviderModels
     )
     
     project = project_manager.get_project(project_id)
@@ -613,6 +615,10 @@ async def list_models_for_project(
         key = env_vars.get("GROQ_API_KEY")
         result = await list_groq_models(key)
         providers["groq"] = result.model_dump()
+    elif provider == "together":
+        key = env_vars.get("TOGETHER_API_KEY")
+        result = await list_together_models(key)
+        providers["together"] = result.model_dump()
     elif provider in ("litellm", "ollama"):
         # For LiteLLM, we fetch from Ollama using the provided api_base
         base_url = api_base or "http://localhost:11434"
@@ -1193,6 +1199,164 @@ async def load_session(project_id: str, session_id: str):
     return {"session": session.model_dump(mode="json")}
 
 
+# ============================================================================
+# Artifacts API
+# ============================================================================
+
+@app.get("/api/projects/{project_id}/sessions/{session_id}/artifacts")
+async def list_artifacts(project_id: str, session_id: str):
+    """List all artifacts for a session."""
+    from runtime import create_artifact_service_from_uri
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
+    
+    try:
+        # List artifacts for this session
+        artifacts = await artifact_service.list_artifact_keys(
+            app_name=project.app.name,
+            user_id="playground_user",
+            session_id=session_id,
+        )
+        
+        # Build artifact info list
+        artifact_list = []
+        for filename in artifacts:
+            # Try to get the latest version info
+            try:
+                artifact = await artifact_service.load_artifact(
+                    app_name=project.app.name,
+                    user_id="playground_user",
+                    session_id=session_id,
+                    filename=filename,
+                )
+                
+                # Determine if it's an image based on mime type or filename
+                mime_type = None
+                is_image = False
+                size = None
+                
+                if artifact:
+                    # Check for inline_data which has mime_type
+                    if hasattr(artifact, 'inline_data') and artifact.inline_data:
+                        mime_type = getattr(artifact.inline_data, 'mime_type', None)
+                        data = getattr(artifact.inline_data, 'data', None)
+                        if data:
+                            if isinstance(data, bytes):
+                                size = len(data)
+                            elif isinstance(data, str):
+                                # Base64 encoded
+                                size = len(data) * 3 // 4  # Approximate decoded size
+                    elif hasattr(artifact, 'text'):
+                        mime_type = 'text/plain'
+                        size = len(artifact.text) if artifact.text else 0
+                    
+                    # Check filename extension as fallback
+                    if not mime_type:
+                        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+                        mime_map = {
+                            'png': 'image/png',
+                            'jpg': 'image/jpeg',
+                            'jpeg': 'image/jpeg',
+                            'gif': 'image/gif',
+                            'webp': 'image/webp',
+                            'svg': 'image/svg+xml',
+                            'txt': 'text/plain',
+                            'json': 'application/json',
+                            'html': 'text/html',
+                            'css': 'text/css',
+                            'js': 'application/javascript',
+                            'pdf': 'application/pdf',
+                        }
+                        mime_type = mime_map.get(ext, 'application/octet-stream')
+                    
+                    is_image = mime_type and mime_type.startswith('image/')
+                
+                artifact_list.append({
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "is_image": is_image,
+                    "size": size,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to get artifact info for {filename}: {e}")
+                artifact_list.append({
+                    "filename": filename,
+                    "mime_type": None,
+                    "is_image": False,
+                    "size": None,
+                })
+        
+        return {"artifacts": artifact_list}
+    except Exception as e:
+        logger.error(f"Failed to list artifacts: {e}", exc_info=True)
+        return {"artifacts": [], "error": str(e)}
+
+
+@app.get("/api/projects/{project_id}/sessions/{session_id}/artifacts/{filename:path}")
+async def get_artifact(project_id: str, session_id: str, filename: str):
+    """Get a specific artifact's content."""
+    from runtime import create_artifact_service_from_uri
+    from fastapi.responses import Response
+    import base64
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
+    
+    try:
+        artifact = await artifact_service.load_artifact(
+            app_name=project.app.name,
+            user_id="playground_user",
+            session_id=session_id,
+            filename=filename,
+        )
+        
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        
+        # Handle different artifact types
+        if hasattr(artifact, 'inline_data') and artifact.inline_data:
+            mime_type = getattr(artifact.inline_data, 'mime_type', 'application/octet-stream')
+            data = getattr(artifact.inline_data, 'data', b'')
+            
+            # Handle base64 encoded data
+            if isinstance(data, str):
+                try:
+                    data = base64.b64decode(data)
+                except Exception:
+                    data = data.encode('utf-8')
+            
+            return Response(
+                content=data,
+                media_type=mime_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"'
+                }
+            )
+        elif hasattr(artifact, 'text') and artifact.text:
+            return Response(
+                content=artifact.text,
+                media_type='text/plain',
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"'
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Unknown artifact format")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get artifact {filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/sessions/{session_id}/save-to-memory")
 async def save_session_to_memory(session_id: str):
     """Save a session to memory service."""
@@ -1368,7 +1532,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
         # Set API keys from project env_vars (temporarily for this request)
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -1382,7 +1546,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
                 model_config = project.app.models[0]
         
         # Create a simple agent for prompt generation
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -1641,7 +1805,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -1655,7 +1819,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
                 model_config = project.app.models[0]
         
         # Create a code generation agent
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -1998,7 +2162,7 @@ Write the complete Python code for this callback. Include appropriate imports at
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -2012,7 +2176,7 @@ Write the complete Python code for this callback. Include appropriate imports at
                 model_config = project.app.models[0]
         
         # Create a code generation agent
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -2192,7 +2356,7 @@ JSON:"""
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -2205,7 +2369,7 @@ JSON:"""
             if not model_config:
                 model_config = project.app.models[0]
         
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,

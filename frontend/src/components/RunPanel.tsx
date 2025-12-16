@@ -3,12 +3,12 @@ import {
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
   CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
-  Download, Upload, Code, TestTube
+  Download, Upload, Code, TestTube, FileBox, Image, File
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig, ApprovalRequest, PatternType } from '../utils/types';
-import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession } from '../utils/api';
+import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession, listArtifacts, getArtifactUrl, type ArtifactInfo } from '../utils/api';
 import { NetworkApprovalDialog } from './sandbox/NetworkApprovalDialog';
 import AgentGraph from './AgentGraph';
 
@@ -1082,6 +1082,305 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
   );
 }
 
+// Artifacts Panel component - shows artifacts stored in the session
+function ArtifactsPanel({ project, sessionId }: { 
+  project: Project | null;
+  sessionId: string | null;
+}) {
+  const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedArtifact, setSelectedArtifact] = useState<string | null>(null);
+  const [imageModalSrc, setImageModalSrc] = useState<string | null>(null);
+  
+  // Fetch artifacts when session changes
+  useEffect(() => {
+    if (!project?.id || !sessionId) {
+      setArtifacts([]);
+      return;
+    }
+    
+    const fetchArtifacts = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const artifactList = await listArtifacts(project.id, sessionId);
+        setArtifacts(artifactList);
+      } catch (e: any) {
+        setError(e.message || 'Failed to load artifacts');
+        setArtifacts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchArtifacts();
+  }, [project?.id, sessionId]);
+  
+  const formatSize = (bytes: number | null) => {
+    if (bytes === null) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  
+  const handleDownload = (filename: string) => {
+    if (!project?.id || !sessionId) return;
+    const url = getArtifactUrl(project.id, sessionId, filename);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  const handlePreview = (artifact: ArtifactInfo) => {
+    if (!project?.id || !sessionId) return;
+    if (artifact.is_image) {
+      const url = getArtifactUrl(project.id, sessionId, artifact.filename);
+      setImageModalSrc(url);
+    }
+  };
+  
+  return (
+    <>
+      {/* Image Modal */}
+      {imageModalSrc && (
+        <div 
+          className="artifact-image-modal"
+          onClick={() => setImageModalSrc(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            cursor: 'pointer',
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              position: 'relative',
+            }}
+          >
+            <button
+              onClick={() => setImageModalSrc(null)}
+              style={{
+                position: 'absolute',
+                top: -40,
+                right: 0,
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                cursor: 'pointer',
+                padding: 8,
+              }}
+            >
+              <X size={24} />
+            </button>
+            <img 
+              src={imageModalSrc} 
+              alt="Artifact preview"
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '85vh',
+                objectFit: 'contain',
+                borderRadius: 8,
+              }}
+            />
+          </div>
+        </div>
+      )}
+      
+      <div className="artifacts-panel">
+        <style>{`
+          .artifacts-panel {
+            padding: 8px;
+          }
+          .artifacts-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: #a1a1aa;
+            padding: 8px;
+            background: #18181b;
+            border-radius: 4px;
+            margin-bottom: 8px;
+          }
+          .artifacts-empty {
+            padding: 16px;
+            text-align: center;
+            color: #71717a;
+            font-size: 12px;
+          }
+          .artifacts-loading {
+            padding: 16px;
+            text-align: center;
+            color: #71717a;
+            font-size: 12px;
+          }
+          .artifacts-error {
+            padding: 12px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 4px;
+            color: #fca5a5;
+            font-size: 11px;
+          }
+          .artifact-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #18181b;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            transition: background 0.15s;
+          }
+          .artifact-item:hover {
+            background: #27272a;
+          }
+          .artifact-icon {
+            flex-shrink: 0;
+            color: #71717a;
+          }
+          .artifact-icon.image {
+            color: #60a5fa;
+          }
+          .artifact-info {
+            flex: 1;
+            min-width: 0;
+          }
+          .artifact-name {
+            font-size: 12px;
+            color: #e4e4e7;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .artifact-meta {
+            font-size: 10px;
+            color: #71717a;
+            margin-top: 2px;
+          }
+          .artifact-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+          }
+          .artifact-btn {
+            background: transparent;
+            border: none;
+            color: #71717a;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .artifact-btn:hover {
+            background: #3f3f46;
+            color: #e4e4e7;
+          }
+          .artifact-preview {
+            width: 100%;
+            margin-top: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #09090b;
+          }
+          .artifact-preview img {
+            width: 100%;
+            height: auto;
+            display: block;
+          }
+        `}</style>
+        
+        <div className="artifacts-header">
+          {sessionId ? 'Session Artifacts' : 'No Session Selected'}
+        </div>
+        
+        {loading ? (
+          <div className="artifacts-loading">
+            <RefreshCw size={16} className="spin" style={{ marginBottom: 8 }} />
+            <div>Loading artifacts...</div>
+          </div>
+        ) : error ? (
+          <div className="artifacts-error">{error}</div>
+        ) : !sessionId ? (
+          <div className="artifacts-empty">
+            <FileBox size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
+            <div>Start a session to see artifacts</div>
+          </div>
+        ) : artifacts.length === 0 ? (
+          <div className="artifacts-empty">
+            <FileBox size={24} style={{ marginBottom: 8, opacity: 0.5 }} />
+            <div>No artifacts in this session</div>
+            <div style={{ fontSize: 10, marginTop: 4, color: '#52525b' }}>
+              Use tool_context.save_artifact() to save artifacts
+            </div>
+          </div>
+        ) : (
+          artifacts.map((artifact) => (
+            <div key={artifact.filename} className="artifact-item">
+              <div className={`artifact-icon ${artifact.is_image ? 'image' : ''}`}>
+                {artifact.is_image ? <Image size={16} /> : <File size={16} />}
+              </div>
+              <div className="artifact-info">
+                <div className="artifact-name" title={artifact.filename}>
+                  {artifact.filename}
+                </div>
+                <div className="artifact-meta">
+                  {artifact.mime_type || 'unknown type'}
+                  {artifact.size !== null && ` • ${formatSize(artifact.size)}`}
+                </div>
+              </div>
+              <div className="artifact-actions">
+                {artifact.is_image && (
+                  <button 
+                    className="artifact-btn" 
+                    title="Preview"
+                    onClick={() => handlePreview(artifact)}
+                  >
+                    <Eye size={14} />
+                  </button>
+                )}
+                <button 
+                  className="artifact-btn" 
+                  title="Download"
+                  onClick={() => handleDownload(artifact.filename)}
+                >
+                  <Download size={14} />
+                </button>
+              </div>
+              
+              {/* Inline preview for images when selected */}
+              {artifact.is_image && selectedArtifact === artifact.filename && project?.id && sessionId && (
+                <div className="artifact-preview">
+                  <img 
+                    src={getArtifactUrl(project.id, sessionId, artifact.filename)} 
+                    alt={artifact.filename}
+                  />
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
 // Import WatchExpression type from store
 import type { WatchExpression } from '../hooks/useStore';
 
@@ -1731,6 +2030,7 @@ export default function RunPanel() {
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
+  const [showArtifactsPanel, setShowArtifactsPanel] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   const [isAgentGraphOpen, setIsAgentGraphOpen] = useState(false);
@@ -4286,14 +4586,21 @@ export default function RunPanel() {
         <div className="toolbar-section">
           <button
             className={`toolbar-btn ${showStatePanel ? 'active' : ''}`}
-            onClick={() => setShowStatePanel(!showStatePanel)}
+            onClick={() => { setShowStatePanel(!showStatePanel); setShowToolRunner(false); setShowArtifactsPanel(false); }}
           >
             <Database size={12} />
             State
           </button>
           <button
+            className={`toolbar-btn ${showArtifactsPanel ? 'active' : ''}`}
+            onClick={() => { setShowArtifactsPanel(!showArtifactsPanel); setShowStatePanel(false); setShowToolRunner(false); }}
+          >
+            <FileBox size={12} />
+            Artifacts
+          </button>
+          <button
             className={`toolbar-btn ${showToolRunner ? 'active' : ''}`}
-            onClick={() => setShowToolRunner(!showToolRunner)}
+            onClick={() => { setShowToolRunner(!showToolRunner); setShowStatePanel(false); setShowArtifactsPanel(false); }}
           >
             <Terminal size={12} />
             Tools
@@ -4373,6 +4680,7 @@ export default function RunPanel() {
                       // Switch to Details tab
                       setShowStatePanel(false);
                       setShowToolRunner(false);
+                      setShowArtifactsPanel(false);
                     }}
                   >
                     <div className="index">{globalIndex}</div>
@@ -4411,22 +4719,29 @@ export default function RunPanel() {
           <div className="side-panel" style={{ width: sidebarWidth - 4 }}>
           <div className="side-panel-tabs">
             <button 
-              className={`side-panel-tab ${!showStatePanel && !showToolRunner ? 'active' : ''}`}
-              onClick={() => { setShowStatePanel(false); setShowToolRunner(false); }}
+              className={`side-panel-tab ${!showStatePanel && !showToolRunner && !showArtifactsPanel ? 'active' : ''}`}
+              onClick={() => { setShowStatePanel(false); setShowToolRunner(false); setShowArtifactsPanel(false); }}
             >
               <Eye size={12} style={{ marginRight: 4 }} />
               Details
             </button>
             <button 
               className={`side-panel-tab ${showStatePanel ? 'active' : ''}`}
-              onClick={() => { setShowStatePanel(true); setShowToolRunner(false); }}
+              onClick={() => { setShowStatePanel(true); setShowToolRunner(false); setShowArtifactsPanel(false); }}
             >
               <Database size={12} style={{ marginRight: 4 }} />
               State
             </button>
             <button 
+              className={`side-panel-tab ${showArtifactsPanel ? 'active' : ''}`}
+              onClick={() => { setShowArtifactsPanel(true); setShowStatePanel(false); setShowToolRunner(false); }}
+            >
+              <FileBox size={12} style={{ marginRight: 4 }} />
+              Artifacts
+            </button>
+            <button 
               className={`side-panel-tab ${showToolRunner ? 'active' : ''}`}
-              onClick={() => { setShowToolRunner(true); setShowStatePanel(false); }}
+              onClick={() => { setShowToolRunner(true); setShowStatePanel(false); setShowArtifactsPanel(false); }}
             >
               <Terminal size={12} style={{ marginRight: 4 }} />
               Tools
@@ -4436,6 +4751,8 @@ export default function RunPanel() {
           <div className="side-panel-content">
             {showToolRunner ? (
               <ToolWatchPanel project={project} selectedEventIndex={selectedEventIndex} sandboxMode={sandboxMode} />
+            ) : showArtifactsPanel ? (
+              <ArtifactsPanel project={project} sessionId={currentSessionId} />
             ) : showStatePanel ? (
               <StateSnapshot 
                 events={runEvents} 
