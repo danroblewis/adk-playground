@@ -14,6 +14,9 @@ export interface ModelConfigValues {
   max_output_tokens?: number;
   top_p?: number;
   top_k?: number;
+  // Retry and timeout settings (especially useful for local models like Ollama)
+  num_retries?: number;
+  request_timeout?: number;
 }
 
 interface ModelConfigFormProps {
@@ -216,6 +219,38 @@ export function ModelConfigForm({
             onChange={(e) => onChange({ top_k: e.target.value ? parseInt(e.target.value) : undefined })}
             placeholder="Default"
           />
+        </div>
+      </div>
+      {/* Retry and timeout settings - useful for local/slow models */}
+      <div className="model-config-row">
+        <div className="model-config-field">
+          <label title="Number of times to retry on connection failure">Retries</label>
+          <input
+            type="number"
+            min="0"
+            max="10"
+            value={values.num_retries ?? ''}
+            onChange={(e) => onChange({ num_retries: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="3"
+          />
+        </div>
+        <div className="model-config-field" style={{ flex: 2 }}>
+          <label title="Maximum time to wait for a response (in seconds)">Timeout (seconds)</label>
+          <input
+            type="number"
+            min="10"
+            max="3600"
+            step="10"
+            value={values.request_timeout ?? ''}
+            onChange={(e) => onChange({ request_timeout: e.target.value ? parseInt(e.target.value) : undefined })}
+            placeholder="600 (10 min)"
+          />
+        </div>
+        <div className="model-config-field" style={{ flex: 3 }}>
+          <label>&nbsp;</label>
+          <span className="model-config-hint" style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+            Increase timeout for slow models like local Ollama
+          </span>
         </div>
       </div>
     </div>

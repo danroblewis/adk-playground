@@ -2530,18 +2530,37 @@ export default function RunPanel() {
       }
     };
     
-    websocket.onerror = () => {
+    websocket.onerror = (event) => {
+      console.error('WebSocket error:', event);
       setIsRunning(false);
       addRunEvent({
         timestamp: Date.now() / 1000,
         event_type: 'agent_end',
         agent_name: 'system',
-        data: { error: 'WebSocket connection error' }
+        data: { 
+          error: 'Connection error. The server may have timed out or the LLM request failed. Try again or check if your model server is running.',
+          retryable: true
+        }
       });
     };
     
-    websocket.onclose = () => {
-      setIsRunning(false);
+    websocket.onclose = (event) => {
+      // Only handle unexpected closures - if completed, the message handler already set isRunning=false
+      if (isRunning) {
+        setIsRunning(false);
+        // Check if this was an abnormal closure (not code 1000/normal)
+        if (event.code !== 1000 && event.code !== 1005) {
+          addRunEvent({
+            timestamp: Date.now() / 1000,
+            event_type: 'agent_end',
+            agent_name: 'system',
+            data: { 
+              error: `Connection closed unexpectedly (code: ${event.code}). This may be due to a timeout or server error. Try increasing the request timeout in your model configuration.`,
+              retryable: true
+            }
+          });
+        }
+      }
     };
   }, [project, userInput, isRunning, ws, clearRunEvents, clearWatchHistories, setIsRunning, addRunEvent, selectedAgentIdLocal, setCurrentSessionId, sandboxMode, savePromptToHistory]);
   

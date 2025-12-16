@@ -35,6 +35,9 @@ export interface ModelConfig {
   max_output_tokens?: number;
   top_p?: number;
   top_k?: number;
+  // Retry and timeout settings (especially useful for local models like Ollama)
+  num_retries?: number;  // Number of retries on failure
+  request_timeout?: number;  // Timeout in seconds per request
   // Marker for linking to an App model - if set, this config mirrors an App model
   _appModelId?: string;
 }
@@ -152,6 +155,9 @@ export interface AppModelConfig {
   max_output_tokens?: number;
   top_p?: number;
   top_k?: number;
+  // Retry and timeout settings
+  num_retries?: number;
+  request_timeout?: number;
   is_default?: boolean;
 }
 

@@ -74,10 +74,28 @@ def generate_model_code(model: dict, model_name: str = "model") -> str:
     if model.get("top_k") is not None:
         params.append(f'top_k={model["top_k"]}')
     
+    # Retry and timeout settings (especially important for local models like Ollama)
+    num_retries = model.get("num_retries")
+    request_timeout = model.get("request_timeout")
+    
+    # Apply default retries for local/unreliable providers
     if provider in ("litellm", "openai", "groq", "together"):
-        return f"{model_name} = LiteLlm(\n    {','.join(params)}\n)"
+        # Default to 3 retries and 10 minute timeout for these providers
+        if num_retries is None:
+            num_retries = 3
+        if request_timeout is None:
+            request_timeout = 600  # 10 minutes
+        
+        params.append(f'num_retries={num_retries}')
+        params.append(f'timeout={request_timeout}')
+        
+        return f"{model_name} = LiteLlm(\n    {', '.join(params)}\n)"
     elif provider == "anthropic":
-        return f"{model_name} = Claude(\n    {','.join(params)}\n)"
+        if num_retries is not None:
+            params.append(f'num_retries={num_retries}')
+        if request_timeout is not None:
+            params.append(f'timeout={request_timeout}')
+        return f"{model_name} = Claude(\n    {', '.join(params)}\n)"
     else:
         # Gemini - just use string
         return f'{model_name} = "{model_name_str}"  # Gemini model'
