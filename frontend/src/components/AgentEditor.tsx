@@ -936,7 +936,6 @@ function ToolsEditor({
   
   // Filtered lists
   const filteredBuiltinTools = builtinTools.filter(t => filterBySearch(t.name, t.description));
-  const filteredMcpServers = mcpServers.filter(s => filterBySearch(s.name, s.description));
   const filteredProjectMcpServers = projectMcpServers.filter(s => filterBySearch(s.name, s.description));
   const filteredCustomTools = customTools.filter(t => filterBySearch(t.name, t.description));
   const filteredAgents = agents.filter(a => filterBySearch(a.name, a.description));
@@ -1449,28 +1448,6 @@ function ToolsEditor({
               </div>
               )}
               
-              {/* Known MCP Servers */}
-              {filteredMcpServers.length > 0 && (
-                <div className="dropdown-section">
-                  <h5>Known MCP Servers ({filteredMcpServers.length})</h5>
-                  {filteredMcpServers.map(server => (
-                    <button
-                      key={`known-${server.name}`}
-                      className="dropdown-item"
-                      onClick={() => openMcpConfig(server)}
-                    >
-                      <div className="dropdown-item-name">
-                        {server.name}
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>
-                          {server.tool_filter === null || server.tool_filter === undefined ? 'all tools' : `${server.tool_filter.length} tools`}
-                        </span>
-                      </div>
-                      <div className="dropdown-item-desc">{server.description}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              
               {/* Project MCP Servers */}
               {filteredProjectMcpServers.length > 0 && (
                 <div className="dropdown-section">
@@ -1550,7 +1527,6 @@ function ToolsEditor({
               {/* No results message */}
               {toolSearch.trim() && 
                 filteredBuiltinTools.length === 0 && 
-                filteredMcpServers.length === 0 && 
                 filteredProjectMcpServers.length === 0 && 
                 filteredCustomTools.length === 0 && 
                 filteredAgents.length === 0 && 
