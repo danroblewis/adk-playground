@@ -119,7 +119,7 @@ class ModelConfig(BaseModel):
     top_k: Optional[int] = None
     # Retry and timeout settings (especially useful for local models like Ollama)
     num_retries: Optional[int] = None  # Number of retries on failure (default: 3 for litellm)
-    request_timeout: Optional[float] = None  # Timeout in seconds per request (default: 600)
+    request_timeout: Optional[float] = None  # Timeout in seconds per request (default: 1800)
     # Marker for linking to an App model - if set, this config mirrors an App model
     app_model_id: Optional[str] = Field(default=None, alias="_appModelId")
     

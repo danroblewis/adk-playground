@@ -84,7 +84,7 @@ def generate_model_code(model: dict, model_name: str = "model") -> str:
         if num_retries is None:
             num_retries = 3
         if request_timeout is None:
-            request_timeout = 600  # 10 minutes
+            request_timeout = 1800  # 30 minutes - local models can be slow
         
         params.append(f'num_retries={num_retries}')
         params.append(f'timeout={request_timeout}')

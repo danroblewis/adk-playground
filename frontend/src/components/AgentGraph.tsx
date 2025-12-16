@@ -184,9 +184,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     // Track currently executing tools per branch
     const branchTools = new Map<string, string | null>();
     
-    // Track which transitions we've already created to avoid duplicates
-    const createdTransitions = new Set<string>();
-    
     // Track the last completed child for each SequentialAgent
     // Key: sequential agent name, Value: last completed child agent name
     const sequentialLastChild = new Map<string, string>();
@@ -283,15 +280,10 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           }
         }
         
-        // Create transition
+        // Create transition - count every occurrence
         if (effectiveParent && effectiveParent !== agentName) {
           const transitionKey = `${effectiveParent}->${agentName}`;
-          // Only count each unique transition once per branch to avoid over-counting
-          const branchTransitionKey = `${branch}:${transitionKey}`;
-          if (!createdTransitions.has(branchTransitionKey)) {
-            transitionMap.set(transitionKey, (transitionMap.get(transitionKey) || 0) + 1);
-            createdTransitions.add(branchTransitionKey);
-          }
+          transitionMap.set(transitionKey, (transitionMap.get(transitionKey) || 0) + 1);
           
           // Track root agent (first agent spawned directly by system on main branch)
           if (effectiveParent === 'system' && branch === '' && !rootAgent) {
@@ -322,11 +314,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           
           if (lastChild) {
             const returnKey = `${lastChild}->${agentName}`;
-            const branchReturnKey = `${branch}:return:${returnKey}`;
-            if (!createdTransitions.has(branchReturnKey)) {
-              transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
-              createdTransitions.add(branchReturnKey);
-            }
+            transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
           }
           sequentialLastChild.delete(agentName);
         }
@@ -334,10 +322,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         // If the root agent is ending, create a return transition to system
         if (agentName === rootAgent) {
           const returnKey = `${agentName}->system`;
-          if (!createdTransitions.has(returnKey)) {
-            transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
-            createdTransitions.add(returnKey);
-          }
+          transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
         }
         
         // Remove the agent from ALL branch stacks
@@ -761,7 +746,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .attr('stroke-width', d => {
         // Scale width based on count. Max ~9 (1/4 of node diameter 36)
         const baseWidth = d.type === 'transition' ? 2 : 1.5;
-        const maxWidth = 9;
+        const maxWidth = 18; // ~1/2 of node diameter
         return Math.min(baseWidth + (d.count - 1) * 1.5, maxWidth);
       })
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
@@ -1029,7 +1014,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .attr('stroke-width', d => {
         // Scale width based on count. Max ~14 (1/4 of node diameter 56)
         const baseWidth = d.type === 'transition' ? 3 : 2;
-        const maxWidth = 14;
+        const maxWidth = 28; // ~1/2 of node diameter
         return Math.min(baseWidth + (d.count - 1) * 2.5, maxWidth);
       })
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)

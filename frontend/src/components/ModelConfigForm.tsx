@@ -239,11 +239,11 @@ export function ModelConfigForm({
           <input
             type="number"
             min="10"
-            max="3600"
+            max="7200"
             step="10"
             value={values.request_timeout ?? ''}
             onChange={(e) => onChange({ request_timeout: e.target.value ? parseInt(e.target.value) : undefined })}
-            placeholder="600 (10 min)"
+            placeholder="1800 (30 min)"
           />
         </div>
         <div className="model-config-field" style={{ flex: 3 }}>
