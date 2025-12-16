@@ -315,6 +315,61 @@ async def list_groq_models(api_key: Optional[str] = None) -> ProviderModels:
         )
 
 
+async def list_together_models(api_key: Optional[str] = None) -> ProviderModels:
+    """List available Together models (OpenAI-compatible endpoint).
+
+    Uses https://api.together.xyz/v1/models and returns LiteLLM-formatted IDs like
+    "together_ai/<model_id>".
+    """
+    try:
+        import httpx
+
+        key = api_key or os.environ.get("TOGETHER_API_KEY")
+        if not key:
+            return ProviderModels(
+                provider="together",
+                models=[],
+                error="No API key configured",
+            )
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.together.xyz/v1/models",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        models: List[ModelInfo] = []
+        for m in data.get("data", []) or []:
+            model_id = m.get("id") or ""
+            if not model_id:
+                continue
+            # LiteLLM provider prefix for Together
+            models.append(
+                ModelInfo(
+                    id=f"together_ai/{model_id}",
+                    name=model_id,
+                    provider="together",
+                    supports_tools=True,
+                    supports_vision="vision" in model_id.lower(),
+                    supports_json_mode=True,
+                )
+            )
+
+        models.sort(key=lambda mi: mi.id)
+        return ProviderModels(provider="together", models=models)
+
+    except Exception as e:
+        logger.error(f"Error listing Together models: {e}")
+        return ProviderModels(
+            provider="together",
+            models=[],
+            error=str(e)[:200],
+        )
+
+
 async def list_ollama_models(base_url: str = "http://localhost:11434") -> ProviderModels:
     """List available Ollama models from local server."""
     try:
@@ -355,6 +410,7 @@ async def list_all_models(
     anthropic_api_key: Optional[str] = None,
     openai_api_key: Optional[str] = None,
     groq_api_key: Optional[str] = None,
+    together_api_key: Optional[str] = None,
     check_ollama: bool = True,
     ollama_base_url: Optional[str] = None,
 ) -> Dict[str, ProviderModels]:
@@ -365,6 +421,7 @@ async def list_all_models(
         list_anthropic_models(anthropic_api_key),
         list_openai_models(openai_api_key),
         list_groq_models(groq_api_key),
+        list_together_models(together_api_key),
     ]
     
     if check_ollama:
@@ -373,7 +430,7 @@ async def list_all_models(
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     providers = {}
-    provider_names = ["gemini", "anthropic", "openai", "groq"]
+    provider_names = ["gemini", "anthropic", "openai", "groq", "together"]
     if check_ollama:
         provider_names.append("ollama")
     
