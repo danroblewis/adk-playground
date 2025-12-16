@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig } from '../utils/types';
@@ -141,6 +141,9 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   }, [project?.id, project?.agents.length]);
   
   if (!project) return null;
+
+  // Fast lookup for hierarchy checks (and safer cycle detection)
+  const agentById = useMemo(() => new Map(project.agents.map(a => [a.id, a])), [project.agents]);
   
   // Start quick setup - runs in background, can be called multiple times concurrently
   function startQuickSetup() {
@@ -337,6 +340,9 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     const parentAgent = project.agents.find(a => a.id === parentId);
     if (!parentAgent || !('sub_agents' in parentAgent)) return;
     
+    // Prevent creating cycles (dragging a parent into its own descendant)
+    if (isInSubtree(currentDraggedId, parentId)) return;
+
     e.dataTransfer.dropEffect = 'move';
     setInsertTarget({ parentId, index });
     setDropTarget(null);
@@ -349,6 +355,12 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     
     const sourceAgentId = e.dataTransfer.getData('text/plain');
     if (!sourceAgentId) return;
+
+    // Prevent creating cycles (dragging a parent into its own descendant)
+    if (sourceAgentId === parentId || isInSubtree(sourceAgentId, parentId)) {
+      setInsertTarget(null);
+      return;
+    }
     
     const parentAgent = project.agents.find(a => a.id === parentId);
     if (!parentAgent || !('sub_agents' in parentAgent)) return;
@@ -377,11 +389,9 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     e.stopPropagation();
     
     if (currentDraggedId === targetAgentId) return;
-    
-    const draggedAgent = project.agents.find(a => a.id === currentDraggedId);
-    if (draggedAgent && 'sub_agents' in draggedAgent) {
-      if (isDescendant(draggedAgent, targetAgentId)) return;
-    }
+
+    // Prevent creating cycles (dragging a parent into its own descendant)
+    if (currentDraggedId && isInSubtree(currentDraggedId, targetAgentId)) return;
     
     e.dataTransfer.dropEffect = 'move';
     setDropTarget({ agentId: targetAgentId, type: dropType });
@@ -402,6 +412,14 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     
     const sourceAgentId = e.dataTransfer.getData('text/plain');
     if (!sourceAgentId || sourceAgentId === targetAgentId) return;
+
+    // Prevent creating cycles (dragging a parent into its own descendant)
+    if (dropType === 'sub_agent' && isInSubtree(sourceAgentId, targetAgentId)) {
+      setDraggedAgentId(null);
+      setDropTarget(null);
+      setInsertTarget(null);
+      return;
+    }
     
     const targetAgent = project.agents.find(a => a.id === targetAgentId);
     const sourceAgent = project.agents.find(a => a.id === sourceAgentId);
@@ -436,14 +454,22 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     setDropTarget(null);
   }
   
-  // Check if childId is a descendant of parentAgent
-  function isDescendant(parentAgent: AgentConfig, childId: string): boolean {
-    if (!project) return false;
-    if (!('sub_agents' in parentAgent)) return false;
-    if (parentAgent.sub_agents.includes(childId)) return true;
-    for (const subId of parentAgent.sub_agents) {
-      const subAgent = project.agents.find(a => a.id === subId);
-      if (subAgent && isDescendant(subAgent, childId)) return true;
+  // Returns true if `searchId` is anywhere in `rootId`'s sub_agents subtree.
+  // This is cycle-safe (it won't recurse infinitely even if the project is already cyclic).
+  function isInSubtree(rootId: string, searchId: string): boolean {
+    if (rootId === searchId) return true;
+    const stack: string[] = [rootId];
+    const visited = new Set<string>();
+    while (stack.length) {
+      const currentId = stack.pop()!;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const agent = agentById.get(currentId);
+      if (!agent || !('sub_agents' in agent)) continue;
+      for (const subId of agent.sub_agents) {
+        if (subId === searchId) return true;
+        stack.push(subId);
+      }
     }
     return false;
   }
@@ -459,7 +485,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
   }
   
   // Build a tree structure for agents with sub_agents
-  function renderAgentTree(agents: AgentConfig[], depth = 0): React.ReactNode {
+  function renderAgentTree(agents: AgentConfig[], depth = 0, path = new Set<string>()): React.ReactNode {
     return agents.map(agent => {
       const Icon = getAgentIcon(agent.type);
       const color = getAgentColor(agent.type);
@@ -470,9 +496,11 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
       const isDragging = draggedAgentId === agent.id;
       const isDropTargetSubAgent = dropTarget?.agentId === agent.id && dropTarget?.type === 'sub_agent';
       const isDropTargetTool = dropTarget?.agentId === agent.id && dropTarget?.type === 'tool';
+      const isCycle = path.has(agent.id);
+      const canRenderChildren = hasSubAgents && isExpanded && !isCycle;
       
       // Map over sub_agents to preserve order, not filter which loses order
-      const subAgents = hasSubAgents && project
+      const subAgents = canRenderChildren && project
         ? agent.sub_agents.map(id => project.agents.find(a => a.id === id)).filter((a): a is AgentConfig => a !== undefined)
         : [];
       
@@ -544,7 +572,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
             )}
           </div>
           
-          {hasSubAgents && isExpanded && (
+          {canRenderChildren && (
             <div className="sub-agents">
               {/* Insert indicator at the top */}
               {draggedAgentId && draggedAgentId !== agent.id && (
@@ -558,7 +586,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
               )}
               {subAgents.map((subAgent, idx) => (
                 <React.Fragment key={subAgent.id}>
-                  {renderAgentTree([subAgent], depth + 1)}
+                  {renderAgentTree([subAgent], depth + 1, new Set([...path, agent.id]))}
                   {/* Insert indicator after each sub-agent */}
                   {draggedAgentId && draggedAgentId !== agent.id && draggedAgentId !== subAgent.id && (
                     <div 
@@ -578,9 +606,11 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     });
   }
   
-  // Get root-level agents (not sub-agents of any other agent)
+  // Get root-level agents (not sub-agents of any other agent).
+  // If a cycle exists, this set may include every agent, leaving no roots; fall back to showing all agents.
   const subAgentIds = new Set(project.agents.flatMap(a => 'sub_agents' in a ? a.sub_agents : []));
-  const rootAgents = project.agents.filter(a => !subAgentIds.has(a.id));
+  const computedRootAgents = project.agents.filter(a => !subAgentIds.has(a.id));
+  const rootAgents = computedRootAgents.length > 0 ? computedRootAgents : project.agents;
   
   return (
     <div className="agents-panel">

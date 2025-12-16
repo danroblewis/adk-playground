@@ -598,16 +598,23 @@ def generate_python_code(project: Project) -> str:
     # Topological sort agents (sub-agents before parents)
     sorted_agents: List[AgentConfig] = []
     visited: Set[str] = set()
+    visiting: Set[str] = set()
     
     def visit_agent(agent_id: str):
         if agent_id in visited:
+            return
+        # Cycle guard: if we re-enter an agent already on the DFS stack,
+        # stop descending to avoid infinite recursion.
+        if agent_id in visiting:
             return
         agent = next((a for a in project.agents if a.id == agent_id), None)
         if not agent:
             return
         
+        visiting.add(agent_id)
         for sub_id in (agent.sub_agents or []):
             visit_agent(sub_id)
+        visiting.discard(agent_id)
         
         visited.add(agent_id)
         sorted_agents.append(agent)
