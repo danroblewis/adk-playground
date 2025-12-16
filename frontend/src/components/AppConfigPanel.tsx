@@ -141,6 +141,7 @@ export default function AppConfigPanel() {
   // Allowlist management
   const sandbox = app.sandbox || { 
     enabled: false, 
+    allow_all_network: false,
     allowlist: { auto: [], user: [] },
     unknown_action: 'ask' as const,
     approval_timeout: 30,
@@ -1218,6 +1219,21 @@ export default function AppConfigPanel() {
               <Plus size={14} />
               Add
             </button>
+          </div>
+
+          <div className="toggle-group" style={{ marginBottom: 10 }}>
+            <div
+              className={`toggle ${sandbox.allow_all_network ? 'active' : ''}`}
+              onClick={() => updateSandbox({
+                allow_all_network: !sandbox.allow_all_network,
+                // In allow-all mode, approvals/deny no longer apply.
+                unknown_action: !sandbox.allow_all_network ? 'allow' : sandbox.unknown_action,
+              })}
+            />
+            <div className="toggle-label">
+              <strong>Allow all network connections</strong>
+              <span>Disables approval/deny; still routes through the sandbox proxy</span>
+            </div>
           </div>
           
           {allowlistPatterns.length === 0 ? (

@@ -436,17 +436,24 @@ class SandboxManager:
             allowlist = config.allowlist.with_defaults()
             allowlist.auto.extend(mcp_domains)
             allowlist.auto = list(set(allowlist.auto))  # Deduplicate
+
+            # Optionally allow all outbound network connections (still via gateway proxy)
+            if config.allow_all_network:
+                # A single wildcard matches any host/url in the gateway addon.
+                allowlist.auto = list(set(allowlist.auto + ["*"]))
             
             # Write project config to temp file
             config_file = await self._write_config_file(project_config)
             
             # Start gateway container
+            gateway_unknown_action = "allow" if config.allow_all_network else config.unknown_action
             gateway_id = await self._start_gateway(
                 app_id=app_id,
                 network_name=network_name,
                 allowlist=allowlist,
-                unknown_action=config.unknown_action,
+                unknown_action=gateway_unknown_action,
                 approval_timeout=config.approval_timeout,
+                allow_all_network=config.allow_all_network,
             )
             instance.gateway_container_id = gateway_id
             
@@ -714,6 +721,7 @@ class SandboxManager:
         allowlist: NetworkAllowlist,
         unknown_action: str,
         approval_timeout: int,
+        allow_all_network: bool = False,
     ) -> str:
         """Start the gateway container."""
         if not self.client:
@@ -747,6 +755,7 @@ class SandboxManager:
                 "ALLOWLIST": json.dumps(patterns),
                 "UNKNOWN_ACTION": unknown_action,
                 "APPROVAL_TIMEOUT": str(approval_timeout),
+                "ALLOW_ALL_NETWORK": "true" if allow_all_network else "false",
                 "WEBHOOK_URL": f"http://host.docker.internal:8080/api/sandbox/webhook/{app_id}",
                 "APP_ID": app_id,
                 "CONTROL_PORT": "8081",
