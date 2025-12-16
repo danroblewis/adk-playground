@@ -1371,6 +1371,8 @@ class SandboxManager:
                     logger.warning(f"Failed to load project config: {e}")
             
             # Send the run request (through proxy)
+            # Use run_timeout from config, default to 3600 (1 hour)
+            run_timeout = instance.config.run_timeout if instance.config else 3600
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{agent_url}/run",
@@ -1379,7 +1381,7 @@ class SandboxManager:
                         "message": message,
                         "session_id": session_id,
                     },
-                    timeout=aiohttp.ClientTimeout(total=3600),  # 1 hour timeout
+                    timeout=aiohttp.ClientTimeout(total=run_timeout),
                 ) as resp:
                     if resp.status == 200:
                         return await resp.json()

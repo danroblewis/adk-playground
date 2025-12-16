@@ -2678,7 +2678,7 @@ export default function RunPanel() {
               agent_cpu_limit: project.app?.sandbox?.agent_cpu_limit ?? 1.0,
               mcp_memory_limit_mb: project.app?.sandbox?.mcp_memory_limit_mb ?? 256,
               mcp_cpu_limit: project.app?.sandbox?.mcp_cpu_limit ?? 0.5,
-              run_timeout: project.app?.sandbox?.run_timeout ?? 300,
+              run_timeout: project.app?.sandbox?.run_timeout ?? 3600,
             },
           },
         });

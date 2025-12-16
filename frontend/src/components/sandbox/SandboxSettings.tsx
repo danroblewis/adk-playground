@@ -462,12 +462,16 @@ export function SandboxSettings({
                   type="number"
                   value={config.run_timeout}
                   onChange={(e) => onConfigChange({ run_timeout: parseInt(e.target.value) })}
-                  min={30}
-                  max={3600}
-                  step={30}
-                  className="px-2 py-1 bg-[#1a1a24] border border-gray-600 rounded text-xs w-20"
+                  min={60}
+                  max={86400}
+                  step={60}
+                  className="px-2 py-1 bg-[#1a1a24] border border-gray-600 rounded text-xs w-24"
                 />
-                <span className="text-xs text-gray-500">seconds</span>
+                <span className="text-xs text-gray-500">
+                  seconds ({config.run_timeout >= 3600 
+                    ? `${Math.floor(config.run_timeout / 3600)}h ${Math.floor((config.run_timeout % 3600) / 60)}m`
+                    : `${Math.floor(config.run_timeout / 60)}m`})
+                </span>
               </div>
             </div>
           )}
