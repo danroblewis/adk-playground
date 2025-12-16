@@ -25,6 +25,7 @@ You MUST output a JSON object with this exact structure:
   "name": "short_snake_case_name",
   "description": "Brief third-person description for other agents (e.g., 'Searches the web for information')",
   "instruction": "Detailed markdown instruction for the agent...",
+  "output_key": "short_snake_case_name",
   "tools": {
     "builtin": ["tool_name1", "tool_name2"],
     "mcp": [
@@ -36,6 +37,8 @@ You MUST output a JSON object with this exact structure:
   "sub_agents": ["agent_id1", "agent_id2"]
 }
 ```
+
+Note: The `output_key` should typically match the agent's `name`. This key is used to store the agent's final output in the session state.
 
 ## Rules
 

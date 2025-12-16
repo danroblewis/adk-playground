@@ -211,12 +211,14 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           const defaultModel = models.find(m => m.id === project.app.default_model_id) || models[0];
           
           // Create the new agent
+          const agentName = config.name || 'new_agent';
           const newAgent: LlmAgentConfig = {
             id: `agent_${Date.now().toString(36)}`,
             type: 'LlmAgent',
-            name: config.name || 'new_agent',
+            name: agentName,
             description: config.description || '',
             instruction: config.instruction || '',
+            output_key: config.output_key || agentName,  // Set output_key (defaults to agent name)
             model: defaultModel ? {
               provider: defaultModel.provider,
               model_name: defaultModel.model_name,

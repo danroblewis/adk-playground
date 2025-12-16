@@ -655,7 +655,7 @@ def generate_python_code(project: Project) -> str:
         var_name = f"{agent.name}_agent" if not agent.name.endswith("_agent") else agent.name
         agent_var_names[agent.id] = var_name
     
-    # Topological sort agents (sub-agents before parents)
+    # Topological sort agents (sub-agents and agent-tools before parents)
     sorted_agents: List[AgentConfig] = []
     visited: Set[str] = set()
     visiting: Set[str] = set()
@@ -672,8 +672,19 @@ def generate_python_code(project: Project) -> str:
             return
         
         visiting.add(agent_id)
+        
+        # Visit sub-agents first (for delegation)
         for sub_id in (agent.sub_agents or []):
             visit_agent(sub_id)
+        
+        # Visit agents used as tools (they must be defined before this agent)
+        if hasattr(agent, "tools") and agent.tools:
+            for tool in agent.tools:
+                if tool.type == "agent":
+                    tool_agent_id = getattr(tool, "agent_id", None)
+                    if tool_agent_id:
+                        visit_agent(tool_agent_id)
+        
         visiting.discard(agent_id)
         
         visited.add(agent_id)
