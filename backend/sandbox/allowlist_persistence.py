@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Default sandbox configuration in YAML format
 DEFAULT_SANDBOX_CONFIG = {
     "enabled": False,
+    "allow_all_network": False,
     "network_allowlist": {
         "user": [],
     },
@@ -69,25 +70,53 @@ def load_allowlist_from_project(project_path: Path) -> NetworkAllowlist:
         logger.warning(f"Failed to load config from {config_file}: {e}")
         return NetworkAllowlist()
     
-    # Extract sandbox configuration
-    sandbox_config = data.get("sandbox", {})
-    allowlist_config = sandbox_config.get("network_allowlist", {})
-    
-    # Parse user patterns
-    user_patterns = []
-    for p in allowlist_config.get("user", []):
+    # Support both legacy top-level "sandbox.network_allowlist"
+    # and newer "app.sandbox.allowlist" shapes.
+    sandbox_config = data.get("sandbox", {}) or {}
+    allowlist_config = sandbox_config.get("network_allowlist", {}) or {}
+
+    app_sandbox_config = (data.get("app", {}) or {}).get("sandbox", {}) or {}
+    app_allowlist_config = app_sandbox_config.get("allowlist", {}) or {}
+
+    # Parse user patterns from both sources and merge.
+    merged: list[AllowlistPattern] = []
+
+    # Legacy format: sandbox.network_allowlist.user[*].{pattern,type,added,source}
+    for p in allowlist_config.get("user", []) or []:
         try:
-            pattern = AllowlistPattern(
+            merged.append(AllowlistPattern(
                 id=p.get("id", ""),
                 pattern=p.get("pattern", ""),
                 pattern_type=PatternType(p.get("type", "exact")),
                 added_at=datetime.fromisoformat(p["added"]) if p.get("added") else None,
                 source=p.get("source", "user"),
-            )
-            user_patterns.append(pattern)
+            ))
         except Exception as e:
-            logger.warning(f"Failed to parse allowlist pattern: {e}")
-    
+            logger.warning(f"Failed to parse allowlist pattern (sandbox.network_allowlist): {e}")
+
+    # App format: app.sandbox.allowlist.user[*].{pattern,pattern_type,added_at,source}
+    for p in app_allowlist_config.get("user", []) or []:
+        try:
+            merged.append(AllowlistPattern(
+                id=p.get("id", ""),
+                pattern=p.get("pattern", ""),
+                pattern_type=PatternType(p.get("pattern_type", "exact")),
+                added_at=datetime.fromisoformat(p["added_at"]) if p.get("added_at") else None,
+                source=p.get("source", "user"),
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to parse allowlist pattern (app.sandbox.allowlist): {e}")
+
+    # Deduplicate by (pattern, type) while preserving stable order.
+    seen: set[tuple[str, str]] = set()
+    user_patterns: list[AllowlistPattern] = []
+    for p in merged:
+        key = (p.pattern, p.pattern_type.value)
+        if key in seen:
+            continue
+        seen.add(key)
+        user_patterns.append(p)
+
     return NetworkAllowlist(user=user_patterns)
 
 
@@ -171,21 +200,26 @@ def load_sandbox_config_from_project(project_path: Path) -> SandboxConfig:
         logger.warning(f"Failed to load config: {e}")
         return SandboxConfig()
     
-    sandbox_data = data.get("sandbox", {})
+    sandbox_data = data.get("sandbox", {}) or {}
+    app_sandbox_data = (data.get("app", {}) or {}).get("sandbox", {}) or {}
     
     # Load allowlist
     allowlist = load_allowlist_from_project(project_path)
     
+    # Prefer app.sandbox values when present, but keep legacy top-level sandbox
+    # as a fallback (and still merge allowlist patterns from both).
     return SandboxConfig(
-        enabled=sandbox_data.get("enabled", False),
+        enabled=app_sandbox_data.get("enabled", sandbox_data.get("enabled", False)),
+        allow_all_network=app_sandbox_data.get("allow_all_network", sandbox_data.get("allow_all_network", False)),
         allowlist=allowlist,
-        unknown_action=sandbox_data.get("unknown_action", "ask"),
-        approval_timeout=sandbox_data.get("approval_timeout", 30),
-        agent_memory_limit_mb=sandbox_data.get("agent_memory_limit_mb", 512),
-        agent_cpu_limit=sandbox_data.get("agent_cpu_limit", 1.0),
-        mcp_memory_limit_mb=sandbox_data.get("mcp_memory_limit_mb", 256),
-        mcp_cpu_limit=sandbox_data.get("mcp_cpu_limit", 0.5),
-        run_timeout=sandbox_data.get("run_timeout", 300),
+        unknown_action=app_sandbox_data.get("unknown_action", sandbox_data.get("unknown_action", "ask")),
+        approval_timeout=app_sandbox_data.get("approval_timeout", sandbox_data.get("approval_timeout", 30)),
+        agent_memory_limit_mb=app_sandbox_data.get("agent_memory_limit_mb", sandbox_data.get("agent_memory_limit_mb", 512)),
+        agent_cpu_limit=app_sandbox_data.get("agent_cpu_limit", sandbox_data.get("agent_cpu_limit", 1.0)),
+        mcp_memory_limit_mb=app_sandbox_data.get("mcp_memory_limit_mb", sandbox_data.get("mcp_memory_limit_mb", 256)),
+        mcp_cpu_limit=app_sandbox_data.get("mcp_cpu_limit", sandbox_data.get("mcp_cpu_limit", 0.5)),
+        run_timeout=app_sandbox_data.get("run_timeout", sandbox_data.get("run_timeout", 300)),
+        volume_mounts=app_sandbox_data.get("volume_mounts", sandbox_data.get("volume_mounts", [])) or [],
     )
 
 
@@ -222,6 +256,7 @@ def save_sandbox_config_to_project(
     # Build sandbox config dict
     sandbox_dict = {
         "enabled": config.enabled,
+        "allow_all_network": getattr(config, "allow_all_network", False),
         "network_allowlist": config.allowlist.to_yaml_dict(),
         "unknown_action": config.unknown_action,
         "approval_timeout": config.approval_timeout,
@@ -230,6 +265,7 @@ def save_sandbox_config_to_project(
         "mcp_memory_limit_mb": config.mcp_memory_limit_mb,
         "mcp_cpu_limit": config.mcp_cpu_limit,
         "run_timeout": config.run_timeout,
+        "volume_mounts": [m.model_dump() for m in (config.volume_mounts or [])],
     }
     
     data["sandbox"] = sandbox_dict

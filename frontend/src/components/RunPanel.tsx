@@ -2269,6 +2269,7 @@ export default function RunPanel() {
             sandbox: {
               ...project.app?.sandbox,
               enabled: project.app?.sandbox?.enabled ?? false,
+              allow_all_network: project.app?.sandbox?.allow_all_network ?? false,
               allowlist: {
                 auto: project.app?.sandbox?.allowlist?.auto || [],
                 user: [...existingPatterns, newPattern],

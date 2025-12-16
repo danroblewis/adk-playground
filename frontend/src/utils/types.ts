@@ -310,6 +310,7 @@ export interface VolumeMount {
 
 export interface SandboxConfig {
   enabled: boolean;
+  allow_all_network?: boolean;
   allowlist: NetworkAllowlist;
   unknown_action: 'ask' | 'deny' | 'allow';
   approval_timeout: number;
