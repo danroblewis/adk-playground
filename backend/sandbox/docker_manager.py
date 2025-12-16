@@ -843,6 +843,15 @@ class SandboxManager:
             # Puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
             "PUPPETEER_SKIP_DOWNLOAD": "true",
             "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",
+            # Docker-friendly Chrome launch args (required for running in container)
+            # These flags are needed because:
+            # - --no-sandbox: Chrome sandbox doesn't work as root in Docker
+            # - --disable-dev-shm-usage: /dev/shm is too small in Docker by default
+            # - --disable-gpu: No GPU available in container
+            # - --headless=new: Run headless (no display needed)
+            # - --ignore-certificate-errors: Gateway proxy intercepts HTTPS, causing cert errors
+            "PUPPETEER_ARGS": "--no-sandbox --disable-dev-shm-usage --disable-gpu --headless=new --ignore-certificate-errors",
+            "CHROME_ARGS": "--no-sandbox --disable-dev-shm-usage --disable-gpu --headless=new --ignore-certificate-errors",
             # Optional virtual display fallback (some automations require a DISPLAY)
             # Set ENABLE_XVFB=1 at app-level env_vars to enable.
             "ENABLE_XVFB": "0",

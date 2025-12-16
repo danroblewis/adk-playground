@@ -112,28 +112,88 @@ def generate_tool_code(tool: ToolConfig, project: Project, agent_var_names: Dict
     return ""
 
 
+def _is_browser_mcp_server(server: MCPServerConfig) -> bool:
+    """Check if this MCP server is browser-related and needs Docker Chrome args."""
+    browser_names = {"chrome_devtools", "chrome-devtools", "puppeteer", "playwright", 
+                     "browser", "browserbase", "web-browser"}
+    
+    # Check server name
+    name_lower = server.name.lower() if server.name else ""
+    for browser_name in browser_names:
+        if browser_name in name_lower:
+            return True
+    
+    # Check args for browser-related packages
+    args_str = " ".join(server.args or []).lower()
+    browser_packages = ["chrome-devtools-mcp", "puppeteer", "playwright", "browserbase"]
+    for pkg in browser_packages:
+        if pkg in args_str:
+            return True
+    
+    return False
+
+
+def _is_chrome_devtools_mcp(server: MCPServerConfig) -> bool:
+    """Check if this is specifically chrome-devtools-mcp."""
+    args_str = " ".join(server.args or []).lower()
+    return "chrome-devtools-mcp" in args_str
+
+
+# Docker-friendly Chrome args for chrome-devtools-mcp
+# These are passed as --chromeArg=<flag> when chrome-devtools-mcp is detected
+DOCKER_CHROME_ARGS_FOR_DEVTOOLS_MCP = [
+    "--chromeArg=--no-sandbox",           # Chrome sandbox doesn't work as root in Docker
+    "--chromeArg=--disable-dev-shm-usage",  # /dev/shm is too small in Docker
+    "--chromeArg=--disable-gpu",          # No GPU in container
+    "--chromeArg=--ignore-certificate-errors",  # Ignore SSL errors (proxy intercepts HTTPS)
+    "--headless",                         # Run headless (no display needed)
+    "--acceptInsecureCerts",              # chrome-devtools-mcp flag to accept self-signed certs
+]
+
+
 def generate_mcp_toolset_code(server: MCPServerConfig) -> str:
     """Generate Python code for an MCP toolset.
     
     Note: For stdio connections, we always inject proxy environment variables
     because the MCP library only inherits a limited set of env vars to the
     subprocess (PATH, HOME, etc. but NOT HTTP_PROXY).
+    
+    For browser MCP servers (like chrome-devtools-mcp), we also inject
+    Docker-friendly Chrome args to ensure the browser can run in container.
     """
     lines = []
     
     if server.connection_type == "stdio":
+        # Check if this is a browser MCP server that needs Docker Chrome args
+        is_devtools = _is_chrome_devtools_mcp(server)
+        is_browser = _is_browser_mcp_server(server)
+        
+        # Prepare args - potentially inject Docker Chrome args
+        args = list(server.args or [])
+        if is_devtools:
+            # Inject Docker Chrome args for chrome-devtools-mcp
+            existing_args_str = " ".join(args)
+            for flag in DOCKER_CHROME_ARGS_FOR_DEVTOOLS_MCP:
+                flag_base = flag.split("=")[-1] if "=" in flag else flag
+                if flag_base not in existing_args_str and flag not in existing_args_str:
+                    args.append(flag)
+        
         lines.append(f"{server.name}_tools = McpToolset(")
         lines.append("    connection_params=StdioConnectionParams(")
         lines.append("        server_params=StdioServerParameters(")
         if server.command:
             lines.append(f'            command="{server.command}",')
-        if server.args:
-            lines.append(f"            args={json.dumps(server.args)},")
+        if args:
+            lines.append(f"            args={json.dumps(args)},")
         
         # Always generate env with proxy variables merged in
         # The MCP library only inherits PATH, HOME, etc. - NOT proxy vars
+        # Also include Chrome-related env vars for browser MCP servers
         lines.append("            env={")
         lines.append('                **{k: v for k, v in os.environ.items() if k.upper() in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "UV_HTTP_PROXY", "UV_HTTPS_PROXY", "NPM_CONFIG_PROXY", "NPM_CONFIG_HTTPS_PROXY") or k.lower() in ("http_proxy", "https_proxy", "no_proxy")},')
+        if is_browser or is_devtools:
+            # Include Chrome-related env vars for browser MCP servers
+            lines.append('                **{k: v for k, v in os.environ.items() if k in ("CHROME_BIN", "CHROMIUM_BIN", "CHROMEDRIVER_BIN", "GOOGLE_CHROME_BIN", "PUPPETEER_SKIP_DOWNLOAD", "PUPPETEER_EXECUTABLE_PATH", "PUPPETEER_ARGS", "CHROME_ARGS", "DISPLAY")},')
         if server.env:
             # Add user-specified env vars
             for key, value in server.env.items():
