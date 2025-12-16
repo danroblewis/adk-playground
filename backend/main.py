@@ -31,6 +31,7 @@ from models import (
 from project_manager import ProjectManager
 from runtime import RuntimeManager
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
+from agent_runner import run_agent, clean_code_output, extract_json_from_text
 
 # Import sandbox API router
 try:
@@ -541,7 +542,6 @@ class ListModelsRequest(BaseModel):
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
-    together_api_key: Optional[str] = None
     check_ollama: bool = True
 
 
@@ -559,7 +559,6 @@ async def list_available_models(request: ListModelsRequest):
         anthropic_api_key=request.anthropic_api_key,
         openai_api_key=request.openai_api_key,
         groq_api_key=request.groq_api_key,
-        together_api_key=request.together_api_key,
         check_ollama=request.check_ollama,
     )
     
@@ -581,7 +580,7 @@ async def list_models_for_project(
     """
     from model_service import (
         list_gemini_models, list_anthropic_models, list_openai_models,
-        list_groq_models, list_together_models, list_ollama_models, ProviderModels
+        list_groq_models, list_ollama_models, ProviderModels
     )
     
     project = project_manager.get_project(project_id)
@@ -615,10 +614,6 @@ async def list_models_for_project(
         key = env_vars.get("GROQ_API_KEY")
         result = await list_groq_models(key)
         providers["groq"] = result.model_dump()
-    elif provider == "together":
-        key = env_vars.get("TOGETHER_API_KEY")
-        result = await list_together_models(key)
-        providers["together"] = result.model_dump()
     elif provider in ("litellm", "ollama"):
         # For LiteLLM, we fetch from Ollama using the provided api_base
         base_url = api_base or "http://localhost:11434"
@@ -1520,110 +1515,31 @@ The prompt should:
 Write ONLY the instruction prompt itself, without any preamble or explanation. The prompt should be ready to use directly as the agent's instruction.
 """
     
-    # Use the project's configured model, or fall back to a default
-    try:
-        from google.adk import Agent
-        from google.adk.runners import Runner
-        from google.adk.sessions.in_memory_session_service import InMemorySessionService
-        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-        from google.genai import types
-        
-        # Set API keys from project env_vars (temporarily for this request)
-        env_vars = project.app.env_vars or {}
-        old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
-            if key in env_vars:
-                old_env[key] = os.environ.get(key)
-                os.environ[key] = env_vars[key]
-        
-        # Get model config from project
-        model_config = None
-        if project.app.models and len(project.app.models) > 0:
-            if project.app.default_model_id:
-                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
-            if not model_config:
-                model_config = project.app.models[0]
-        
-        # Create a simple agent for prompt generation
-        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
-            from google.adk.models.lite_llm import LiteLlm
-            model = LiteLlm(
-                model=model_config.model_name,
-                api_base=model_config.api_base,
-            )
-        elif model_config:
-            # Use the configured model name
-            model = model_config.model_name
-        else:
-            # Default to Gemini if available
-            model = "gemini-2.0-flash"
-        
-        prompt_agent = Agent(
-            name="prompt_generator",
-            model=model,
-            instruction="You are a prompt engineering expert. Generate high-quality instruction prompts for AI agents.",
-            output_key="generated_prompt",  # Store final response in session state
-        )
-        
-        runner = Runner(
-            app_name="prompt_generator",
-            agent=prompt_agent,
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-            artifact_service=InMemoryArtifactService(),
-        )
-        
-        session = await runner.session_service.create_session(
-            app_name="prompt_generator",
-            user_id="prompt_gen_user",
-        )
-        
-        # Run the prompt generation (consume all events but don't extract text from them)
-        async for event in runner.run_async(
-            session_id=session.id,
-            user_id="prompt_gen_user",
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=meta_prompt)]
-            ),
-        ):
-            # Just consume events - we'll get the result from session state
-            pass
-        
-        # Get the final session to extract the generated prompt from state
-        final_session = await runner.session_service.get_session(
-            app_name="prompt_generator",
-            user_id="prompt_gen_user",
-            session_id=session.id,
-        )
-        
-        # Extract the prompt from session state (this avoids <think> blocks)
-        generated_prompt = final_session.state.get("generated_prompt", "").strip() if final_session else ""
-        
-        # Restore original environment variables
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
-        return {"prompt": generated_prompt, "success": True}
-        
-    except Exception as e:
-        # Restore original environment variables on error too
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
-        import traceback
+    # Get model config from project
+    model_config = None
+    if project.app.models and len(project.app.models) > 0:
+        if project.app.default_model_id:
+            model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+        if not model_config:
+            model_config = project.app.models[0]
+    
+    # Run the prompt_generator agent
+    result = await run_agent(
+        agent_name="prompt_generator",
+        message=meta_prompt,
+        model_config=model_config,
+        env_vars=project.app.env_vars,
+        output_key="generated_prompt",
+    )
+    
+    if result["success"]:
+        return {"prompt": result["output"], "success": True}
+    else:
         return {
             "prompt": None,
             "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
+            "error": result.get("error"),
+            "traceback": result.get("traceback"),
         }
 
 
@@ -1795,21 +1711,6 @@ async def generate_tool_code(project_id: str, request: GenerateToolCodeRequest):
 Write the complete Python code for this tool. Include appropriate imports at the top if needed (like `from google.adk.tools.tool_context import ToolContext`). Make sure the function name matches the tool name (use snake_case).
 """
         
-        from google.adk import Agent
-        from google.adk.runners import Runner
-        from google.adk.sessions.in_memory_session_service import InMemorySessionService
-        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-        from google.genai import types
-        
-        # Set API keys from project env_vars
-        env_vars = project.app.env_vars or {}
-        old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
-            if key in env_vars:
-                old_env[key] = os.environ.get(key)
-                os.environ[key] = env_vars[key]
-        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -1818,87 +1719,28 @@ Write the complete Python code for this tool. Include appropriate imports at the
             if not model_config:
                 model_config = project.app.models[0]
         
-        # Create a code generation agent
-        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
-            from google.adk.models.lite_llm import LiteLlm
-            model = LiteLlm(
-                model=model_config.model_name,
-                api_base=model_config.api_base,
-            )
-        elif model_config:
-            model = model_config.model_name
+        # Run the tool_code_generator agent
+        result = await run_agent(
+            agent_name="tool_code_generator",
+            message=user_prompt,
+            model_config=model_config,
+            env_vars=project.app.env_vars,
+            output_key="generated_code",
+        )
+        
+        if result["success"]:
+            code = clean_code_output(result["output"])
+            return {"code": code, "success": True}
         else:
-            model = "gemini-2.0-flash"
-        
-        code_agent = Agent(
-            name="tool_code_generator",
-            model=model,
-            instruction=ADK_TOOL_SYSTEM_PROMPT,
-            output_key="generated_code",  # Store final response in session state
-        )
-        
-        runner = Runner(
-            app_name="tool_code_generator",
-            agent=code_agent,
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-            artifact_service=InMemoryArtifactService(),
-        )
-        
-        session = await runner.session_service.create_session(
-            app_name="tool_code_generator",
-            user_id="code_gen_user",
-        )
-        
-        # Run the code generation (consume all events but don't extract text from them)
-        async for event in runner.run_async(
-            session_id=session.id,
-            user_id="code_gen_user",
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_prompt)]
-            ),
-        ):
-            # Just consume events - we'll get the result from session state
-            pass
-        
-        # Get the final session to extract the generated code from state
-        final_session = await runner.session_service.get_session(
-            app_name="tool_code_generator",
-            user_id="code_gen_user",
-            session_id=session.id,
-        )
-        
-        # Extract the code from session state (this avoids <think> blocks)
-        generated_code = final_session.state.get("generated_code", "").strip() if final_session else ""
-        
-        # Clean up the code (remove markdown code blocks if present)
-        code = generated_code.strip()
-        if code.startswith("```python"):
-            code = code[9:]
-        elif code.startswith("```"):
-            code = code[3:]
-        if code.endswith("```"):
-            code = code[:-3]
-        code = code.strip()
-        
-        # Restore original environment variables
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
-        return {"code": code, "success": True}
+            print(f"[generate-tool-code] ERROR: {result.get('error')}", file=sys.stderr, flush=True)
+            return {
+                "code": None,
+                "success": False,
+                "error": result.get("error"),
+                "traceback": result.get("traceback"),
+            }
         
     except Exception as e:
-        # Restore original environment variables on error
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
         import traceback
         print(f"[generate-tool-code] ERROR: {e}", file=sys.stderr, flush=True)
         print(traceback.format_exc(), file=sys.stderr, flush=True)
@@ -2152,21 +1994,6 @@ Write the complete Python code for this callback. Include appropriate imports at
 - For after_tool: `(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]`
 """
         
-        from google.adk import Agent
-        from google.adk.runners import Runner
-        from google.adk.sessions.in_memory_session_service import InMemorySessionService
-        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-        from google.genai import types
-        
-        # Set API keys from project env_vars
-        env_vars = project.app.env_vars or {}
-        old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
-            if key in env_vars:
-                old_env[key] = os.environ.get(key)
-                os.environ[key] = env_vars[key]
-        
         # Get model config from project
         model_config = None
         if project.app.models and len(project.app.models) > 0:
@@ -2175,87 +2002,28 @@ Write the complete Python code for this callback. Include appropriate imports at
             if not model_config:
                 model_config = project.app.models[0]
         
-        # Create a code generation agent
-        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
-            from google.adk.models.lite_llm import LiteLlm
-            model = LiteLlm(
-                model=model_config.model_name,
-                api_base=model_config.api_base,
-            )
-        elif model_config:
-            model = model_config.model_name
+        # Run the callback_code_generator agent
+        result = await run_agent(
+            agent_name="callback_code_generator",
+            message=user_prompt,
+            model_config=model_config,
+            env_vars=project.app.env_vars,
+            output_key="generated_code",
+        )
+        
+        if result["success"]:
+            code = clean_code_output(result["output"])
+            return {"code": code, "success": True}
         else:
-            model = "gemini-2.0-flash"
-        
-        code_agent = Agent(
-            name="callback_code_generator",
-            model=model,
-            instruction=ADK_CALLBACK_SYSTEM_PROMPT,
-            output_key="generated_code",  # Store final response in session state
-        )
-        
-        runner = Runner(
-            app_name="callback_code_generator",
-            agent=code_agent,
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-            artifact_service=InMemoryArtifactService(),
-        )
-        
-        session = await runner.session_service.create_session(
-            app_name="callback_code_generator",
-            user_id="code_gen_user",
-        )
-        
-        # Run the code generation (consume all events but don't extract text from them)
-        async for event in runner.run_async(
-            session_id=session.id,
-            user_id="code_gen_user",
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=user_prompt)]
-            ),
-        ):
-            # Just consume events - we'll get the result from session state
-            pass
-        
-        # Get the final session to extract the generated code from state
-        final_session = await runner.session_service.get_session(
-            app_name="callback_code_generator",
-            user_id="code_gen_user",
-            session_id=session.id,
-        )
-        
-        # Extract the code from session state (this avoids <think> blocks)
-        generated_code = final_session.state.get("generated_code", "").strip() if final_session else ""
-        
-        # Clean up the code (remove markdown code blocks if present)
-        code = generated_code.strip()
-        if code.startswith("```python"):
-            code = code[9:]
-        elif code.startswith("```"):
-            code = code[3:]
-        if code.endswith("```"):
-            code = code[:-3]
-        code = code.strip()
-        
-        # Restore original environment variables
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
-        return {"code": code, "success": True}
+            print(f"[generate-callback-code] ERROR: {result.get('error')}", file=sys.stderr, flush=True)
+            return {
+                "code": None,
+                "success": False,
+                "error": result.get("error"),
+                "traceback": result.get("traceback"),
+            }
         
     except Exception as e:
-        # Restore original environment variables on error
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
         import traceback
         print(f"[generate-callback-code] ERROR: {e}", file=sys.stderr, flush=True)
         print(traceback.format_exc(), file=sys.stderr, flush=True)
@@ -2345,165 +2113,76 @@ Rules:
 
 JSON:"""
 
-    try:
-        from google.adk import Agent
-        from google.adk.runners import Runner
-        from google.adk.sessions.in_memory_session_service import InMemorySessionService
-        from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-        from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-        from google.genai import types
-        
-        # Set API keys from project env_vars
-        env_vars = project.app.env_vars or {}
-        old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
-            if key in env_vars:
-                old_env[key] = os.environ.get(key)
-                os.environ[key] = env_vars[key]
-        
-        # Get model config from project
-        model_config = None
-        if project.app.models and len(project.app.models) > 0:
-            if project.app.default_model_id:
-                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
-            if not model_config:
-                model_config = project.app.models[0]
-        
-        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
-            from google.adk.models.lite_llm import LiteLlm
-            model = LiteLlm(
-                model=model_config.model_name,
-                api_base=model_config.api_base,
-            )
-        elif model_config:
-            model = model_config.model_name
+    # Get model config from project
+    model_config = None
+    if project.app.models and len(project.app.models) > 0:
+        if project.app.default_model_id:
+            model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+        if not model_config:
+            model_config = project.app.models[0]
+    
+    # Retry logic for models that don't always return JSON
+    max_retries = 3
+    last_error = None
+    last_raw_response = None
+    
+    for attempt in range(max_retries):
+        if attempt == 0:
+            # First attempt: use the original prompt
+            message = meta_prompt
         else:
-            model = "gemini-2.0-flash"
-        
-        config_agent = Agent(
-            name="config_generator",
-            model=model,
-            instruction="You are an expert at configuring AI agents. Generate valid JSON configurations.",
-        )
-        
-        runner = Runner(
-            app_name="config_generator",
-            agent=config_agent,
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-            artifact_service=InMemoryArtifactService(),
-        )
-        
-        session = await runner.session_service.create_session(
-            app_name="config_generator",
-            user_id="config_gen_user",
-        )
-        
-        # Retry logic for models that don't always return JSON
-        max_retries = 3
-        last_error = None
-        last_raw_response = None
-        
-        for attempt in range(max_retries):
-            generated_text = ""
-            
-            if attempt == 0:
-                # First attempt: use the original prompt
-                message = meta_prompt
-            else:
-                # Retry: ask for just the JSON, referencing the failed attempt
-                message = f"""Your previous response was not valid JSON. Here's what you returned:
+            # Retry: ask for just the JSON, referencing the failed attempt
+            message = f"""Your previous response was not valid JSON. Here's what you returned:
 
-{last_raw_response[:2000]}
+{last_raw_response[:2000] if last_raw_response else 'No response'}
 
 The error was: {last_error}
 
 Please return ONLY the JSON object with the agent configuration. No explanation, no markdown, just the raw JSON starting with {{ and ending with }}. Make sure to close all brackets and quotes properly."""
-            
-            async for event in runner.run_async(
-                session_id=session.id,
-                user_id="config_gen_user",
-                new_message=types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=message)]
-                ),
-            ):
-                if event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if hasattr(part, "text") and part.text:
-                            generated_text += part.text
-            
-            # Parse the JSON from the response
-            generated_text = generated_text.strip()
-            last_raw_response = generated_text
-            
-            # Try to extract JSON if it's wrapped in markdown code blocks
-            if "```json" in generated_text:
-                generated_text = generated_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in generated_text:
-                parts = generated_text.split("```")
-                if len(parts) >= 2:
-                    generated_text = parts[1].strip()
-            
-            # Try to find JSON object in the text
-            json_start = generated_text.find('{')
-            json_end = generated_text.rfind('}')
-            if json_start != -1 and json_end != -1 and json_end > json_start:
-                generated_text = generated_text[json_start:json_end + 1]
-            
-            try:
-                config = json.loads(generated_text)
-                # Restore original environment variables
-                for key, value in old_env.items():
-                    if value is None:
-                        os.environ.pop(key, None)
-                    else:
-                        os.environ[key] = value
-                return {"config": config, "success": True, "attempts": attempt + 1}
-            except json.JSONDecodeError as e:
-                last_error = str(e)
-                if attempt < max_retries - 1:
-                    continue  # Try again
-                else:
-                    # Restore original environment variables
-                    for key, value in old_env.items():
-                        if value is None:
-                            os.environ.pop(key, None)
-                        else:
-                            os.environ[key] = value
-                    # All retries exhausted
-                    return {
-                        "config": None,
-                        "success": False,
-                        "error": f"Failed to parse JSON after {max_retries} attempts: {last_error}",
-                        "raw_response": last_raw_response[:2000] if last_raw_response else None,
-                        "attempts": max_retries,
-                    }
         
-        # Should not reach here, but just in case
-        # Restore original environment variables
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
+        # Run the agent_config_generator agent
+        result = await run_agent(
+            agent_name="agent_config_generator",
+            message=message,
+            model_config=model_config,
+            env_vars=project.app.env_vars,
+            output_key="generated_config",
+        )
+        
+        if not result["success"]:
+            return {
+                "config": None,
+                "success": False,
+                "error": result.get("error"),
+                "traceback": result.get("traceback"),
+            }
+        
+        # Extract and parse JSON from the response
+        generated_text = result["output"]
+        last_raw_response = generated_text
+        
+        # Try to extract JSON
+        json_text = extract_json_from_text(generated_text)
+        
+        try:
+            config = json.loads(json_text)
+            return {"config": config, "success": True, "attempts": attempt + 1}
+        except json.JSONDecodeError as e:
+            last_error = str(e)
+            if attempt < max_retries - 1:
+                continue  # Try again
             else:
-                os.environ[key] = value
-        return {"config": None, "success": False, "error": "Unknown error"}
-        
-    except Exception as e:
-        # Restore original environment variables on error
-        for key, value in old_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-        
-        import traceback
-        return {
-            "config": None,
-            "success": False,
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        }
+                # All retries exhausted
+                return {
+                    "config": None,
+                    "success": False,
+                    "error": f"Failed to parse JSON after {max_retries} attempts: {last_error}",
+                    "raw_response": last_raw_response[:2000] if last_raw_response else None,
+                    "attempts": max_retries,
+                }
+    
+    # Should not reach here, but just in case
+    return {"config": None, "success": False, "error": "Unknown error"}
 
 
 # ============================================================================
