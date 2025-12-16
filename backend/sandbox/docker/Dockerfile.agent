@@ -7,6 +7,12 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    chromium \
+    chromium-driver \
+    xvfb \
+    xauth \
+    fonts-liberation \
+    fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -40,6 +46,14 @@ ENV PROJECT_CONFIG_PATH=/app/config.yaml
 ENV WORKSPACE_PATH=/workspace
 ENV APP_ID=unknown
 ENV WEBHOOK_URL=http://host.docker.internal:8765/api/sandbox/event
+
+# Browser defaults (used by many automation stacks)
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMIUM_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_BIN=/usr/bin/chromedriver
+# For puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Health check
 HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=3 \

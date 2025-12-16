@@ -273,7 +273,7 @@ class SandboxManager:
             return
         
         deps = " ".join(self.AGENT_DEPENDENCIES)
-        logger.info(f"Building cached agent image with: {deps} + uv + node/npm")
+        logger.info(f"Building cached agent image with: {deps} + uv + node/npm + chromium")
         
         # Build command that installs everything
         # 1. Install curl and ca-certificates for downloading
@@ -282,7 +282,12 @@ class SandboxManager:
         # 4. Install tsx globally
         # 5. Install Python packages
         build_command = """sh -c '
-            apt-get update && apt-get install -y --no-install-recommends curl ca-certificates git && \
+            apt-get update && apt-get install -y --no-install-recommends \
+              curl ca-certificates git \
+              chromium chromium-driver \
+              xvfb xauth \
+              fonts-liberation fonts-noto-color-emoji \
+              && \
             curl -LsSf https://astral.sh/uv/install.sh | sh && \
             export PATH="/root/.local/bin:$PATH" && \
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -824,6 +829,17 @@ class SandboxManager:
             "MCP_SERVERS_CONFIG": json.dumps(stdio_mcp_config),
             # PATH includes uvx location
             "PATH": "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
+
+            # Browser automation defaults (Chromium is installed in cached agent image)
+            "CHROME_BIN": "/usr/bin/chromium",
+            "CHROMIUM_BIN": "/usr/bin/chromium",
+            "CHROMEDRIVER_BIN": "/usr/bin/chromedriver",
+            # Puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
+            "PUPPETEER_SKIP_DOWNLOAD": "true",
+            "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",
+            # Optional virtual display fallback (some automations require a DISPLAY)
+            # Set ENABLE_XVFB=1 at app-level env_vars to enable.
+            "ENABLE_XVFB": "0",
         }
         
         # Pass through app-configured environment variables (API keys, etc.)
@@ -883,7 +899,17 @@ class SandboxManager:
         
         # Use cached image (deps pre-installed) - no pip install needed at runtime
         image = self.AGENT_IMAGE
-        command = ["python", "-u", "/app/agent_runner.py"]
+        # Optional Xvfb display for non-headless browser automation.
+        # Default is headless (ENABLE_XVFB=0). If enabled, we start a minimal virtual X server.
+        command = [
+            "sh",
+            "-c",
+            'if [ "${ENABLE_XVFB:-0}" = "1" ]; then '
+            '  Xvfb :99 -screen 0 1280x720x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & '
+            '  export DISPLAY=:99; '
+            "fi; "
+            "exec python -u /app/agent_runner.py",
+        ]
         
         # Run as current user to match host filesystem permissions for mounted volumes
         # This allows the container to write to mounted storage directories
