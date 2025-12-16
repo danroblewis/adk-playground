@@ -9,7 +9,7 @@ interface AgentGraphProps {
   selectedEventIndex: number | null;
   isOpen?: boolean;
   onOpenChange?: (isOpen: boolean) => void;
-  runState?: 'idle' | 'running' | 'completed' | 'failed';
+  runState?: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
 }
 
 interface GraphNode {
@@ -1158,6 +1158,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           box-shadow: 4px 0 20px rgba(239, 68, 68, 0.15), 4px 0 40px rgba(0,0,0,0.3);
         }
         
+        .agent-graph-content.state-cancelled {
+          background: linear-gradient(135deg, #1f1a0f 0%, #2d2612 100%);
+          border-color: rgba(234, 179, 8, 0.35);
+          box-shadow: 4px 0 20px rgba(234, 179, 8, 0.15), 4px 0 40px rgba(0,0,0,0.3);
+        }
+        
         .agent-graph-toggle {
           width: 32px;
           height: 64px;
@@ -1188,6 +1194,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           background: linear-gradient(135deg, #1f1315 0%, #2d1b1e 100%);
           border: 1px solid rgba(239, 68, 68, 0.35);
           color: #fca5a5;
+        }
+        
+        .agent-graph-toggle.state-cancelled {
+          background: linear-gradient(135deg, #1f1a0f 0%, #2d2612 100%);
+          border: 1px solid rgba(234, 179, 8, 0.35);
+          color: #fde047;
         }
         
         .agent-graph-toggle:hover {
@@ -1342,6 +1354,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           background: linear-gradient(135deg, #1f1315 0%, #2d1b1e 100%);
           border: 2px solid rgba(239, 68, 68, 0.4);
           box-shadow: 0 0 60px rgba(239, 68, 68, 0.2), 0 0 120px rgba(0, 0, 0, 0.5);
+        }
+        
+        .agent-graph-modal.state-cancelled {
+          background: linear-gradient(135deg, #1f1a0f 0%, #2d2612 100%);
+          border: 2px solid rgba(234, 179, 8, 0.4);
+          box-shadow: 0 0 60px rgba(234, 179, 8, 0.2), 0 0 120px rgba(0, 0, 0, 0.5);
         }
         
         @keyframes modalScaleIn {

@@ -2036,11 +2036,15 @@ export default function RunPanel() {
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [isResizing, setIsResizing] = useState(false);
   const [isAgentGraphOpen, setIsAgentGraphOpen] = useState(false);
+  const [wasCancelled, setWasCancelled] = useState(false);
   
   // Compute run state for AgentGraph visualization
-  const agentGraphRunState = useMemo((): 'idle' | 'running' | 'completed' | 'failed' => {
+  const agentGraphRunState = useMemo((): 'idle' | 'running' | 'completed' | 'failed' | 'cancelled' => {
     if (isRunning) return 'running';
     if (runEvents.length === 0) return 'idle';
+    
+    // Check if the run was cancelled by the user
+    if (wasCancelled) return 'cancelled';
     
     // Check if the run ended with an error
     // Look at the last few events for error indicators
@@ -2055,7 +2059,7 @@ export default function RunPanel() {
     
     // If we have events and no errors, consider it completed
     return 'completed';
-  }, [isRunning, runEvents]);
+  }, [isRunning, runEvents, wasCancelled]);
   
   // Prompt history and suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -2434,6 +2438,7 @@ export default function RunPanel() {
     setSelectedSessionId(null);
     setCurrentSessionId(null);  // Clear so we get a new session
     setIsRunning(true);
+    setWasCancelled(false);  // Reset cancelled state for new run
     setSelectedEventIndex(null);
     setTimeRange(null);
     
@@ -2568,6 +2573,7 @@ export default function RunPanel() {
   const handleStop = useCallback(() => {
     ws?.close();
     setIsRunning(false);
+    setWasCancelled(true);
   }, [ws, setIsRunning]);
 
   // Handle network approval
