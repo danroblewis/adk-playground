@@ -2098,11 +2098,31 @@ export default function RunPanel() {
     // Check if the run ended with an error
     // Look at the last few events for error indicators
     const lastEvents = runEvents.slice(-5);
-    const hasError = lastEvents.some(event => 
-      event.data?.error || 
-      event.event_type === 'callback_error' ||
-      (event.event_type === 'agent_end' && event.data?.error)
-    );
+    const hasError = lastEvents.some(event => {
+      // Check for explicit error data
+      if (event.data?.error) return true;
+      if (event.event_type === 'callback_error') return true;
+      if (event.event_type === 'agent_end' && event.data?.error) return true;
+      
+      // Check for "[ERROR]" in the event summary text
+      const summary = getEventSummary(event);
+      if (summary.includes('[ERROR]')) return true;
+      
+      // Check for error indicators in response text
+      if (event.event_type === 'model_response') {
+        const parts = event.data?.response_content?.parts || event.data?.parts || [];
+        const textPart = parts.find((p: any) => p?.type === 'text');
+        if (textPart?.text && (
+          textPart.text.includes('[ERROR]') ||
+          textPart.text.toLowerCase().includes('error:') ||
+          textPart.text.toLowerCase().includes('exception:')
+        )) {
+          return true;
+        }
+      }
+      
+      return false;
+    });
     
     if (hasError) return 'failed';
     
