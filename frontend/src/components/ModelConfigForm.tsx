@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ModelAutocomplete } from './ModelAutocomplete';
+import { testModelConfig } from '../utils/api';
+import { Zap, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import './ModelConfigForm.css';
 
 export type ModelProvider = 'gemini' | 'anthropic' | 'openai' | 'groq' | 'together' | 'litellm';
@@ -54,6 +56,46 @@ export function ModelConfigForm({
   onChange,
   className = '',
 }: ModelConfigFormProps) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTest = async () => {
+    if (!values.model_name || !values.provider) {
+      setTestResult({ success: false, message: 'Please select a model first' });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      const result = await testModelConfig(projectId, {
+        provider: values.provider,
+        model_name: values.model_name,
+        api_base: values.api_base,
+      });
+
+      if (result.success) {
+        setTestResult({ 
+          success: true, 
+          message: result.response?.slice(0, 100) || 'Model responded successfully!' 
+        });
+      } else {
+        setTestResult({ 
+          success: false, 
+          message: result.error || 'Test failed' 
+        });
+      }
+    } catch (error: any) {
+      setTestResult({ 
+        success: false, 
+        message: error.message || 'Connection failed' 
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className={`model-config-form ${className}`}>
       <div className="model-config-row">
@@ -61,7 +103,10 @@ export function ModelConfigForm({
           <label>Provider</label>
           <select
             value={values.provider || 'gemini'}
-            onChange={(e) => onChange({ provider: e.target.value as ModelProvider })}
+            onChange={(e) => {
+              onChange({ provider: e.target.value as ModelProvider });
+              setTestResult(null);
+            }}
           >
             {PROVIDERS.map(p => (
               <option key={p.value} value={p.value}>{p.label}</option>
@@ -81,6 +126,7 @@ export function ModelConfigForm({
                 model_name: modelId,
                 provider: detectedProvider,
               });
+              setTestResult(null);
             }}
             placeholder="Search models..."
           />
@@ -90,7 +136,10 @@ export function ModelConfigForm({
           <input
             type="text"
             value={values.api_base || ''}
-            onChange={(e) => onChange({ api_base: e.target.value || undefined })}
+            onChange={(e) => {
+              onChange({ api_base: e.target.value || undefined });
+              setTestResult(null);
+            }}
             placeholder={
               values.provider === 'gemini' ? 'https://generativelanguage.googleapis.com' :
               values.provider === 'anthropic' ? 'https://api.anthropic.com' :
@@ -100,6 +149,27 @@ export function ModelConfigForm({
               'http://localhost:11434'
             }
           />
+        </div>
+        <div className="model-config-field model-test-field">
+          <label>&nbsp;</label>
+          <button
+            type="button"
+            className={`model-test-btn ${testResult?.success === true ? 'success' : testResult?.success === false ? 'error' : ''}`}
+            onClick={handleTest}
+            disabled={testing || !values.model_name}
+            title={testResult?.message || 'Test model connection'}
+          >
+            {testing ? (
+              <Loader2 size={14} className="spinning" />
+            ) : testResult?.success === true ? (
+              <CheckCircle size={14} />
+            ) : testResult?.success === false ? (
+              <XCircle size={14} />
+            ) : (
+              <Zap size={14} />
+            )}
+            {testing ? 'Testing...' : 'Test'}
+          </button>
         </div>
       </div>
       <div className="model-config-row">

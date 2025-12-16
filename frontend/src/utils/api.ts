@@ -314,6 +314,33 @@ export async function testMcpServer(config: {
 }
 
 // ============================================================================
+// Model Testing API
+// ============================================================================
+
+export interface TestModelResult {
+  success: boolean;
+  response?: string;
+  error?: string;
+  model: string;
+  provider: string;
+}
+
+export async function testModelConfig(
+  projectId: string,
+  config: {
+    provider: string;
+    model_name: string;
+    api_base?: string;
+    api_key?: string;
+  }
+): Promise<TestModelResult> {
+  return fetchJSON<TestModelResult>(`/projects/${projectId}/test-model`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+// ============================================================================
 // SkillSet API
 // ============================================================================
 

@@ -624,6 +624,147 @@ async def list_models_for_project(
 
 
 # ============================================================================
+# Model Testing
+# ============================================================================
+
+class TestModelRequest(BaseModel):
+    """Request to test a model configuration."""
+    provider: str
+    model_name: str
+    api_base: Optional[str] = None
+    api_key: Optional[str] = None  # Override key for testing
+    prompt: str = "Say 'Hello! Model test successful.' in exactly those words."
+
+@app.post("/api/projects/{project_id}/test-model")
+async def test_model_config(project_id: str, request: TestModelRequest):
+    """Test a model configuration by sending a simple prompt.
+    
+    Returns the model's response or an error message.
+    """
+    import traceback
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        # Get API keys from project env_vars
+        env_vars = project.app.env_vars or {}
+        
+        # Temporarily set environment variables for the test
+        old_env = {}
+        keys_to_set = {
+            "GOOGLE_API_KEY": request.api_key or env_vars.get("GOOGLE_API_KEY") or env_vars.get("GEMINI_API_KEY"),
+            "GEMINI_API_KEY": request.api_key or env_vars.get("GEMINI_API_KEY") or env_vars.get("GOOGLE_API_KEY"),
+            "ANTHROPIC_API_KEY": request.api_key or env_vars.get("ANTHROPIC_API_KEY"),
+            "OPENAI_API_KEY": request.api_key or env_vars.get("OPENAI_API_KEY"),
+            "GROQ_API_KEY": request.api_key or env_vars.get("GROQ_API_KEY"),
+            "TOGETHER_API_KEY": request.api_key or env_vars.get("TOGETHER_API_KEY"),
+            "OPENROUTER_API_KEY": request.api_key or env_vars.get("OPENROUTER_API_KEY"),
+        }
+        
+        for key, value in keys_to_set.items():
+            if value:
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = value
+        
+        try:
+            from google.adk import Agent
+            from google.adk.runners import Runner
+            from google.adk.sessions.in_memory_session_service import InMemorySessionService
+            from google.genai import types
+            
+            # Create model based on provider
+            if request.provider in ("litellm", "openai", "groq", "together"):
+                from google.adk.models.lite_llm import LiteLlm
+                model = LiteLlm(
+                    model=request.model_name,
+                    api_base=request.api_base,
+                )
+            elif request.provider == "anthropic":
+                from google.adk.models.anthropic_llm import AnthropicLlm
+                model = AnthropicLlm(model=request.model_name)
+            else:
+                # Gemini or other - use model name directly
+                model = request.model_name
+            
+            # Create a simple test agent
+            test_agent = Agent(
+                name="model_test",
+                model=model,
+                instruction="You are a helpful assistant. Follow the user's instructions exactly.",
+            )
+            
+            runner = Runner(
+                app_name="model_test",
+                agent=test_agent,
+                session_service=InMemorySessionService(),
+            )
+            
+            session = await runner.session_service.create_session(
+                app_name="model_test",
+                user_id="test_user",
+            )
+            
+            # Run the test prompt
+            response_text = ""
+            async for event in runner.run_async(
+                session_id=session.id,
+                user_id="test_user",
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=request.prompt)]
+                ),
+            ):
+                pass
+            
+            # Get response from session state
+            final_session = await runner.session_service.get_session(
+                app_name="model_test",
+                user_id="test_user",
+                session_id=session.id,
+            )
+            
+            # Extract response from session events
+            if final_session and final_session.events:
+                for event in reversed(final_session.events):
+                    if hasattr(event, 'content') and event.content:
+                        for part in event.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                response_text = part.text
+                                break
+                    if response_text:
+                        break
+            
+            await runner.close()
+            
+            return {
+                "success": True,
+                "response": response_text or "Model responded but no text extracted",
+                "model": request.model_name,
+                "provider": request.provider,
+            }
+            
+        finally:
+            # Restore environment
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+                    
+    except Exception as e:
+        logger.error(f"Model test failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "model": request.model_name,
+            "provider": request.provider,
+        }
+
+
+# ============================================================================
 # MCP Server Testing
 # ============================================================================
 

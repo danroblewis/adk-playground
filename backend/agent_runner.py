@@ -69,7 +69,8 @@ async def run_agent(
     try:
         # Set API keys from provided env_vars
         if env_vars:
-            for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+            for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", 
+                        "GROQ_API_KEY", "TOGETHER_API_KEY", "OPENROUTER_API_KEY"]:
                 if key in env_vars:
                     old_env[key] = os.environ.get(key)
                     os.environ[key] = env_vars[key]
