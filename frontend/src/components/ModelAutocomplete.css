@@ -102,6 +102,11 @@
   color: white;
 }
 
+.provider-together {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  color: white;
+}
+
 .provider-ollama {
   background: linear-gradient(135deg, #6b7280, #4b5563);
   color: white;

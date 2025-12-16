@@ -541,6 +541,7 @@ class ListModelsRequest(BaseModel):
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    together_api_key: Optional[str] = None
     check_ollama: bool = True
 
 
@@ -558,6 +559,7 @@ async def list_available_models(request: ListModelsRequest):
         anthropic_api_key=request.anthropic_api_key,
         openai_api_key=request.openai_api_key,
         groq_api_key=request.groq_api_key,
+        together_api_key=request.together_api_key,
         check_ollama=request.check_ollama,
     )
     
@@ -579,7 +581,7 @@ async def list_models_for_project(
     """
     from model_service import (
         list_gemini_models, list_anthropic_models, list_openai_models,
-        list_groq_models, list_ollama_models, ProviderModels
+        list_groq_models, list_together_models, list_ollama_models, ProviderModels
     )
     
     project = project_manager.get_project(project_id)
@@ -613,6 +615,10 @@ async def list_models_for_project(
         key = env_vars.get("GROQ_API_KEY")
         result = await list_groq_models(key)
         providers["groq"] = result.model_dump()
+    elif provider == "together":
+        key = env_vars.get("TOGETHER_API_KEY")
+        result = await list_together_models(key)
+        providers["together"] = result.model_dump()
     elif provider in ("litellm", "ollama"):
         # For LiteLLM, we fetch from Ollama using the provided api_base
         base_url = api_base or "http://localhost:11434"
@@ -1526,7 +1532,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
         # Set API keys from project env_vars (temporarily for this request)
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -1540,7 +1546,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
                 model_config = project.app.models[0]
         
         # Create a simple agent for prompt generation
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -1799,7 +1805,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -1813,7 +1819,7 @@ Write the complete Python code for this tool. Include appropriate imports at the
                 model_config = project.app.models[0]
         
         # Create a code generation agent
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -2156,7 +2162,7 @@ Write the complete Python code for this callback. Include appropriate imports at
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -2170,7 +2176,7 @@ Write the complete Python code for this callback. Include appropriate imports at
                 model_config = project.app.models[0]
         
         # Create a code generation agent
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,
@@ -2350,7 +2356,7 @@ JSON:"""
         # Set API keys from project env_vars
         env_vars = project.app.env_vars or {}
         old_env = {}
-        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]:
+        for key in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY"]:
             if key in env_vars:
                 old_env[key] = os.environ.get(key)
                 os.environ[key] = env_vars[key]
@@ -2363,7 +2369,7 @@ JSON:"""
             if not model_config:
                 model_config = project.app.models[0]
         
-        if model_config and model_config.provider == "litellm":
+        if model_config and model_config.provider in ("litellm", "openai", "groq", "together"):
             from google.adk.models.lite_llm import LiteLlm
             model = LiteLlm(
                 model=model_config.model_name,

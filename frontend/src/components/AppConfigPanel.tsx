@@ -8,7 +8,9 @@ import { ModelConfigForm } from './ModelConfigForm';
 const COMMON_ENV_VARS = [
   { key: 'GOOGLE_API_KEY', description: 'API key for Gemini models' },
   { key: 'OPENAI_API_KEY', description: 'API key for OpenAI models (via LiteLLM)' },
+  { key: 'GROQ_API_KEY', description: 'API key for Groq models' },
   { key: 'ANTHROPIC_API_KEY', description: 'API key for Anthropic Claude models' },
+  { key: 'TOGETHER_API_KEY', description: 'API key for Together (via LiteLLM, e.g. together_ai/* models)' },
   { key: 'AZURE_API_KEY', description: 'API key for Azure OpenAI Service' },
   { key: 'AZURE_API_BASE', description: 'Base URL for Azure OpenAI endpoint (e.g., https://your-resource.openai.azure.com)' },
   { key: 'AZURE_API_VERSION', description: 'API version for Azure OpenAI (e.g., 2024-02-15-preview)' },
