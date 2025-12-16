@@ -960,12 +960,12 @@ export default function AppConfigPanel() {
                     value={key.name}
                     onChange={(e) => updateStateKey(index, { name: e.target.value })}
                     placeholder="Key name"
-                    style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                    style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12 }}
                   />
                   <select
                     value={key.type}
                     onChange={(e) => updateStateKey(index, { type: e.target.value as any })}
-                    style={{ padding: '4px 6px', fontSize: 11 }}
+                    style={{ width: 60, flexShrink: 0, padding: '4px 6px', fontSize: 11 }}
                   >
                     <option value="string">str</option>
                     <option value="number">num</option>
@@ -976,7 +976,7 @@ export default function AppConfigPanel() {
                   <button 
                     className="delete-item" 
                     onClick={() => removeStateKey(index)}
-                    style={{ padding: 4 }}
+                    style={{ padding: 4, flexShrink: 0 }}
                   >
                     <Trash2 size={12} />
                   </button>
