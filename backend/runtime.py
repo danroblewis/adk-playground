@@ -584,6 +584,34 @@ class RuntimeManager:
                 user_id=adk_session.user_id,
                 session_id=adk_session.id,
             )
+            
+            # Check for compaction events and emit them
+            if final_session and final_session.events:
+                for event in final_session.events:
+                    if hasattr(event, 'actions') and event.actions and hasattr(event.actions, 'compaction') and event.actions.compaction:
+                        compaction = event.actions.compaction
+                        # Get summary text from compacted content
+                        summary_text = ""
+                        if hasattr(compaction, 'compacted_content') and compaction.compacted_content:
+                            content = compaction.compacted_content
+                            if hasattr(content, 'parts') and content.parts:
+                                for part in content.parts:
+                                    if hasattr(part, 'text') and part.text:
+                                        summary_text = part.text[:500] + "..." if len(part.text) > 500 else part.text
+                                        break
+                        
+                        yield RunEvent(
+                            timestamp=time.time(),
+                            event_type="compaction",
+                            agent_name="system",
+                            data={
+                                "start_timestamp": getattr(compaction, 'start_timestamp', None),
+                                "end_timestamp": getattr(compaction, 'end_timestamp', None),
+                                "summary_preview": summary_text,
+                                "event_timestamp": getattr(event, 'timestamp', None),
+                            },
+                        )
+            
             session.final_state = dict(final_session.state) if final_session else {}
             session.token_counts = tracking.token_counts
             session.status = "completed"

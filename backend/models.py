@@ -415,7 +415,8 @@ class RunEvent(BaseModel):
     timestamp: float
     event_type: Literal["agent_start", "agent_end", "tool_call", "tool_result", 
                         "model_call", "model_response", "state_change", "transfer",
-                        "callback_start", "callback_end", "callback_error", "user_message"]
+                        "callback_start", "callback_end", "callback_error", "user_message",
+                        "compaction"]
     agent_name: str
     branch: Optional[str] = None  # For parallel execution tracking (e.g., "parallel_agent.sub_agent_a")
     data: Dict[str, Any] = Field(default_factory=dict)

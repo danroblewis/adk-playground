@@ -832,6 +832,41 @@ class AgentRunner:
                         # Not retryable or out of retries
                         raise
             
+            # Check for compaction events after run completes
+            try:
+                final_session = await runner.session_service.get_session(
+                    app_name=self.project_name,
+                    user_id=adk_session.user_id,
+                    session_id=adk_session.id,
+                )
+                if final_session and final_session.events:
+                    for event in final_session.events:
+                        if hasattr(event, 'actions') and event.actions and hasattr(event.actions, 'compaction') and event.actions.compaction:
+                            compaction = event.actions.compaction
+                            # Get summary text from compacted content
+                            summary_text = ""
+                            if hasattr(compaction, 'compacted_content') and compaction.compacted_content:
+                                content = compaction.compacted_content
+                                if hasattr(content, 'parts') and content.parts:
+                                    for part in content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            summary_text = part.text[:500] + "..." if len(part.text) > 500 else part.text
+                                            break
+                            
+                            await self._emit_event({
+                                "event_type": "compaction",
+                                "timestamp": time.time(),
+                                "agent_name": "system",
+                                "data": {
+                                    "start_timestamp": getattr(compaction, 'start_timestamp', None),
+                                    "end_timestamp": getattr(compaction, 'end_timestamp', None),
+                                    "summary_preview": summary_text,
+                                    "event_timestamp": getattr(event, 'timestamp', None),
+                                },
+                            })
+            except Exception as e:
+                logger.warning(f"Failed to check for compaction events: {e}")
+            
             await runner.close()
             
         except Exception as e:

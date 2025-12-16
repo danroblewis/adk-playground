@@ -158,6 +158,9 @@ function getEventSummary(event: RunEvent): string {
       const errorSource = event.data?.source || 'unknown';
       const errorMsg = event.data?.error || 'Unknown error';
       return `⚠️ ERROR in ${errorSource}: ${errorMsg.slice(0, 50)}${errorMsg.length > 50 ? '...' : ''}`;
+    case 'compaction':
+      const preview = event.data?.summary_preview || '';
+      return `📦 COMPACTION "${preview.slice(0, 80)}${preview.length > 80 ? '...' : ''}"`;
     default:
       return event.event_type.toUpperCase();
   }
@@ -648,6 +651,52 @@ function EventDetail({ event }: { event: RunEvent }) {
                   </pre>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {event.event_type === 'compaction' && (
+        <div className="detail-section">
+          <div className="section-header" onClick={() => toggleSection('compaction_info')}>
+            {expandedSections.has('compaction_info') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <span>📦 Compaction Details</span>
+          </div>
+          {expandedSections.has('compaction_info') && (
+            <div className="section-content">
+              <div style={{ marginBottom: '12px', padding: '8px', background: 'rgba(147, 51, 234, 0.1)', borderRadius: '4px', border: '1px solid rgba(147, 51, 234, 0.3)' }}>
+                <div style={{ fontSize: '11px', color: '#a855f7', marginBottom: '4px', fontWeight: 600 }}>
+                  Event Compaction Occurred
+                </div>
+                <div style={{ fontSize: '12px', color: '#e4e4e7' }}>
+                  ADK has summarized older events to manage context window limits.
+                </div>
+              </div>
+              {event.data?.start_timestamp && event.data?.end_timestamp && (
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Time Range Compacted:</strong>{' '}
+                  {new Date(event.data.start_timestamp * 1000).toLocaleTimeString()} - {new Date(event.data.end_timestamp * 1000).toLocaleTimeString()}
+                </div>
+              )}
+              {event.data?.summary_preview && (
+                <div>
+                  <strong>Summary Preview:</strong>
+                  <pre style={{ 
+                    marginTop: '8px', 
+                    padding: '12px', 
+                    backgroundColor: '#1a1a1a', 
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    overflow: 'auto',
+                    maxHeight: '300px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    border: '1px solid #27272a'
+                  }}>
+                    {event.data.summary_preview}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
