@@ -1199,6 +1199,164 @@ async def load_session(project_id: str, session_id: str):
     return {"session": session.model_dump(mode="json")}
 
 
+# ============================================================================
+# Artifacts API
+# ============================================================================
+
+@app.get("/api/projects/{project_id}/sessions/{session_id}/artifacts")
+async def list_artifacts(project_id: str, session_id: str):
+    """List all artifacts for a session."""
+    from runtime import create_artifact_service_from_uri
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
+    
+    try:
+        # List artifacts for this session
+        artifacts = await artifact_service.list_artifact_keys(
+            app_name=project.app.name,
+            user_id="playground_user",
+            session_id=session_id,
+        )
+        
+        # Build artifact info list
+        artifact_list = []
+        for filename in artifacts:
+            # Try to get the latest version info
+            try:
+                artifact = await artifact_service.load_artifact(
+                    app_name=project.app.name,
+                    user_id="playground_user",
+                    session_id=session_id,
+                    filename=filename,
+                )
+                
+                # Determine if it's an image based on mime type or filename
+                mime_type = None
+                is_image = False
+                size = None
+                
+                if artifact:
+                    # Check for inline_data which has mime_type
+                    if hasattr(artifact, 'inline_data') and artifact.inline_data:
+                        mime_type = getattr(artifact.inline_data, 'mime_type', None)
+                        data = getattr(artifact.inline_data, 'data', None)
+                        if data:
+                            if isinstance(data, bytes):
+                                size = len(data)
+                            elif isinstance(data, str):
+                                # Base64 encoded
+                                size = len(data) * 3 // 4  # Approximate decoded size
+                    elif hasattr(artifact, 'text'):
+                        mime_type = 'text/plain'
+                        size = len(artifact.text) if artifact.text else 0
+                    
+                    # Check filename extension as fallback
+                    if not mime_type:
+                        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+                        mime_map = {
+                            'png': 'image/png',
+                            'jpg': 'image/jpeg',
+                            'jpeg': 'image/jpeg',
+                            'gif': 'image/gif',
+                            'webp': 'image/webp',
+                            'svg': 'image/svg+xml',
+                            'txt': 'text/plain',
+                            'json': 'application/json',
+                            'html': 'text/html',
+                            'css': 'text/css',
+                            'js': 'application/javascript',
+                            'pdf': 'application/pdf',
+                        }
+                        mime_type = mime_map.get(ext, 'application/octet-stream')
+                    
+                    is_image = mime_type and mime_type.startswith('image/')
+                
+                artifact_list.append({
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "is_image": is_image,
+                    "size": size,
+                })
+            except Exception as e:
+                logger.warning(f"Failed to get artifact info for {filename}: {e}")
+                artifact_list.append({
+                    "filename": filename,
+                    "mime_type": None,
+                    "is_image": False,
+                    "size": None,
+                })
+        
+        return {"artifacts": artifact_list}
+    except Exception as e:
+        logger.error(f"Failed to list artifacts: {e}", exc_info=True)
+        return {"artifacts": [], "error": str(e)}
+
+
+@app.get("/api/projects/{project_id}/sessions/{session_id}/artifacts/{filename:path}")
+async def get_artifact(project_id: str, session_id: str, filename: str):
+    """Get a specific artifact's content."""
+    from runtime import create_artifact_service_from_uri
+    from fastapi.responses import Response
+    import base64
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
+    
+    try:
+        artifact = await artifact_service.load_artifact(
+            app_name=project.app.name,
+            user_id="playground_user",
+            session_id=session_id,
+            filename=filename,
+        )
+        
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        
+        # Handle different artifact types
+        if hasattr(artifact, 'inline_data') and artifact.inline_data:
+            mime_type = getattr(artifact.inline_data, 'mime_type', 'application/octet-stream')
+            data = getattr(artifact.inline_data, 'data', b'')
+            
+            # Handle base64 encoded data
+            if isinstance(data, str):
+                try:
+                    data = base64.b64decode(data)
+                except Exception:
+                    data = data.encode('utf-8')
+            
+            return Response(
+                content=data,
+                media_type=mime_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"'
+                }
+            )
+        elif hasattr(artifact, 'text') and artifact.text:
+            return Response(
+                content=artifact.text,
+                media_type='text/plain',
+                headers={
+                    "Content-Disposition": f'inline; filename="{filename}"'
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Unknown artifact format")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get artifact {filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/sessions/{session_id}/save-to-memory")
 async def save_session_to_memory(session_id: str):
     """Save a session to memory service."""
