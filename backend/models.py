@@ -570,19 +570,15 @@ class InvocationResult(BaseModel):
     session_id: Optional[str] = None
 
 
-class EvalCaseResult(BaseModel):
-    """Result of running a single evaluation case."""
-    eval_case_id: str
-    eval_case_name: str
-    eval_set_id: str = ""
-    eval_set_name: str = ""
+class SingleRunResult(BaseModel):
+    """Result of a single run within a multi-run evaluation case."""
+    run_number: int
     session_id: str
+    passed: bool = True
     metric_results: List[MetricResult] = Field(default_factory=list)
     rubric_results: List[Dict[str, Any]] = Field(default_factory=list)
-    passed: bool = True
     invocation_results: List[InvocationResult] = Field(default_factory=list)
     final_state: Dict[str, Any] = Field(default_factory=dict)
-    expected_final_state: Optional[Dict[str, Any]] = None
     state_matched: Optional[bool] = None
     started_at: float = 0.0
     ended_at: float = 0.0
@@ -592,6 +588,38 @@ class EvalCaseResult(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_tokens: int = 0
+
+
+class EvalCaseResult(BaseModel):
+    """Result of running a single evaluation case (potentially multiple times)."""
+    eval_case_id: str
+    eval_case_name: str
+    eval_set_id: str = ""
+    eval_set_name: str = ""
+    session_id: str  # Session ID of the last/representative run
+    metric_results: List[MetricResult] = Field(default_factory=list)  # Aggregated metrics
+    rubric_results: List[Dict[str, Any]] = Field(default_factory=list)  # Aggregated rubrics
+    passed: bool = True  # Overall pass (majority vote or threshold)
+    invocation_results: List[InvocationResult] = Field(default_factory=list)  # From representative run
+    final_state: Dict[str, Any] = Field(default_factory=dict)
+    expected_final_state: Optional[Dict[str, Any]] = None
+    state_matched: Optional[bool] = None
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    duration_ms: float = 0.0
+    error: Optional[str] = None
+    # Token usage (aggregated across all runs)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_tokens: int = 0
+    # Multi-run statistics
+    num_runs: int = 1  # Number of runs configured
+    runs_completed: int = 1  # Number of runs actually completed
+    runs_passed: int = 0  # Number of runs that passed
+    runs_failed: int = 0  # Number of runs that failed
+    runs_errored: int = 0  # Number of runs that had errors
+    pass_rate: float = 0.0  # runs_passed / runs_completed
+    run_results: List[SingleRunResult] = Field(default_factory=list)  # Individual run results
 
 
 class EvalSetResult(BaseModel):

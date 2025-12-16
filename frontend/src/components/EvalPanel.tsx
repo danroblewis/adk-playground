@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
-  CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
+  CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, Settings, Target, Percent,
   MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
@@ -191,6 +191,19 @@ interface InvocationResult {
   output_tokens?: number;
 }
 
+interface SingleRunResult {
+  run_number: number;
+  session_id: string;
+  passed: boolean;
+  metric_results: MetricResult[];
+  invocation_results: InvocationResult[];
+  duration_ms: number;
+  error?: string;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_tokens?: number;
+}
+
 interface EvalCaseResult {
   eval_case_id: string;
   eval_case_name: string;
@@ -204,6 +217,14 @@ interface EvalCaseResult {
   total_input_tokens?: number;
   total_output_tokens?: number;
   total_tokens?: number;
+  // Multi-run statistics
+  num_runs?: number;
+  runs_completed?: number;
+  runs_passed?: number;
+  runs_failed?: number;
+  runs_errored?: number;
+  pass_rate?: number;
+  run_results?: SingleRunResult[];
 }
 
 interface EvalSetResult {
@@ -1861,6 +1882,21 @@ function TestResultViewer({
                     color: 'var(--text-muted)',
                     fontWeight: 400,
                   }}>
+                    {/* Show multi-run pass rate if more than 1 run */}
+                    {(caseResult.num_runs || 1) > 1 && (
+                      <span style={{ 
+                        marginRight: 8,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: (caseResult.pass_rate || 0) >= 0.5 
+                          ? 'rgba(var(--success-rgb), 0.15)' 
+                          : 'rgba(var(--error-rgb), 0.15)',
+                        color: (caseResult.pass_rate || 0) >= 0.5 ? 'var(--success)' : 'var(--error)',
+                        fontWeight: 500,
+                      }}>
+                        {caseResult.runs_passed}/{caseResult.runs_completed} runs ({((caseResult.pass_rate || 0) * 100).toFixed(0)}%)
+                      </span>
+                    )}
                     {totalFailed > 0 && <span style={{ color: 'var(--error)' }}>{totalFailed} failed</span>}
                     {totalFailed > 0 && totalPassed > 0 && ' · '}
                     {totalPassed > 0 && <span style={{ color: 'var(--success)' }}>{totalPassed} passed</span>}
@@ -2029,6 +2065,51 @@ function TestResultViewer({
                   </div>
                 )}
                 
+                {/* Multi-run Results (shown when expanded and num_runs > 1) */}
+                {isExpanded && (caseResult.num_runs || 1) > 1 && caseResult.run_results && caseResult.run_results.length > 0 && (
+                  <div style={{ marginTop: 12, marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                      Individual Run Results ({caseResult.runs_passed}/{caseResult.runs_completed} passed)
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {caseResult.run_results.map((run, runIdx) => (
+                        <div
+                          key={runIdx}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            background: run.error 
+                              ? 'rgba(255, 193, 7, 0.15)' 
+                              : run.passed 
+                                ? 'rgba(var(--success-rgb), 0.1)' 
+                                : 'rgba(var(--error-rgb), 0.1)',
+                            border: `1px solid ${run.error ? 'var(--warning)' : run.passed ? 'var(--success)' : 'var(--error)'}`,
+                            fontSize: 11,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                          title={run.error || `Run ${run.run_number}: ${run.passed ? 'Passed' : 'Failed'} (${(run.duration_ms / 1000).toFixed(2)}s)`}
+                        >
+                          {run.error ? (
+                            <AlertTriangle size={12} style={{ color: 'var(--warning)' }} />
+                          ) : run.passed ? (
+                            <CheckCircle size={12} style={{ color: 'var(--success)' }} />
+                          ) : (
+                            <XCircle size={12} style={{ color: 'var(--error)' }} />
+                          )}
+                          <span style={{ color: run.error ? 'var(--warning)' : run.passed ? 'var(--success)' : 'var(--error)' }}>
+                            Run {run.run_number}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                            {(run.duration_ms / 1000).toFixed(1)}s
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Invocation Summary */}
                 {displayInvocations?.length > 0 && (
                   <div className="invocation-summary">
