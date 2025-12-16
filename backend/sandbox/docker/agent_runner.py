@@ -404,12 +404,19 @@ class TrackingPlugin:
             },
         })
     
+    def _get_branch(self, context) -> str | None:
+        """Extract branch from callback_context or tool_context for parallel execution tracking."""
+        if hasattr(context, "_invocation_context"):
+            return getattr(context._invocation_context, "branch", None)
+        return None
+    
     async def before_agent_callback(self, *, agent, callback_context, **kwargs):
         try:
             await self._emit({
                 "event_type": "agent_start",
                 "timestamp": time.time(),
                 "agent_name": agent.name,
+                "branch": self._get_branch(callback_context),
                 "data": {"instruction": getattr(agent, "instruction", "") or ""},
             })
         except Exception as e:
@@ -423,6 +430,7 @@ class TrackingPlugin:
                 "event_type": "agent_end",
                 "timestamp": time.time(),
                 "agent_name": agent.name,
+                "branch": self._get_branch(callback_context),
                 "data": {},
             })
         except Exception as e:
@@ -434,6 +442,7 @@ class TrackingPlugin:
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
             state_delta = dict(event.actions.state_delta)
             author = getattr(event, "author", None) or "system"
+            branch = getattr(invocation_context, "branch", None)
             
             # Check for callback instrumentation events (keys like _cb_start_xxx or _cb_end_xxx)
             callback_keys = [k for k in state_delta.keys() if k.startswith("_cb_start_") or k.startswith("_cb_end_")]
@@ -445,6 +454,7 @@ class TrackingPlugin:
                         "event_type": event_type,
                         "timestamp": cb_event.get("ts", time.time()),
                         "agent_name": author,
+                        "branch": branch,
                         "data": {
                             "callback_name": cb_event.get("name", "unknown"),
                             "callback_type": cb_event.get("callback_type", ""),
@@ -457,6 +467,7 @@ class TrackingPlugin:
                     "event_type": "state_change",
                     "timestamp": time.time(),
                     "agent_name": author,
+                    "branch": branch,
                     "data": {"state_delta": state_delta},
                 })
         return None
@@ -482,6 +493,7 @@ class TrackingPlugin:
                 "event_type": "model_call",
                 "timestamp": time.time(),
                 "agent_name": getattr(callback_context, "agent_name", None) or "system",
+                "branch": self._get_branch(callback_context),
                 "data": {
                     "contents": contents,
                     "system_instruction": system_instruction,
@@ -522,6 +534,7 @@ class TrackingPlugin:
                 "event_type": "model_response",
                 "timestamp": time.time(),
                 "agent_name": getattr(callback_context, "agent_name", None) or "system",
+                "branch": self._get_branch(callback_context),
                 "data": {"parts": response_parts, "token_counts": dict(self.token_counts)},
             })
         except Exception as e:
@@ -545,6 +558,7 @@ class TrackingPlugin:
                 "event_type": "tool_call",
                 "timestamp": time.time(),
                 "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                "branch": self._get_branch(tool_context),
                 "data": {"tool_name": tool.name, "args": safe_args},
             })
         except Exception as e:
@@ -554,11 +568,13 @@ class TrackingPlugin:
     
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
         try:
+            branch = self._get_branch(tool_context)
             if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
                 await self._emit({
                     "event_type": "state_change",
                     "timestamp": time.time(),
                     "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                    "branch": branch,
                     "data": {"state_delta": dict(tool_context._event_actions.state_delta)},
                 })
             
@@ -573,6 +589,7 @@ class TrackingPlugin:
                 "event_type": "tool_result",
                 "timestamp": time.time(),
                 "agent_name": getattr(tool_context, "agent_name", None) or "system",
+                "branch": branch,
                 "data": {"tool_name": tool.name, "result": safe_result},
             })
         except Exception as e:

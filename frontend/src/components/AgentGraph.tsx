@@ -135,17 +135,43 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     // Track currently executing tools per branch
     const branchTools = new Map<string, string | null>();
     
+    // Track which transitions we've already created to avoid duplicates
+    const createdTransitions = new Set<string>();
+    
     // Helper to get or create a branch stack
     const getBranchStack = (branch: string | null | undefined): string[] => {
       const key = branch || '';
       if (!branchStacks.has(key)) {
-        // New branch inherits from parent branch or starts with system
-        // Find the parent branch (everything before the last dot)
-        const parentBranch = key.includes('.') ? key.substring(0, key.lastIndexOf('.')) : '';
-        const parentStack = branchStacks.get(parentBranch) || ['system'];
-        branchStacks.set(key, [...parentStack]);
+        // New branch - start with system, the actual parent will be determined
+        // when we process the agent_start event
+        branchStacks.set(key, ['system']);
       }
       return branchStacks.get(key)!;
+    };
+    
+    // Extract parent agent from branch path
+    // Branch format: "parent_agent.child_agent" or "grandparent.parent.child"
+    const getParentFromBranch = (branch: string | null | undefined, agentName: string): string | null => {
+      if (!branch) return null;
+      
+      // The branch format is like "parallel_agent.sequence_1" where parallel_agent is the parent
+      // For nested: "parallel_agent.sequence_1.witch_jokes" - parent of witch_jokes is sequence_1
+      const parts = branch.split('.');
+      
+      // Find where our agent appears in the branch
+      const agentIndex = parts.indexOf(agentName);
+      if (agentIndex > 0) {
+        // The parent is the previous part
+        return parts[agentIndex - 1];
+      }
+      
+      // If agent isn't in branch path, the parent might be the last part before the agent
+      // This handles cases where branch is "parent.child" and we're processing "child"
+      if (parts.length >= 1 && parts[parts.length - 1] === agentName && parts.length >= 2) {
+        return parts[parts.length - 2];
+      }
+      
+      return null;
     };
     
     for (const event of eventsUpToSelection) {
@@ -157,22 +183,50 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         
         const stack = getBranchStack(branch);
         
-        // Transition is from current active agent (top of stack) to this new agent
-        if (stack.length > 0) {
-          const parentAgent = stack[stack.length - 1];
-          if (parentAgent !== agentName) {
-            const key = `${parentAgent}->${agentName}`;
-            transitionMap.set(key, (transitionMap.get(key) || 0) + 1);
+        // Determine the parent agent
+        let parentAgent: string | null = null;
+        
+        // First, try to get parent from branch path (most reliable for parallel agents)
+        const branchParent = getParentFromBranch(branch, agentName);
+        if (branchParent && branchParent !== agentName) {
+          parentAgent = branchParent;
+          // Ensure parent is in the stack
+          if (!stack.includes(branchParent)) {
+            // Insert parent before current agent
+            stack.push(branchParent);
+            visited.add(branchParent);
+          }
+        } else if (stack.length > 0) {
+          // Fall back to top of stack (for non-parallel cases)
+          parentAgent = stack[stack.length - 1];
+        }
+        
+        // Create transition from parent to this agent
+        if (parentAgent && parentAgent !== agentName) {
+          const transitionKey = `${parentAgent}->${agentName}`;
+          // Only count each unique transition once per branch to avoid over-counting
+          const branchTransitionKey = `${branch}:${transitionKey}`;
+          if (!createdTransitions.has(branchTransitionKey)) {
+            transitionMap.set(transitionKey, (transitionMap.get(transitionKey) || 0) + 1);
+            createdTransitions.add(branchTransitionKey);
           }
         }
         
-        // Push new agent onto stack
-        stack.push(agentName);
+        // Push new agent onto stack (if not already there)
+        if (stack[stack.length - 1] !== agentName) {
+          stack.push(agentName);
+        }
       } else if (event.event_type === 'agent_end') {
-        const stack = getBranchStack(branch);
-        // Pop the ended agent from stack (but never pop 'system')
-        if (stack.length > 1) {
-          stack.pop();
+        const agentName = event.agent_name;
+        
+        // Remove the agent from ALL branch stacks
+        // This is necessary because ParallelAgent gets added to multiple stacks
+        // when we infer parent relationships
+        for (const [, stack] of branchStacks) {
+          const agentIndex = stack.lastIndexOf(agentName);
+          if (agentIndex > 0) { // Don't remove 'system' at index 0
+            stack.splice(agentIndex, 1);
+          }
         }
       } else if (event.event_type === 'tool_call') {
         const toolName = event.data?.tool_name;
@@ -454,6 +508,44 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       }
     };
     
+    // Identify leaf nodes (nodes with no outgoing edges)
+    const outgoingEdges = new Set<string>();
+    for (const link of graphData.links) {
+      const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+      outgoingEdges.add(sourceId);
+    }
+    const leafNodeIds = new Set(
+      graphData.nodes
+        .filter(n => !outgoingEdges.has(n.id) && n.name !== 'system')
+        .map(n => n.id)
+    );
+    
+    // Custom force to push leaf nodes towards the edge (radially outward)
+    const leafOutwardForce = () => {
+      const boundaryRadius = visibleRadiusPixels / scaleRef.current;
+      const targetRadius = boundaryRadius * 0.65; // Push towards outer area
+      const strength = 0.15; // How strongly to push outward
+      
+      for (const node of graphData.nodes as any[]) {
+        if (leafNodeIds.has(node.id) && node.x !== undefined && node.y !== undefined) {
+          // Calculate current distance from center
+          const dist = Math.sqrt(node.x * node.x + node.y * node.y) || 1;
+          
+          // Only push if inside target radius
+          if (dist < targetRadius) {
+            // Direction away from center (normalized)
+            const dx = node.x / dist;
+            const dy = node.y / dist;
+            
+            // Apply outward velocity
+            const force = (targetRadius - dist) * strength;
+            node.vx = (node.vx || 0) + dx * force;
+            node.vy = (node.vy || 0) + dy * force;
+          }
+        }
+      }
+    };
+    
     // Create simulation with stronger forces and slower decay for better spreading
     const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
       .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
@@ -464,6 +556,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .force('collision', d3.forceCollide().radius(40)) // Increased from 35
       .force('boundary', boundaryForce)
       .force('systemPull', systemPullForce) // Pull system node to bottom-left
+      .force('leafOutward', leafOutwardForce) // Push leaf nodes towards edge
       .alphaDecay(0.01); // Much slower decay (default is ~0.0228)
     
     // If all nodes have positions, use lower alpha but still let it spread
@@ -653,6 +746,43 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       }
     };
     
+    // Identify leaf nodes (nodes with no outgoing edges)
+    const outgoingEdges = new Set<string>();
+    for (const link of graphData.links) {
+      const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+      outgoingEdges.add(sourceId);
+    }
+    const leafNodeIds = new Set(
+      graphData.nodes
+        .filter(n => !outgoingEdges.has(n.id) && n.name !== 'system')
+        .map(n => n.id)
+    );
+    
+    // Custom force to push leaf nodes towards the edge (radially outward)
+    const leafOutwardForce = () => {
+      const targetRadius = boundaryRadius * 0.75; // Push towards outer area
+      const strength = 0.12; // How strongly to push outward
+      
+      for (const node of graphData.nodes as any[]) {
+        if (leafNodeIds.has(node.id) && node.x !== undefined && node.y !== undefined) {
+          // Calculate current distance from center
+          const dist = Math.sqrt(node.x * node.x + node.y * node.y) || 1;
+          
+          // Only push if inside target radius
+          if (dist < targetRadius) {
+            // Direction away from center (normalized)
+            const dx = node.x / dist;
+            const dy = node.y / dist;
+            
+            // Apply outward velocity
+            const force = (targetRadius - dist) * strength;
+            node.vx = (node.vx || 0) + dx * force;
+            node.vy = (node.vy || 0) + dy * force;
+          }
+        }
+      }
+    };
+    
     // Check if all nodes have saved positions
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
     
@@ -665,6 +795,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .force('center', d3.forceCenter(0, 0))
       .force('collision', d3.forceCollide().radius(50))
       .force('boundary', boundaryForce)
+      .force('leafOutward', leafOutwardForce) // Push leaf nodes towards edge
       .alpha(allNodesHavePositions ? 0.1 : 0.8)
       .alphaDecay(0.02);
     
