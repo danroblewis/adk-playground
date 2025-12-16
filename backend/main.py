@@ -232,9 +232,12 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app):
     """Handle app startup and shutdown."""
-    # Startup
+    # Startup - start the backup service
+    project_manager.start_backup_service()
+    logger.info("📦 Backup service started (backups every 60 seconds if changed)")
     yield
-    # Shutdown - cleanup Docker containers
+    # Shutdown - stop backup service and cleanup Docker containers
+    project_manager.stop_backup_service()
     if SANDBOX_AVAILABLE:
         try:
             from sandbox.docker_manager import get_sandbox_manager
@@ -327,6 +330,60 @@ async def delete_project(project_id: str):
     if project_manager.delete_project(project_id):
         return {"success": True}
     raise HTTPException(status_code=404, detail="Project not found")
+
+
+# ============================================================================
+# Project Backups
+# ============================================================================
+
+@app.get("/api/projects/{project_id}/backups")
+async def list_project_backups(project_id: str):
+    """List available backups for a project."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    backups = project_manager.list_backups(project_id)
+    return {"backups": backups}
+
+
+@app.post("/api/projects/{project_id}/backups/restore")
+async def restore_project_backup(project_id: str, data: dict):
+    """Restore a project from a backup.
+    
+    Body: { "filename": "project_id_YYYYMMDD_HHMMSS.yaml.gz" }
+    """
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    filename = data.get("filename")
+    if not filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    
+    restored = project_manager.restore_backup(project_id, filename)
+    if not restored:
+        raise HTTPException(status_code=400, detail="Failed to restore backup")
+    
+    return {"project": restored.model_dump(mode="json", by_alias=True)}
+
+
+@app.post("/api/projects/{project_id}/backups/create")
+async def create_project_backup(project_id: str):
+    """Manually create a backup of a project."""
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Force a backup regardless of changes
+    project_manager._last_backup_hashes.pop(project_id, None)
+    success = project_manager._backup_project(project_id)
+    
+    if success:
+        backups = project_manager.list_backups(project_id)
+        return {"success": True, "latest": backups[0] if backups else None}
+    
+    return {"success": False, "error": "Backup failed"}
 
 
 # ============================================================================

@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import gzip
+import hashlib
+import logging
 import os
+import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
 
 from models import Project, AppConfig, AgentConfig, CustomToolDefinition, CustomCallbackDefinition
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectManager:
@@ -19,6 +27,16 @@ class ProjectManager:
         self.projects_dir = Path(projects_dir)
         self.projects_dir.mkdir(parents=True, exist_ok=True)
         self._cache: Dict[str, Project] = {}
+        
+        # Backup tracking
+        self._backup_dir = self.projects_dir / ".backups"
+        self._backup_dir.mkdir(parents=True, exist_ok=True)
+        self._last_backup_hashes: Dict[str, str] = {}  # project_id -> content hash
+        self._backup_task: Optional[asyncio.Task] = None
+        self._backup_running = False
+        
+        # Load existing backup hashes
+        self._load_backup_hashes()
     
     def _project_path(self, project_id: str) -> Path:
         return self.projects_dir / f"{project_id}.yaml"
@@ -364,6 +382,191 @@ class ProjectManager:
                 code_lines.append("")
             
             file_path.write_text("\n".join(code_lines))
+
+    # =========================================================================
+    # Backup System
+    # =========================================================================
+    
+    def _load_backup_hashes(self) -> None:
+        """Load the hash of the last backup for each project."""
+        for path in self.projects_dir.glob("*.yaml"):
+            project_id = path.stem
+            # Find the most recent backup and compute its hash
+            backup_pattern = f"{project_id}_*.yaml.gz"
+            backups = list(self._backup_dir.glob(backup_pattern))
+            if backups:
+                # Get the most recent backup
+                latest = max(backups, key=lambda p: p.stat().st_mtime)
+                try:
+                    with gzip.open(latest, 'rt') as f:
+                        content = f.read()
+                    self._last_backup_hashes[project_id] = hashlib.md5(content.encode()).hexdigest()
+                except Exception:
+                    pass
+    
+    def _compute_file_hash(self, path: Path) -> Optional[str]:
+        """Compute MD5 hash of a file's content."""
+        if not path.exists():
+            return None
+        try:
+            with open(path, 'r') as f:
+                content = f.read()
+            return hashlib.md5(content.encode()).hexdigest()
+        except Exception:
+            return None
+    
+    def _backup_project(self, project_id: str) -> bool:
+        """Create a gzipped backup of a project if it has changed."""
+        path = self._project_path(project_id)
+        if not path.exists():
+            return False
+        
+        current_hash = self._compute_file_hash(path)
+        if not current_hash:
+            return False
+        
+        # Check if changed since last backup
+        last_hash = self._last_backup_hashes.get(project_id)
+        if current_hash == last_hash:
+            return False  # No change, no backup needed
+        
+        # Create backup with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{project_id}_{timestamp}.yaml.gz"
+        backup_path = self._backup_dir / backup_name
+        
+        try:
+            # Read the original file
+            with open(path, 'r') as f:
+                content = f.read()
+            
+            # Write gzipped backup
+            with gzip.open(backup_path, 'wt') as f:
+                f.write(content)
+            
+            # Update hash
+            self._last_backup_hashes[project_id] = current_hash
+            
+            logger.info(f"Backup created: {backup_name}")
+            
+            # Cleanup old backups (keep last 50 per project)
+            self._cleanup_old_backups(project_id, keep=50)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to backup project {project_id}: {e}")
+            return False
+    
+    def _cleanup_old_backups(self, project_id: str, keep: int = 50) -> None:
+        """Remove old backups, keeping only the most recent N."""
+        backup_pattern = f"{project_id}_*.yaml.gz"
+        backups = list(self._backup_dir.glob(backup_pattern))
+        
+        if len(backups) <= keep:
+            return
+        
+        # Sort by modification time (oldest first)
+        backups.sort(key=lambda p: p.stat().st_mtime)
+        
+        # Remove oldest backups
+        for backup in backups[:-keep]:
+            try:
+                backup.unlink()
+                logger.debug(f"Removed old backup: {backup.name}")
+            except Exception:
+                pass
+    
+    async def _backup_loop(self) -> None:
+        """Background task that checks for changes and backs up every minute."""
+        while self._backup_running:
+            try:
+                # Check all projects
+                for path in self.projects_dir.glob("*.yaml"):
+                    project_id = path.stem
+                    self._backup_project(project_id)
+            except Exception as e:
+                logger.error(f"Backup loop error: {e}")
+            
+            # Wait 60 seconds
+            await asyncio.sleep(60)
+    
+    def start_backup_service(self) -> None:
+        """Start the automatic backup service."""
+        if self._backup_running:
+            return
+        
+        self._backup_running = True
+        try:
+            loop = asyncio.get_running_loop()
+            self._backup_task = loop.create_task(self._backup_loop())
+            logger.info("Backup service started (checking every 60 seconds)")
+        except RuntimeError:
+            # No running loop - will be started later when there is one
+            logger.debug("No event loop yet, backup service will start when loop is available")
+    
+    def stop_backup_service(self) -> None:
+        """Stop the automatic backup service."""
+        self._backup_running = False
+        if self._backup_task:
+            self._backup_task.cancel()
+            self._backup_task = None
+        logger.info("Backup service stopped")
+    
+    def list_backups(self, project_id: str) -> List[Dict[str, any]]:
+        """List available backups for a project."""
+        backup_pattern = f"{project_id}_*.yaml.gz"
+        backups = []
+        
+        for path in self._backup_dir.glob(backup_pattern):
+            try:
+                # Parse timestamp from filename: project_id_YYYYMMDD_HHMMSS.yaml.gz
+                name = path.stem.replace('.yaml', '')  # Remove .yaml from .yaml.gz
+                parts = name.split('_')
+                if len(parts) >= 3:
+                    date_str = parts[-2]  # YYYYMMDD
+                    time_str = parts[-1]  # HHMMSS
+                    timestamp = datetime.strptime(f"{date_str}_{time_str}", "%Y%m%d_%H%M%S")
+                else:
+                    timestamp = datetime.fromtimestamp(path.stat().st_mtime)
+                
+                backups.append({
+                    "filename": path.name,
+                    "timestamp": timestamp.isoformat(),
+                    "size": path.stat().st_size,
+                })
+            except Exception:
+                continue
+        
+        # Sort by timestamp descending (newest first)
+        backups.sort(key=lambda b: b["timestamp"], reverse=True)
+        return backups
+    
+    def restore_backup(self, project_id: str, backup_filename: str) -> Optional[Project]:
+        """Restore a project from a backup."""
+        backup_path = self._backup_dir / backup_filename
+        
+        if not backup_path.exists():
+            logger.error(f"Backup not found: {backup_filename}")
+            return None
+        
+        try:
+            # Read and decompress
+            with gzip.open(backup_path, 'rt') as f:
+                content = f.read()
+            
+            # Parse and validate
+            data = yaml.safe_load(content)
+            data["id"] = project_id  # Ensure ID matches
+            project = Project.model_validate(data)
+            
+            # Save as current project (this will trigger a new backup)
+            self.save_project(project)
+            
+            logger.info(f"Restored project {project_id} from {backup_filename}")
+            return project
+        except Exception as e:
+            logger.error(f"Failed to restore backup {backup_filename}: {e}")
+            return None
 
 
 # Singleton instance - uses same default path logic as main.py

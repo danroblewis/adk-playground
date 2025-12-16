@@ -136,6 +136,12 @@ class TrackingPlugin:
         self.callback = callback
         self.token_counts = {"input": 0, "output": 0}
     
+    def _get_branch(self, context) -> str | None:
+        """Extract branch from callback_context or tool_context."""
+        if hasattr(context, "_invocation_context"):
+            return getattr(context._invocation_context, "branch", None)
+        return None
+    
     async def _emit(self, event: RunEvent):
         """Emit an event."""
         self.session.events.append(event)
@@ -146,6 +152,7 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="agent_start",
             agent_name=agent.name,
+            branch=self._get_branch(callback_context),
             data={"instruction": getattr(agent, "instruction", "") or ""},
         ))
         return None
@@ -155,18 +162,21 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="agent_end",
             agent_name=agent.name,
+            branch=self._get_branch(callback_context),
             data={},
         ))
         return None
     
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
-                await self._emit(RunEvent(
-                    timestamp=time.time(),
-                    event_type="state_change",
+            branch = getattr(invocation_context, "branch", None)
+            await self._emit(RunEvent(
+                timestamp=time.time(),
+                event_type="state_change",
                 agent_name=getattr(event, "author", None) or "system",
+                branch=branch,
                 data={"state_delta": dict(event.actions.state_delta)},
-                ))
+            ))
         return None
     
     async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
@@ -189,6 +199,7 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="model_call",
             agent_name=getattr(callback_context, "agent_name", None) or "system",
+            branch=self._get_branch(callback_context),
             data={
                 "contents": contents,
                 "system_instruction": system_instruction,
@@ -225,6 +236,7 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="model_response",
             agent_name=getattr(callback_context, "agent_name", None) or "system",
+            branch=self._get_branch(callback_context),
             data={"parts": response_parts, "token_counts": dict(self.token_counts)},
         ))
         return None
@@ -234,16 +246,19 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="tool_call",
             agent_name=getattr(tool_context, "agent_name", None) or "system",
+            branch=self._get_branch(tool_context),
             data={"tool_name": tool.name, "args": tool_args},
         ))
         return None
     
     async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
+        branch = self._get_branch(tool_context)
         if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
             await self._emit(RunEvent(
                 timestamp=time.time(),
                 event_type="state_change",
                 agent_name=getattr(tool_context, "agent_name", None) or "system",
+                branch=branch,
                 data={"state_delta": dict(tool_context._event_actions.state_delta)},
             ))
         
@@ -251,6 +266,7 @@ class TrackingPlugin:
             timestamp=time.time(),
             event_type="tool_result",
             agent_name=getattr(tool_context, "agent_name", None) or "system",
+            branch=branch,
             data={"tool_name": tool.name, "result": result},
         ))
         return None

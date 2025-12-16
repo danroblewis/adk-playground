@@ -102,47 +102,64 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
   // Store the last zoom transform
   const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
-  // Calculate the active agent, transitions, visited agents, and tool calls up to the selected event
-  const { activeAgent, activeTool, transitions, visitedAgents, toolCalls } = useMemo(() => {
+  // Calculate active agents (supports parallel execution), transitions, visited agents, and tool calls
+  const { activeAgents, activeTools, transitions, visitedAgents, toolCalls, activeBranches } = useMemo(() => {
     // If no event selected, use the most recent event
     const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
     
     if (effectiveIndex < 0 || events.length === 0) {
       return { 
-        activeAgent: null,
-        activeTool: null,
+        activeAgents: new Set<string>(),
+        activeTools: new Set<string>(),
         transitions: new Map<string, number>(), 
         visitedAgents: new Set<string>(),
-        toolCalls: new Map<string, number>() // Map of "agent->tool" to count
+        toolCalls: new Map<string, number>(),
+        activeBranches: new Set<string>()
       };
     }
     
     const eventsUpToSelection = events.slice(0, effectiveIndex + 1);
     const transitionMap = new Map<string, number>();
-    const toolCallMap = new Map<string, number>(); // Track agent->tool calls
+    const toolCallMap = new Map<string, number>();
     const visited = new Set<string>();
     const visitedTools = new Set<string>();
     
     // Always include system node
     visited.add('system');
     
-    // Use a stack to track the agent hierarchy
-    // When agent_start happens, the transition is from the current top of stack (parent) to the new agent
-    // When agent_end happens, we pop the stack
-    // Start with 'system' as the initial parent
-    const agentStack: string[] = ['system'];
+    // Track agent stacks per branch for parallel execution
+    // Key: branch name (or '' for main branch), Value: stack of agent names
+    const branchStacks = new Map<string, string[]>();
+    branchStacks.set('', ['system']); // Main branch starts with system
     
-    // Track currently executing tool (between tool_call and tool_result)
-    let currentTool: string | null = null;
+    // Track currently executing tools per branch
+    const branchTools = new Map<string, string | null>();
+    
+    // Helper to get or create a branch stack
+    const getBranchStack = (branch: string | null | undefined): string[] => {
+      const key = branch || '';
+      if (!branchStacks.has(key)) {
+        // New branch inherits from parent branch or starts with system
+        // Find the parent branch (everything before the last dot)
+        const parentBranch = key.includes('.') ? key.substring(0, key.lastIndexOf('.')) : '';
+        const parentStack = branchStacks.get(parentBranch) || ['system'];
+        branchStacks.set(key, [...parentStack]);
+      }
+      return branchStacks.get(key)!;
+    };
     
     for (const event of eventsUpToSelection) {
+      const branch = event.branch || '';
+      
       if (event.event_type === 'agent_start') {
         const agentName = event.agent_name;
         visited.add(agentName);
         
+        const stack = getBranchStack(branch);
+        
         // Transition is from current active agent (top of stack) to this new agent
-        if (agentStack.length > 0) {
-          const parentAgent = agentStack[agentStack.length - 1];
+        if (stack.length > 0) {
+          const parentAgent = stack[stack.length - 1];
           if (parentAgent !== agentName) {
             const key = `${parentAgent}->${agentName}`;
             transitionMap.set(key, (transitionMap.get(key) || 0) + 1);
@@ -150,41 +167,53 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         }
         
         // Push new agent onto stack
-        agentStack.push(agentName);
+        stack.push(agentName);
       } else if (event.event_type === 'agent_end') {
+        const stack = getBranchStack(branch);
         // Pop the ended agent from stack (but never pop 'system')
-        if (agentStack.length > 1) {
-          agentStack.pop();
+        if (stack.length > 1) {
+          stack.pop();
         }
       } else if (event.event_type === 'tool_call') {
-        // Track tool calls from the current agent
         const toolName = event.data?.tool_name;
-        if (toolName && agentStack.length > 0) {
-          const callingAgent = agentStack[agentStack.length - 1];
+        const stack = getBranchStack(branch);
+        if (toolName && stack.length > 0) {
+          const callingAgent = stack[stack.length - 1];
           visitedTools.add(toolName);
           const key = `${callingAgent}->tool:${toolName}`;
           toolCallMap.set(key, (toolCallMap.get(key) || 0) + 1);
-          // Tool is now executing
-          currentTool = toolName;
+          branchTools.set(branch, toolName);
         }
       } else if (event.event_type === 'tool_result') {
-        // Tool finished executing
-        currentTool = null;
+        branchTools.set(branch, null);
       }
     }
     
-    // Add visited tools to visited set with a prefix to distinguish them
+    // Add visited tools to visited set with a prefix
     visitedTools.forEach(tool => visited.add(`tool:${tool}`));
     
-    // Current active agent is top of stack (or null if only system remains)
-    const currentAgent = agentStack.length > 1 ? agentStack[agentStack.length - 1] : null;
+    // Collect all currently active agents across all branches
+    const currentActiveAgents = new Set<string>();
+    const currentActiveTools = new Set<string>();
+    const currentActiveBranches = new Set<string>();
+    
+    for (const [branch, stack] of branchStacks) {
+      if (stack.length > 1) {
+        const topAgent = stack[stack.length - 1];
+        currentActiveAgents.add(topAgent);
+        if (branch) currentActiveBranches.add(branch);
+      }
+      const tool = branchTools.get(branch);
+      if (tool) currentActiveTools.add(tool);
+    }
     
     return { 
-      activeAgent: currentAgent, 
-      activeTool: currentTool,
+      activeAgents: currentActiveAgents,
+      activeTools: currentActiveTools,
       transitions: transitionMap, 
       visitedAgents: visited, 
-      toolCalls: toolCallMap 
+      toolCalls: toolCallMap,
+      activeBranches: currentActiveBranches
     };
   }, [events, selectedEventIndex]);
   
@@ -209,7 +238,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         id,
         name: agentName,
         type: agentName === 'system' ? 'System' : (config?.type || 'LlmAgent'),
-        isActive: agentName === activeAgent,
+        isActive: activeAgents.has(agentName), // Can have multiple active agents in parallel
         wasActive: true,
         x: prevPos?.x,
         y: prevPos?.y,
@@ -230,7 +259,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         id,
         name: toolName,
         type: 'Tool',
-        isActive: toolName === activeTool, // Tool is active if currently executing
+        isActive: activeTools.has(toolName), // Can have multiple active tools in parallel
         wasActive: true,
         x: prevPos?.x,
         y: prevPos?.y,
@@ -277,7 +306,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     }
     
     return { nodes, links };
-  }, [agents, activeAgent, activeTool, visitedAgents, transitions, toolCalls]);
+  }, [agents, activeAgents, activeTools, visitedAgents, transitions, toolCalls]);
   
   // D3 force simulation
   useEffect(() => {
