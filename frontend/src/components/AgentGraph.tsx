@@ -758,7 +758,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .data(graphData.links)
       .join('path')
       .attr('stroke', (_d, i) => `url(#link-gradient-${i})`)
-      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 8) : 1.5)
+      .attr('stroke-width', d => {
+        // Scale width based on count. Max ~9 (1/4 of node diameter 36)
+        const baseWidth = d.type === 'transition' ? 2 : 1.5;
+        const maxWidth = 9;
+        return Math.min(baseWidth + (d.count - 1) * 1.5, maxWidth);
+      })
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '4,2' : 'none')
       .attr('fill', 'none');
@@ -1021,7 +1026,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .data(graphData.links)
       .join('path')
       .attr('stroke', (_d, i) => `url(#exp-link-gradient-${i})`)
-      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 8) : 2)
+      .attr('stroke-width', d => {
+        // Scale width based on count. Max ~14 (1/4 of node diameter 56)
+        const baseWidth = d.type === 'transition' ? 3 : 2;
+        const maxWidth = 14;
+        return Math.min(baseWidth + (d.count - 1) * 2.5, maxWidth);
+      })
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '6,3' : 'none')
       .attr('fill', 'none');
