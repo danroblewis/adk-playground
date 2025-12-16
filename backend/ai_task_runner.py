@@ -90,6 +90,100 @@ def _cleanup_code_fences(text: str) -> str:
     return code.strip()
 
 
+def build_model_from_project(project) -> Any:
+    """Public helper: select an ADK model from a Project."""
+
+    return _select_adk_model_from_project(project)
+
+
+async def run_agent_task(
+    *,
+    agent: Any,
+    message: str,
+    output_key: Optional[str] = None,
+    app_name: str = "ai_task",
+    user_id: str = "ai_task_user",
+    env_vars: Optional[Dict[str, str]] = None,
+    cleanup_code_fences: bool = False,
+) -> AiTaskResult:
+    """Run a caller-provided ADK Agent and return output + full session state.
+
+    This is the core primitive intended for running "in-app agents" and future
+    multi-agent systems you define in `agents/`.
+    """
+
+    from google.adk.runners import Runner
+    from google.adk.sessions.in_memory_session_service import InMemorySessionService
+    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+    from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
+    from google.genai import types
+
+    effective_output_key = output_key or getattr(agent, "output_key", None)
+
+    runner = Runner(
+        app_name=app_name,
+        agent=agent,
+        session_service=InMemorySessionService(),
+        memory_service=InMemoryMemoryService(),
+        artifact_service=InMemoryArtifactService(),
+    )
+
+    with temporary_env(env_vars or {}):
+        session = await runner.session_service.create_session(
+            app_name=app_name,
+            user_id=user_id,
+        )
+
+        streamed_text_parts: list[str] = []
+        try:
+            async for event in runner.run_async(
+                session_id=session.id,
+                user_id=user_id,
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=message)],
+                ),
+            ):
+                if (
+                    not effective_output_key
+                    and getattr(event, "content", None)
+                    and getattr(event.content, "parts", None)
+                ):
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            streamed_text_parts.append(part.text)
+
+            final_session = await runner.session_service.get_session(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session.id,
+            )
+            session_state = (
+                dict(final_session.state)
+                if final_session and getattr(final_session, "state", None)
+                else {}
+            )
+
+            if effective_output_key:
+                text = str(session_state.get(effective_output_key, "") or "").strip()
+            else:
+                text = "".join(streamed_text_parts).strip()
+
+            if cleanup_code_fences:
+                text = _cleanup_code_fences(text)
+
+            return AiTaskResult(
+                text=text,
+                session_state=session_state,
+                app_name=app_name,
+                agent_name=getattr(agent, "name", "agent"),
+                user_id=user_id,
+                session_id=session.id,
+            )
+        finally:
+            await runner.close()
+
+
 async def run_ai_task(
     *,
     project,
@@ -111,75 +205,26 @@ async def run_ai_task(
     """
 
     from google.adk import Agent
-    from google.adk.runners import Runner
-    from google.adk.sessions.in_memory_session_service import InMemorySessionService
-    from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
-    from google.adk.artifacts.in_memory_artifact_service import InMemoryArtifactService
-    from google.genai import types
 
     model = _select_adk_model_from_project(project)
 
-    with temporary_env(getattr(project.app, "env_vars", None) or {}):
-        agent_kwargs: Dict[str, Any] = {
-            "name": agent_name,
-            "model": model,
-            "instruction": instruction,
-        }
-        if output_key:
-            agent_kwargs["output_key"] = output_key
+    agent_kwargs: Dict[str, Any] = {
+        "name": agent_name,
+        "model": model,
+        "instruction": instruction,
+    }
+    if output_key:
+        agent_kwargs["output_key"] = output_key
 
-        task_agent = Agent(**agent_kwargs)
+    task_agent = Agent(**agent_kwargs)
 
-        runner = Runner(
-            app_name=app_name,
-            agent=task_agent,
-            session_service=InMemorySessionService(),
-            memory_service=InMemoryMemoryService(),
-            artifact_service=InMemoryArtifactService(),
-        )
-
-        session = await runner.session_service.create_session(
-            app_name=app_name,
-            user_id=user_id,
-        )
-
-        streamed_text_parts: list[str] = []
-        async for event in runner.run_async(
-            session_id=session.id,
-            user_id=user_id,
-            new_message=types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=message)],
-            ),
-        ):
-            if not output_key and getattr(event, "content", None) and getattr(event.content, "parts", None):
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        streamed_text_parts.append(part.text)
-
-        final_session = await runner.session_service.get_session(
-            app_name=app_name,
-            user_id=user_id,
-            session_id=session.id,
-        )
-        session_state = dict(final_session.state) if final_session and getattr(final_session, "state", None) else {}
-
-        if output_key:
-            text = str(session_state.get(output_key, "") or "").strip()
-        else:
-            text = "".join(streamed_text_parts).strip()
-
-        if cleanup_code_fences:
-            text = _cleanup_code_fences(text)
-
-        await runner.close()
-
-        return AiTaskResult(
-            text=text,
-            session_state=session_state,
-            app_name=app_name,
-            agent_name=agent_name,
-            user_id=user_id,
-            session_id=session.id,
-        )
+    return await run_agent_task(
+        agent=task_agent,
+        message=message,
+        output_key=output_key,
+        app_name=app_name,
+        user_id=user_id,
+        env_vars=getattr(project.app, "env_vars", None) or {},
+        cleanup_code_fences=cleanup_code_fences,
+    )
 

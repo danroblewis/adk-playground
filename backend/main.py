@@ -30,8 +30,33 @@ from models import (
 )
 from project_manager import ProjectManager
 from runtime import RuntimeManager
-from ai_task_runner import run_ai_task
+from ai_task_runner import run_ai_task, run_agent_task
 from known_mcp_servers import KNOWN_MCP_SERVERS, BUILTIN_TOOLS
+
+from agents.prompt_generator import (
+    APP_NAME as PROMPT_APP_NAME,
+    OUTPUT_KEY as PROMPT_OUTPUT_KEY,
+    USER_ID as PROMPT_USER_ID,
+    build_prompt_generator_agent,
+)
+from agents.tool_code_generator import (
+    APP_NAME as TOOL_APP_NAME,
+    OUTPUT_KEY as TOOL_OUTPUT_KEY,
+    USER_ID as TOOL_USER_ID,
+    build_tool_code_generator_agent,
+)
+from agents.callback_code_generator import (
+    APP_NAME as CALLBACK_APP_NAME,
+    OUTPUT_KEY as CALLBACK_OUTPUT_KEY,
+    USER_ID as CALLBACK_USER_ID,
+    build_callback_code_generator_agent,
+)
+from agents.agent_config_generator import (
+    APP_NAME as CONFIG_APP_NAME,
+    OUTPUT_KEY as CONFIG_OUTPUT_KEY,
+    USER_ID as CONFIG_USER_ID,
+    build_agent_config_generator_agent,
+)
 
 # Import sandbox API router
 try:
@@ -1407,14 +1432,14 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
 """
     
     try:
-        result = await run_ai_task(
-            project=project,
-            instruction="You are a prompt engineering expert. Generate high-quality instruction prompts for AI agents.",
+        agent = build_prompt_generator_agent(project)
+        result = await run_agent_task(
+            agent=agent,
             message=meta_prompt,
-            output_key="generated_prompt",
-            app_name="prompt_generator",
-            agent_name="prompt_generator",
-            user_id="prompt_gen_user",
+            output_key=PROMPT_OUTPUT_KEY,
+            app_name=PROMPT_APP_NAME,
+            user_id=PROMPT_USER_ID,
+            env_vars=project.app.env_vars or {},
         )
 
         return {"prompt": result.text, "success": True}
@@ -1596,14 +1621,14 @@ async def generate_tool_code(project_id: str, request: GenerateToolCodeRequest):
 Write the complete Python code for this tool. Include appropriate imports at the top if needed (like `from google.adk.tools.tool_context import ToolContext`). Make sure the function name matches the tool name (use snake_case).
 """
         
-        result = await run_ai_task(
-            project=project,
-            instruction=ADK_TOOL_SYSTEM_PROMPT,
+        agent = build_tool_code_generator_agent(project)
+        result = await run_agent_task(
+            agent=agent,
             message=user_prompt,
-            output_key="generated_code",
-            app_name="tool_code_generator",
-            agent_name="tool_code_generator",
-            user_id="code_gen_user",
+            output_key=TOOL_OUTPUT_KEY,
+            app_name=TOOL_APP_NAME,
+            user_id=TOOL_USER_ID,
+            env_vars=project.app.env_vars or {},
             cleanup_code_fences=True,
         )
 
@@ -1863,14 +1888,14 @@ Write the complete Python code for this callback. Include appropriate imports at
 - For after_tool: `(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]`
 """
         
-        result = await run_ai_task(
-            project=project,
-            instruction=ADK_CALLBACK_SYSTEM_PROMPT,
+        agent = build_callback_code_generator_agent(project)
+        result = await run_agent_task(
+            agent=agent,
             message=user_prompt,
-            output_key="generated_code",
-            app_name="callback_code_generator",
-            agent_name="callback_code_generator",
-            user_id="code_gen_user",
+            output_key=CALLBACK_OUTPUT_KEY,
+            app_name=CALLBACK_APP_NAME,
+            user_id=CALLBACK_USER_ID,
+            env_vars=project.app.env_vars or {},
             cleanup_code_fences=True,
         )
 
@@ -1986,14 +2011,14 @@ The error was: {last_error}
 
 Please return ONLY the JSON object with the agent configuration. No explanation, no markdown, just the raw JSON starting with {{ and ending with }}. Make sure to close all brackets and quotes properly."""
 
-            result = await run_ai_task(
-                project=project,
-                instruction="You are an expert at configuring AI agents. Generate valid JSON configurations.",
+            agent = build_agent_config_generator_agent(project)
+            result = await run_agent_task(
+                agent=agent,
                 message=message,
-                output_key="generated_json",
-                app_name="config_generator",
-                agent_name="config_generator",
-                user_id="config_gen_user",
+                output_key=CONFIG_OUTPUT_KEY,
+                app_name=CONFIG_APP_NAME,
+                user_id=CONFIG_USER_ID,
+                env_vars=project.app.env_vars or {},
             )
 
             # Parse the JSON from the response
