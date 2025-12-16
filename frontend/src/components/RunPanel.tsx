@@ -2027,6 +2027,8 @@ export default function RunPanel() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsTab, setLogsTab] = useState<'agent' | 'gateway'>('agent');
   const logsContainerRef = useRef<HTMLDivElement>(null);
+  const logsUserAtBottomRef = useRef(true);  // Track if user is at bottom of logs
+  const logsPrevScrollHeightRef = useRef(0);  // Track previous scroll height for position retention
   const [hideCompleteResponses, setHideCompleteResponses] = useState(true);
   const [showStatePanel, setShowStatePanel] = useState(true);
   const [showToolRunner, setShowToolRunner] = useState(false);
@@ -2670,17 +2672,49 @@ export default function RunPanel() {
     fetchContainerLogs();
   }, [fetchContainerLogs]);
   
-  // Auto-scroll logs to bottom when modal opens, tab changes, or logs load
+  // Handle logs scroll position retention
   useEffect(() => {
-    if (showLogsModal && logsContainerRef.current && !logsLoading) {
-      // Small timeout to ensure content is rendered
-      setTimeout(() => {
-        if (logsContainerRef.current) {
-          logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
-        }
-      }, 50);
-    }
+    if (!showLogsModal || !logsContainerRef.current || logsLoading) return;
+    
+    const container = logsContainerRef.current;
+    const prevScrollHeight = logsPrevScrollHeightRef.current;
+    const newScrollHeight = container.scrollHeight;
+    
+    // Small timeout to ensure content is rendered
+    setTimeout(() => {
+      if (!logsContainerRef.current) return;
+      
+      if (logsUserAtBottomRef.current) {
+        // User was at bottom, scroll to new bottom
+        logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+      } else if (prevScrollHeight > 0 && newScrollHeight > prevScrollHeight) {
+        // User scrolled up, maintain their position by offsetting for new content
+        const heightDiff = newScrollHeight - prevScrollHeight;
+        logsContainerRef.current.scrollTop += heightDiff;
+      }
+      
+      // Update the previous scroll height for next comparison
+      logsPrevScrollHeightRef.current = logsContainerRef.current.scrollHeight;
+    }, 50);
   }, [showLogsModal, logsTab, containerLogs, logsLoading]);
+  
+  // Reset scroll tracking when modal opens or tab changes
+  useEffect(() => {
+    if (showLogsModal) {
+      logsUserAtBottomRef.current = true;
+      logsPrevScrollHeightRef.current = 0;
+    }
+  }, [showLogsModal, logsTab]);
+  
+  // Handle scroll event to detect if user is at bottom
+  const handleLogsScroll = useCallback(() => {
+    if (!logsContainerRef.current) return;
+    
+    const container = logsContainerRef.current;
+    const threshold = 50; // Consider "at bottom" if within 50px
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+    logsUserAtBottomRef.current = isAtBottom;
+  }, []);
   
   // Auto-refresh logs every 3 seconds when modal is open
   useEffect(() => {
@@ -5082,6 +5116,7 @@ export default function RunPanel() {
             {/* Log content */}
             <div 
               ref={logsContainerRef}
+              onScroll={handleLogsScroll}
               style={{
                 flex: 1,
                 overflow: 'auto',
