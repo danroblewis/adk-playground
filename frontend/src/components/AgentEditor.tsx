@@ -18,7 +18,7 @@ function isValidName(name: string): boolean {
 
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRunAgentId } = useStore();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents', 'callbacks']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [showRequestChanges, setShowRequestChanges] = useState(false);

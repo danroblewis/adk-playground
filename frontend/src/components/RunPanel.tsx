@@ -2042,9 +2042,11 @@ export default function RunPanel() {
   const [promptHistory, setPromptHistory] = useState<Array<{ prompt: string; count: number }>>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Load prompt history from LocalStorage on mount
+  // Load prompt history from LocalStorage on mount (scoped by project)
   useEffect(() => {
-    const stored = localStorage.getItem('promptHistory');
+    if (!project) return;
+    const storageKey = `promptHistory_${project.id}`;
+    const stored = localStorage.getItem(storageKey);
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as Record<string, number>;
@@ -2055,25 +2057,28 @@ export default function RunPanel() {
       } catch (e) {
         console.error('Failed to parse prompt history:', e);
       }
+    } else {
+      setPromptHistory([]);  // Clear when switching projects
     }
-  }, []);
+  }, [project?.id]);
   
   // Save prompt to history
   const savePromptToHistory = useCallback((prompt: string) => {
     const trimmed = prompt.trim();
-    if (!trimmed) return;
+    if (!trimmed || !project) return;
     
-    const stored = localStorage.getItem('promptHistory');
+    const storageKey = `promptHistory_${project.id}`;
+    const stored = localStorage.getItem(storageKey);
     const history: Record<string, number> = stored ? JSON.parse(stored) : {};
     history[trimmed] = (history[trimmed] || 0) + 1;
-    localStorage.setItem('promptHistory', JSON.stringify(history));
+    localStorage.setItem(storageKey, JSON.stringify(history));
     
     // Update state
     const updated = Object.entries(history)
       .map(([p, count]) => ({ prompt: p, count }))
       .sort((a, b) => b.count - a.count);
     setPromptHistory(updated);
-  }, []);
+  }, [project]);
   
   // Filter suggestions based on current input
   const filteredSuggestions = useMemo(() => {
@@ -2403,14 +2408,11 @@ export default function RunPanel() {
       setWs(null);
     }
     
-    // Only clear events if we're not reusing an existing session
-    // If currentSessionId is set, we're continuing a loaded session
-    if (!currentSessionId) {
-      clearRunEvents();
-      clearWatchHistories();  // Clear watch histories when starting a new run
-      setSelectedSessionId(null);  // Clear session selector for new runs
-    }
-    // Don't clear currentSessionId - we want to reuse it if it exists
+    // Always start fresh - clear events and start a new session
+    clearRunEvents();
+    clearWatchHistories();
+    setSelectedSessionId(null);
+    setCurrentSessionId(null);  // Clear so we get a new session
     setIsRunning(true);
     setSelectedEventIndex(null);
     setTimeRange(null);
@@ -2422,7 +2424,7 @@ export default function RunPanel() {
       websocket.send(JSON.stringify({ 
         message: message,
         agent_id: selectedAgentIdLocal || undefined,  // null means use root agent
-        session_id: currentSessionId || undefined,  // Reuse existing session if loaded
+        // Always start a new session (don't pass session_id)
         sandbox_mode: sandboxMode,  // Run in Docker sandbox
       }));
     };
@@ -2521,7 +2523,7 @@ export default function RunPanel() {
     websocket.onclose = () => {
       setIsRunning(false);
     };
-  }, [project, userInput, isRunning, ws, clearRunEvents, setIsRunning, addRunEvent, selectedAgentIdLocal, currentSessionId, sandboxMode, savePromptToHistory]);
+  }, [project, userInput, isRunning, ws, clearRunEvents, clearWatchHistories, setIsRunning, addRunEvent, selectedAgentIdLocal, setCurrentSessionId, sandboxMode, savePromptToHistory]);
   
   // Handle stop
   const handleStop = useCallback(() => {

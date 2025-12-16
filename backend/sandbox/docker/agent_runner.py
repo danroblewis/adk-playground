@@ -751,6 +751,23 @@ class AgentRunner:
                 session_id=self.session_id,
             )
             
+            # Emit session info event (so frontend can track session_id)
+            session_reused = self.session_id is not None and adk_session.id == self.session_id
+            await self._emit_event({
+                "event_type": "agent_start",
+                "timestamp": time.time(),
+                "agent_name": "system",
+                "data": {"session_id": adk_session.id, "session_reused": session_reused},
+            })
+            
+            # Emit user message event (for test case creation)
+            await self._emit_event({
+                "event_type": "user_message",
+                "timestamp": time.time(),
+                "agent_name": "user",
+                "data": {"message": user_message},
+            })
+            
             # Run the agent - events are captured by the TrackingPlugin callbacks
             content = types.Content(
                 role="user",

@@ -506,6 +506,14 @@ class RuntimeManager:
                 data={"session_id": adk_session.id, "session_reused": session_reused},
             )
             
+            # Yield user message event (for test case creation)
+            yield RunEvent(
+                timestamp=time.time(),
+                event_type="user_message",
+                agent_name="user",
+                data={"message": user_message},
+            )
+            
             # Run the agent
             content = types.Content(
                 role="user",

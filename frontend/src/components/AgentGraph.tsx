@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import type { AgentConfig, RunEvent } from '../utils/types';
 
 interface AgentGraphProps {
@@ -78,6 +78,7 @@ const TOOL_COLOR = { bg: '#14b8a6', fg: '#ccfbf1' }; // Teal for tools
 
 export default function AgentGraph({ agents, events, selectedEventIndex, isOpen: controlledIsOpen, onOpenChange }: AgentGraphProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   // Support both controlled and uncontrolled modes
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
@@ -90,7 +91,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
   };
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const expandedSvgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const expandedContainerRef = useRef<HTMLDivElement>(null);
+  // Store the last zoom transform for expanded modal
+  const expandedTransformRef = useRef<d3.ZoomTransform | null>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphLink> | null>(null);
   // Store node positions to preserve layout across updates
   const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -471,7 +476,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           if (!event.active) simulation.alphaTarget(0);
           d.fx = null;
           d.fy = null;
-        }));
+        }) as any);
     
     // Helper to get node radius
     const getNodeRadius = (d: GraphNode) => {
@@ -506,7 +511,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           .duration(150)
           .attr('r', getNodeRadius(d) + 6);
       })
-      .on('mouseleave', function(event, d) {
+      .on('mouseleave', function(_event, d) {
         setTooltip(null);
         
         // Remove highlight
@@ -564,6 +569,157 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       simulation.stop();
     };
   }, [graphData, isOpen]);
+  
+  // D3 force simulation for expanded modal
+  useEffect(() => {
+    if (!expandedSvgRef.current || !isExpanded) return;
+    
+    const svg = d3.select(expandedSvgRef.current);
+    const container = expandedContainerRef.current;
+    if (!container) return;
+    
+    const size = Math.min(container.clientWidth, container.clientHeight);
+    const width = size;
+    const height = size;
+    
+    // Clear previous content
+    svg.selectAll('*').remove();
+    
+    // Create container group for zoom/pan
+    const g = svg.append('g');
+    
+    // Setup zoom behavior
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.3, 3])
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+        expandedTransformRef.current = event.transform;
+      });
+    
+    svg.call(zoom);
+    
+    // Restore or apply initial transform immediately
+    if (expandedTransformRef.current) {
+      svg.call(zoom.transform, expandedTransformRef.current);
+    } else {
+      // Initial center transform
+      const initialTransform = d3.zoomIdentity.translate(width / 2, height / 2).scale(0.9);
+      svg.call(zoom.transform, initialTransform);
+      expandedTransformRef.current = initialTransform;
+    }
+    
+    // Custom boundary force for circular area
+    const boundaryRadius = size * 0.35;
+    
+    const boundaryForce = () => {
+      for (const node of graphData.nodes) {
+        if (node.x === undefined || node.y === undefined) continue;
+        
+        const dist = Math.sqrt(node.x * node.x + node.y * node.y);
+        if (dist > boundaryRadius) {
+          const scale = boundaryRadius / dist;
+          node.x *= scale;
+          node.y *= scale;
+        }
+      }
+    };
+    
+    // Check if all nodes have saved positions
+    const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
+    
+    // Create simulation with forces - use lower alpha if positions exist
+    const simulation = d3.forceSimulation<GraphNode>(graphData.nodes)
+      .force('link', d3.forceLink<GraphNode, GraphLink>(graphData.links)
+        .id(d => d.id)
+        .distance(120))
+      .force('charge', d3.forceManyBody().strength(-500))
+      .force('center', d3.forceCenter(0, 0))
+      .force('collision', d3.forceCollide().radius(50))
+      .force('boundary', boundaryForce)
+      .alpha(allNodesHavePositions ? 0.1 : 0.8)
+      .alphaDecay(0.02);
+    
+    // Create links
+    const link = g.append('g')
+      .selectAll('path')
+      .data(graphData.links)
+      .join('path')
+      .attr('stroke', d => d.type === 'transition' ? '#22c55e' : d.type === 'sub_agent' ? '#6366f1' : '#f59e0b')
+      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 20) : 2)
+      .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
+      .attr('stroke-dasharray', d => d.type === 'tool' ? '6,3' : 'none')
+      .attr('fill', 'none');
+    
+    // Helper to get node radius
+    const getExpandedNodeRadius = (d: GraphNode) => {
+      if (d.type === 'System') return 20;
+      if (d.type === 'Tool') return 18;
+      return 28;
+    };
+    
+    // Create nodes
+    const node = g.append('g')
+      .selectAll('g')
+      .data(graphData.nodes)
+      .join('g')
+      .call(d3.drag<SVGGElement, GraphNode>()
+        .on('start', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on('drag', (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on('end', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        }) as any);
+    
+    // Node circles
+    node.append('circle')
+      .attr('r', d => getExpandedNodeRadius(d))
+      .attr('fill', d => d.type === 'Tool' ? TOOL_COLOR.bg : getAgentColor(d.name).bg)
+      .attr('stroke', d => d.isActive ? '#fff' : d.wasActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)')
+      .attr('stroke-width', d => d.isActive ? 4 : 2)
+      .attr('opacity', d => d.wasActive ? 1 : 0.5)
+      .attr('class', d => d.isActive ? 'active-node' : '')
+      .style('cursor', 'grab');
+    
+    // Node labels
+    node.append('text')
+      .text(d => d.name.length > 15 ? d.name.slice(0, 13) + '…' : d.name)
+      .attr('text-anchor', 'middle')
+      .attr('dy', d => getExpandedNodeRadius(d) + 18)
+      .attr('font-size', 14)
+      .attr('fill', '#e4e4e7')
+      .attr('font-weight', d => d.isActive ? 600 : 400);
+    
+    // Simulation tick
+    simulation.on('tick', () => {
+      link.attr('d', (d: any) => {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dr = Math.sqrt(dx * dx + dy * dy) * (d.type === 'transition' ? 1.5 : 2);
+        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+      });
+      
+      node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+      
+      // Save positions for next render
+      graphData.nodes.forEach((d: any) => {
+        if (d.x !== undefined && d.y !== undefined) {
+          nodePositionsRef.current.set(d.id, { x: d.x, y: d.y });
+        }
+      });
+    });
+    
+    return () => {
+      simulation.stop();
+    };
+  }, [graphData, isExpanded]);
   
   return (
     <>
@@ -718,11 +874,122 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           margin-top: 4px;
           font-weight: 500;
         }
+        
+        /* Expanded modal styles */
+        .agent-graph-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.8);
+          backdrop-filter: blur(4px);
+          z-index: 2000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          animation: modalFadeIn 0.2s ease;
+        }
+        
+        @keyframes modalFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        .agent-graph-modal {
+          position: relative;
+          width: min(80vh, 80vw);
+          height: min(80vh, 80vw);
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border-radius: 50%;
+          border: 2px solid rgba(99, 102, 241, 0.4);
+          box-shadow: 0 0 60px rgba(99, 102, 241, 0.3), 0 0 120px rgba(0, 0, 0, 0.5);
+          overflow: hidden;
+          animation: modalScaleIn 0.3s ease;
+        }
+        
+        @keyframes modalScaleIn {
+          from { transform: scale(0.8); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        
+        .agent-graph-modal-close {
+          position: absolute;
+          top: 3%;
+          right: 3%;
+          width: 60px;
+          height: 60px;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          z-index: 2001;
+          padding: 0;
+          transform: rotate(45deg);
+        }
+        
+        .agent-graph-modal-close-arc {
+          width: 100%;
+          height: 100%;
+          position: relative;
+        }
+        
+        .agent-graph-modal-close-arc::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 60px;
+          height: 60px;
+          background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+          border-radius: 0 0 0 100%;
+          box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.3);
+          transition: all 0.2s ease;
+        }
+        
+        .agent-graph-modal-close:hover .agent-graph-modal-close-arc::before {
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          box-shadow: -3px 3px 12px rgba(220, 38, 38, 0.5);
+          width: 70px;
+          height: 70px;
+        }
+        
+        .agent-graph-modal-close-icon {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          color: white;
+          transform: rotate(-45deg);
+          transition: transform 0.2s ease;
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+        }
+        
+        .agent-graph-modal-close:hover .agent-graph-modal-close-icon {
+          transform: rotate(-45deg) scale(1.1);
+        }
+        
+        .agent-graph-modal-svg {
+          width: 100%;
+          height: 100%;
+        }
+        
+        .agent-graph-content.clickable {
+          cursor: pointer;
+        }
+        
+        .agent-graph-content.clickable:hover {
+          border-color: rgba(99, 102, 241, 0.6);
+          box-shadow: 4px 0 30px rgba(99, 102, 241, 0.3);
+        }
       `}</style>
       
       <div className={`agent-graph-container ${isOpen ? '' : 'closed'}`}>
         <div className="agent-graph-panel">
-          <div className="agent-graph-content" ref={containerRef}>
+          <div 
+            className="agent-graph-content clickable" 
+            ref={containerRef}
+            onClick={() => setIsExpanded(true)}
+            title="Click to expand"
+          >
             <svg ref={svgRef} className="agent-graph-svg" />
             <div className="agent-graph-legend">
               <div className="legend-item">
@@ -765,6 +1032,37 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           </button>
         </div>
       </div>
+      
+      {/* Expanded modal view */}
+      {isExpanded && (
+        <div 
+          className="agent-graph-modal-overlay"
+          onClick={() => {
+            setIsExpanded(false);
+            expandedTransformRef.current = null; // Reset so it re-centers next time
+          }}
+        >
+          <div 
+            className="agent-graph-modal"
+            ref={expandedContainerRef}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              className="agent-graph-modal-close"
+              onClick={() => {
+                setIsExpanded(false);
+                expandedTransformRef.current = null; // Reset so it re-centers next time
+              }}
+              title="Close"
+            >
+              <div className="agent-graph-modal-close-arc">
+                <X size={18} className="agent-graph-modal-close-icon" />
+              </div>
+            </button>
+            <svg ref={expandedSvgRef} className="agent-graph-modal-svg" />
+          </div>
+        </div>
+      )}
     </>
   );
 }
