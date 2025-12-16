@@ -288,6 +288,11 @@ class SandboxManager:
               xvfb xauth \
               fonts-liberation fonts-noto-color-emoji \
               && \
+            # Compatibility paths expected by some automation SDKs ("Chrome stable")
+            mkdir -p /opt/google/chrome && \
+            ln -sf /usr/bin/chromium /opt/google/chrome/chrome && \
+            ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
+            ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable && \
             curl -LsSf https://astral.sh/uv/install.sh | sh && \
             export PATH="/root/.local/bin:$PATH" && \
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -834,6 +839,7 @@ class SandboxManager:
             "CHROME_BIN": "/usr/bin/chromium",
             "CHROMIUM_BIN": "/usr/bin/chromium",
             "CHROMEDRIVER_BIN": "/usr/bin/chromedriver",
+            "GOOGLE_CHROME_BIN": "/opt/google/chrome/chrome",
             # Puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
             "PUPPETEER_SKIP_DOWNLOAD": "true",
             "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",

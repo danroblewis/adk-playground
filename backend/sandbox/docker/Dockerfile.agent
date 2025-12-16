@@ -13,7 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xauth \
     fonts-liberation \
     fonts-noto-color-emoji \
-    && rm -rf /var/lib/apt/lists/*
+    && \
+    # Compatibility paths expected by some automation SDKs ("Chrome stable")
+    mkdir -p /opt/google/chrome && \
+    ln -sf /usr/bin/chromium /opt/google/chrome/chrome && \
+    ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
+    ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 # Core ADK and common packages (MCP servers are optional)
@@ -51,6 +57,7 @@ ENV WEBHOOK_URL=http://host.docker.internal:8765/api/sandbox/event
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMIUM_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_BIN=/usr/bin/chromedriver
+ENV GOOGLE_CHROME_BIN=/opt/google/chrome/chrome
 # For puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
