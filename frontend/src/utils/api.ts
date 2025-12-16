@@ -82,6 +82,23 @@ export async function loadSession(projectId: string, sessionId: string): Promise
   return data.session;
 }
 
+// Artifacts
+export interface ArtifactInfo {
+  filename: string;
+  mime_type: string | null;
+  is_image: boolean;
+  size: number | null;
+}
+
+export async function listArtifacts(projectId: string, sessionId: string): Promise<ArtifactInfo[]> {
+  const data = await fetchJSON<{ artifacts: ArtifactInfo[]; error?: string }>(`/projects/${projectId}/sessions/${sessionId}/artifacts`);
+  return data.artifacts || [];
+}
+
+export function getArtifactUrl(projectId: string, sessionId: string, filename: string): string {
+  return `${API_BASE}/projects/${projectId}/sessions/${sessionId}/artifacts/${encodeURIComponent(filename)}`;
+}
+
 // YAML
 export async function getProjectYaml(id: string): Promise<string> {
   const data = await fetchJSON<{ yaml: string }>(`/projects/${id}/yaml`);
