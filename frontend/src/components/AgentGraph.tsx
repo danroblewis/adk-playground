@@ -9,6 +9,7 @@ interface AgentGraphProps {
   selectedEventIndex: number | null;
   isOpen?: boolean;
   onOpenChange?: (isOpen: boolean) => void;
+  runState?: 'idle' | 'running' | 'completed' | 'failed';
 }
 
 interface GraphNode {
@@ -76,7 +77,7 @@ function getAgentColor(agentName: string): { bg: string; fg: string } {
 // Special colors for tools
 const TOOL_COLOR = { bg: '#14b8a6', fg: '#ccfbf1' }; // Teal for tools
 
-export default function AgentGraph({ agents, events, selectedEventIndex, isOpen: controlledIsOpen, onOpenChange }: AgentGraphProps) {
+export default function AgentGraph({ agents, events, selectedEventIndex, isOpen: controlledIsOpen, onOpenChange, runState = 'idle' }: AgentGraphProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   
@@ -1129,34 +1130,68 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         .agent-graph-content {
           width: 300px;
           height: 400px;
-          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
           border-radius: 0 200px 200px 0;
           border: 1px solid rgba(99, 102, 241, 0.3);
           border-left: none;
           box-shadow: 4px 0 20px rgba(0,0,0,0.4);
           overflow: hidden;
           position: relative;
+          transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+        }
+        
+        /* Run state backgrounds */
+        .agent-graph-content.state-idle,
+        .agent-graph-content.state-running {
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border-color: rgba(99, 102, 241, 0.3);
+        }
+        
+        .agent-graph-content.state-completed {
+          background: linear-gradient(135deg, #0f2027 0%, #134e4a 100%);
+          border-color: rgba(20, 184, 166, 0.4);
+          box-shadow: 4px 0 20px rgba(20, 184, 166, 0.15), 4px 0 40px rgba(0,0,0,0.3);
+        }
+        
+        .agent-graph-content.state-failed {
+          background: linear-gradient(135deg, #1f1315 0%, #2d1b1e 100%);
+          border-color: rgba(239, 68, 68, 0.35);
+          box-shadow: 4px 0 20px rgba(239, 68, 68, 0.15), 4px 0 40px rgba(0,0,0,0.3);
         }
         
         .agent-graph-toggle {
           width: 32px;
           height: 64px;
-          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-          border: 1px solid rgba(99, 102, 241, 0.3);
           border-left: none;
           border-radius: 0 8px 8px 0;
           display: flex;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          color: #a5b4fc;
-          transition: all 0.2s ease;
+          transition: all 0.3s ease;
           align-self: center;
         }
         
+        .agent-graph-toggle.state-idle,
+        .agent-graph-toggle.state-running {
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border: 1px solid rgba(99, 102, 241, 0.3);
+          color: #a5b4fc;
+        }
+        
+        .agent-graph-toggle.state-completed {
+          background: linear-gradient(135deg, #0f2027 0%, #134e4a 100%);
+          border: 1px solid rgba(20, 184, 166, 0.4);
+          color: #5eead4;
+        }
+        
+        .agent-graph-toggle.state-failed {
+          background: linear-gradient(135deg, #1f1315 0%, #2d1b1e 100%);
+          border: 1px solid rgba(239, 68, 68, 0.35);
+          color: #fca5a5;
+        }
+        
         .agent-graph-toggle:hover {
-          background: rgba(99, 102, 241, 0.2);
-          color: #c7d2fe;
+          filter: brightness(1.2);
         }
         
         .agent-graph-toggle svg {
@@ -1284,12 +1319,29 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           position: relative;
           width: min(80vh, 80vw);
           height: min(80vh, 80vw);
-          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
           border-radius: 50%;
-          border: 2px solid rgba(99, 102, 241, 0.4);
-          box-shadow: 0 0 60px rgba(99, 102, 241, 0.3), 0 0 120px rgba(0, 0, 0, 0.5);
           overflow: hidden;
           animation: modalScaleIn 0.3s ease;
+          transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+        }
+        
+        .agent-graph-modal.state-idle,
+        .agent-graph-modal.state-running {
+          background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+          border: 2px solid rgba(99, 102, 241, 0.4);
+          box-shadow: 0 0 60px rgba(99, 102, 241, 0.3), 0 0 120px rgba(0, 0, 0, 0.5);
+        }
+        
+        .agent-graph-modal.state-completed {
+          background: linear-gradient(135deg, #0f2027 0%, #134e4a 100%);
+          border: 2px solid rgba(20, 184, 166, 0.5);
+          box-shadow: 0 0 60px rgba(20, 184, 166, 0.25), 0 0 120px rgba(0, 0, 0, 0.5);
+        }
+        
+        .agent-graph-modal.state-failed {
+          background: linear-gradient(135deg, #1f1315 0%, #2d1b1e 100%);
+          border: 2px solid rgba(239, 68, 68, 0.4);
+          box-shadow: 0 0 60px rgba(239, 68, 68, 0.2), 0 0 120px rgba(0, 0, 0, 0.5);
         }
         
         @keyframes modalScaleIn {
@@ -1369,7 +1421,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       <div className={`agent-graph-container ${isOpen ? '' : 'closed'}`}>
         <div className="agent-graph-panel">
           <div 
-            className="agent-graph-content clickable" 
+            className={`agent-graph-content clickable state-${runState}`}
             ref={containerRef}
             onClick={() => setIsExpanded(true)}
             title="Click to expand"
@@ -1411,7 +1463,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
               </div>
             )}
           </div>
-          <button className="agent-graph-toggle" onClick={() => setIsOpen(!isOpen)}>
+          <button className={`agent-graph-toggle state-${runState}`} onClick={() => setIsOpen(!isOpen)}>
             <ChevronRight size={20} />
           </button>
         </div>
@@ -1427,7 +1479,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           }}
         >
           <div 
-            className="agent-graph-modal"
+            className={`agent-graph-modal state-${runState}`}
             ref={expandedContainerRef}
             onClick={(e) => e.stopPropagation()}
           >

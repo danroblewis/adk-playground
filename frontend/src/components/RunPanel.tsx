@@ -2037,6 +2037,26 @@ export default function RunPanel() {
   const [isResizing, setIsResizing] = useState(false);
   const [isAgentGraphOpen, setIsAgentGraphOpen] = useState(false);
   
+  // Compute run state for AgentGraph visualization
+  const agentGraphRunState = useMemo((): 'idle' | 'running' | 'completed' | 'failed' => {
+    if (isRunning) return 'running';
+    if (runEvents.length === 0) return 'idle';
+    
+    // Check if the run ended with an error
+    // Look at the last few events for error indicators
+    const lastEvents = runEvents.slice(-5);
+    const hasError = lastEvents.some(event => 
+      event.data?.error || 
+      event.event_type === 'callback_error' ||
+      (event.event_type === 'agent_end' && event.data?.error)
+    );
+    
+    if (hasError) return 'failed';
+    
+    // If we have events and no errors, consider it completed
+    return 'completed';
+  }, [isRunning, runEvents]);
+  
   // Prompt history and suggestions
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [promptHistory, setPromptHistory] = useState<Array<{ prompt: string; count: number }>>([]);
@@ -4382,6 +4402,7 @@ export default function RunPanel() {
         selectedEventIndex={selectedEventIndex}
         isOpen={isAgentGraphOpen}
         onOpenChange={setIsAgentGraphOpen}
+        runState={agentGraphRunState}
       />
       
       {/* Input Area */}
