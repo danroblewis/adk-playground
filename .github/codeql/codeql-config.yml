@@ -1,0 +1,17 @@
+# CodeQL analysis configuration
+# Docs: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning
+
+paths-ignore:
+  # Build artifacts / vendored outputs
+  - frontend/dist
+  - adk_playground/frontend/dist
+  - "**/dist/**"
+  - "**/node_modules/**"
+
+  # Generated/minified bundles
+  - "**/*.min.js"
+  - "**/*.min.css"
+
+  # Non-source text outputs
+  - backend/out.txt
+  - backend/output.txt

@@ -107,7 +107,7 @@ ToolConfig = Union[FunctionToolConfig, MCPToolConfig, AgentToolConfig, BuiltinTo
 
 class ModelConfig(BaseModel):
     """Configuration for the LLM model."""
-    provider: Literal["gemini", "litellm", "anthropic", "openai", "groq"] = "gemini"
+    provider: Literal["gemini", "litellm", "anthropic", "openai", "groq", "together"] = "gemini"
     model_name: str = "gemini-2.0-flash"
     # LiteLLM specific
     api_base: Optional[str] = None
@@ -248,7 +248,7 @@ class AppModelConfig(BaseModel):
     """Configuration for a model preset in the app."""
     id: str
     name: str
-    provider: Literal["gemini", "litellm", "anthropic", "openai", "groq"] = "gemini"
+    provider: Literal["gemini", "litellm", "anthropic", "openai", "groq", "together"] = "gemini"
     model_name: str = "gemini-2.0-flash"
     api_base: Optional[str] = None
     temperature: Optional[float] = None
