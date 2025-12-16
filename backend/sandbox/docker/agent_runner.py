@@ -131,6 +131,32 @@ class MCPSessionManager:
     useful for Tool Watches and debugging.
     """
     
+    # Browser-related MCP servers that need Docker-friendly Chrome flags
+    BROWSER_MCP_SERVERS = {
+        "chrome_devtools", "chrome-devtools", "puppeteer", "playwright", 
+        "browser", "browserbase", "web-browser"
+    }
+    
+    # Docker-friendly Chrome args for chrome-devtools-mcp
+    # These are passed as --chromeArg=<flag> when chrome-devtools-mcp is detected
+    DOCKER_CHROME_ARGS_FOR_DEVTOOLS_MCP = [
+        "--chromeArg=--no-sandbox",           # Chrome sandbox doesn't work as root in Docker
+        "--chromeArg=--disable-dev-shm-usage",  # /dev/shm is too small in Docker
+        "--chromeArg=--disable-gpu",          # No GPU in container
+        "--chromeArg=--ignore-certificate-errors",  # Ignore SSL errors (proxy intercepts HTTPS)
+        "--headless",                         # Run headless (no display needed)
+        "--acceptInsecureCerts",              # chrome-devtools-mcp flag to accept self-signed certs
+    ]
+    
+    # Generic Docker-friendly Chrome flags (for other browser automation)
+    DOCKER_CHROME_FLAGS = [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--headless=new",
+        "--ignore-certificate-errors",  # Ignore SSL errors (proxy intercepts HTTPS)
+    ]
+    
     def __init__(self):
         self._sessions: Dict[str, Any] = {}  # server_name -> (session, context_manager)
         self._server_configs: Dict[str, dict] = {}
@@ -158,6 +184,28 @@ class MCPSessionManager:
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse MCP_SERVERS_CONFIG: {e}")
     
+    def _is_browser_mcp_server(self, server_name: str, args: List[str]) -> bool:
+        """Check if this MCP server is browser-related and needs Docker Chrome flags."""
+        # Check server name
+        name_lower = server_name.lower()
+        for browser_name in self.BROWSER_MCP_SERVERS:
+            if browser_name in name_lower:
+                return True
+        
+        # Check args for browser-related packages
+        args_str = " ".join(args).lower()
+        browser_packages = ["chrome-devtools-mcp", "puppeteer", "playwright", "browserbase"]
+        for pkg in browser_packages:
+            if pkg in args_str:
+                return True
+        
+        return False
+    
+    def _is_chrome_devtools_mcp(self, args: List[str]) -> bool:
+        """Check if this is specifically chrome-devtools-mcp."""
+        args_str = " ".join(args).lower()
+        return "chrome-devtools-mcp" in args_str
+    
     def list_servers(self) -> List[dict]:
         """List available MCP servers."""
         servers = []
@@ -182,6 +230,7 @@ class MCPSessionManager:
             raise ValueError(f"Unknown MCP server: {server_name}")
         
         config = self._server_configs[server_name]
+        original_args = config.get("args", [])
         
         # Build environment with proxy variables
         env = {}
@@ -190,15 +239,49 @@ class MCPSessionManager:
                     "http_proxy", "https_proxy", "no_proxy"]:
             if key in os.environ:
                 env[key] = os.environ[key]
+        
+        # Pass through Chrome/browser-related environment variables
+        for key in ["CHROME_BIN", "CHROMIUM_BIN", "CHROMEDRIVER_BIN", "GOOGLE_CHROME_BIN",
+                    "PUPPETEER_SKIP_DOWNLOAD", "PUPPETEER_EXECUTABLE_PATH",
+                    "PUPPETEER_ARGS", "CHROME_ARGS", "DISPLAY"]:
+            if key in os.environ:
+                env[key] = os.environ[key]
+        
         # Add server-specific env vars
         if config.get("env"):
             env.update(config["env"])
         
+        # Check if this is a browser-related MCP server
+        is_browser = self._is_browser_mcp_server(server_name, original_args)
+        is_devtools = self._is_chrome_devtools_mcp(original_args)
+        args = list(original_args)
+        
+        if is_devtools:
+            logger.info(f"Detected chrome-devtools-mcp server '{server_name}', adding Docker Chrome args")
+            # Inject Docker-friendly Chrome args in chrome-devtools-mcp format
+            existing_args_str = " ".join(args)
+            for flag in self.DOCKER_CHROME_ARGS_FOR_DEVTOOLS_MCP:
+                # Check if this flag or its equivalent is already present
+                flag_base = flag.split("=")[-1] if "=" in flag else flag
+                if flag_base not in existing_args_str and flag not in existing_args_str:
+                    args.append(flag)
+            logger.info(f"chrome-devtools-mcp args: {args}")
+        elif is_browser:
+            logger.info(f"Detected browser MCP server '{server_name}', adding Docker Chrome flags")
+            # Inject Docker-friendly Chrome flags if not already present
+            existing_args = set(args)
+            for flag in self.DOCKER_CHROME_FLAGS:
+                if flag not in existing_args:
+                    args.append(flag)
+            logger.info(f"Browser MCP server args: {args}")
+        
         server_params = StdioServerParameters(
             command=config.get("command", ""),
-            args=config.get("args", []),
+            args=args,
             env=env if env else None,
         )
+        
+        logger.info(f"Starting MCP server '{server_name}': {config.get('command')} {' '.join(args)}")
         
         try:
             # Create the stdio client context manager
@@ -219,7 +302,7 @@ class MCPSessionManager:
             return session
             
         except Exception as e:
-            logger.error(f"Failed to connect to MCP server {server_name}: {e}")
+            logger.error(f"Failed to connect to MCP server {server_name}: {e}", exc_info=True)
             raise
     
     async def disconnect(self, server_name: str):
@@ -256,20 +339,30 @@ class MCPSessionManager:
     
     async def call_tool(self, server_name: str, tool_name: str, args: dict) -> Any:
         """Call a tool on an MCP server."""
-        session = await self.connect(server_name)
-        result = await session.call_tool(tool_name, args)
+        logger.info(f"Calling MCP tool '{tool_name}' on server '{server_name}' with args: {args}")
+        
+        try:
+            session = await self.connect(server_name)
+            result = await session.call_tool(tool_name, args)
+        except Exception as e:
+            logger.error(f"MCP tool call failed: {tool_name} on {server_name}: {e}", exc_info=True)
+            raise
         
         # Convert result to JSON-serializable format
+        is_error = getattr(result, "isError", False)
         if hasattr(result, "content"):
             content = []
             for item in result.content:
                 if hasattr(item, "text"):
                     content.append({"type": "text", "text": item.text})
+                    # Log errors prominently
+                    if is_error:
+                        logger.error(f"MCP tool '{tool_name}' error: {item.text}")
                 elif hasattr(item, "data"):
                     content.append({"type": "data", "data": str(item.data)})
                 else:
                     content.append({"type": "unknown", "value": str(item)})
-            return {"content": content, "isError": getattr(result, "isError", False)}
+            return {"content": content, "isError": is_error}
         return {"result": str(result)}
 
 

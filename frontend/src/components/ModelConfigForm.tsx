@@ -2,7 +2,7 @@ import React from 'react';
 import { ModelAutocomplete } from './ModelAutocomplete';
 import './ModelConfigForm.css';
 
-export type ModelProvider = 'gemini' | 'anthropic' | 'openai' | 'groq' | 'litellm';
+export type ModelProvider = 'gemini' | 'anthropic' | 'openai' | 'groq' | 'together' | 'litellm';
 
 export interface ModelConfigValues {
   model_name?: string;
@@ -26,6 +26,7 @@ const PROVIDERS: { value: ModelProvider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'groq', label: 'Groq' },
+  { value: 'together', label: 'Together (via LiteLLM)' },
   { value: 'litellm', label: 'LiteLLM / Other' },
 ];
 
@@ -35,6 +36,7 @@ const PROVIDERS: { value: ModelProvider; label: string }[] = [
 function detectProvider(modelId: string, currentProvider?: string): ModelProvider {
   if (modelId.startsWith('openai/')) return 'openai';
   if (modelId.startsWith('groq/')) return 'groq';
+  if (modelId.startsWith('together_ai/') || modelId.startsWith('together/')) return 'together';
   if (modelId.startsWith('ollama/')) return 'litellm';
   if (modelId.startsWith('claude-')) return 'anthropic';
   if (modelId.startsWith('gemini-')) return 'gemini';
@@ -94,6 +96,7 @@ export function ModelConfigForm({
               values.provider === 'anthropic' ? 'https://api.anthropic.com' :
               values.provider === 'openai' ? 'https://api.openai.com/v1' :
               values.provider === 'groq' ? 'https://api.groq.com/openai/v1' :
+              values.provider === 'together' ? 'https://api.together.xyz/v1' :
               'http://localhost:11434'
             }
           />

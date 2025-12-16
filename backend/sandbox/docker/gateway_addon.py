@@ -73,6 +73,12 @@ class AllowlistGateway:
         self.app_id = os.environ.get("APP_ID", "unknown")
         self.unknown_action = os.environ.get("UNKNOWN_ACTION", "ask")  # ask, deny, allow
         self.approval_timeout = int(os.environ.get("APPROVAL_TIMEOUT", "30"))
+        self.allow_all_network = os.environ.get("ALLOW_ALL_NETWORK", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         
         # Parse allowlist from environment (JSON)
         self.exact_patterns: list[str] = []
@@ -260,6 +266,31 @@ class AllowlistGateway:
         # Get the Server Name Indication (SNI) from the client hello
         sni = data.context.client.sni
         if sni:
+            # In allow-all mode, avoid MITM for arbitrary TLS targets.
+            # The agent container typically does not trust the mitmproxy CA, so
+            # passthrough ensures HTTPS connectivity while still routing through
+            # the gateway (as the network chokepoint).
+            if self.allow_all_network:
+                sni_lower = sni.lower()
+                data.ignore_connection = True
+
+                # Emit a lightweight network event (we won't see the decrypted HTTP request).
+                try:
+                    request_id = f"tls_{int(time.time() * 1000)}_{threading.get_ident()}"
+                    self._send_webhook("network_request", {
+                        "id": request_id,
+                        "method": "TLS",
+                        "url": f"tls://{sni}",
+                        "host": sni,
+                        "status": "allowed",
+                        "source": "agent",
+                        "is_llm_provider": self._is_llm_provider(sni_lower),
+                        "matched_pattern": "*",
+                    })
+                except Exception:
+                    pass
+                return
+
             # Check if this is an LLM provider domain
             sni_lower = sni.lower()
             if self._is_llm_provider(sni_lower):
