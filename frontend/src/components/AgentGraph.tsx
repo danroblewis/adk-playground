@@ -118,6 +118,51 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       };
     }
     
+    // Build lookups for agent types and sequential relationships from config
+    const agentTypeByName = new Map(agents.map(a => [a.name, a.type]));
+    const agentById = new Map(agents.map(a => [a.id, a]));
+    
+    // Helper to check if an agent is a sequential type
+    const isSequentialAgent = (agentName: string): boolean => {
+      const type = agentTypeByName.get(agentName);
+      if (!type) return false;
+      const normalizedType = type.toLowerCase();
+      return normalizedType === 'sequentialagent' || normalizedType === 'sequential';
+    };
+    
+    // Build map: child agent name → parent sequential agent name (from config)
+    // Also build ordered sub-agent lists for each sequential agent
+    const sequentialParentByChild = new Map<string, string>(); // child name → parent name
+    const sequentialSubAgents = new Map<string, string[]>(); // sequential name → ordered child names
+    
+    for (const agent of agents) {
+      if (isSequentialAgent(agent.name) && 'sub_agents' in agent) {
+        const subAgentIds = (agent as any).sub_agents as string[];
+        // Convert IDs to names
+        const subAgentNames = subAgentIds
+          .map(id => agentById.get(id)?.name)
+          .filter((name): name is string => name !== undefined);
+        
+        sequentialSubAgents.set(agent.name, subAgentNames);
+        
+        // Map each child to this sequential parent
+        for (const childName of subAgentNames) {
+          sequentialParentByChild.set(childName, agent.name);
+        }
+      }
+    }
+    
+    // Helper to get previous sibling in a sequential agent
+    const getPreviousSibling = (agentName: string, seqParent: string): string | null => {
+      const siblings = sequentialSubAgents.get(seqParent);
+      if (!siblings) return null;
+      const myIndex = siblings.indexOf(agentName);
+      if (myIndex > 0) {
+        return siblings[myIndex - 1];
+      }
+      return null;
+    };
+    
     const eventsUpToSelection = events.slice(0, effectiveIndex + 1);
     const transitionMap = new Map<string, number>();
     const toolCallMap = new Map<string, number>();
@@ -132,11 +177,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     const branchStacks = new Map<string, string[]>();
     branchStacks.set('', ['system']); // Main branch starts with system
     
+    // Track the root agent (the one directly spawned by system)
+    let rootAgent: string | null = null;
+    
     // Track currently executing tools per branch
     const branchTools = new Map<string, string | null>();
     
     // Track which transitions we've already created to avoid duplicates
     const createdTransitions = new Set<string>();
+    
+    // Track the last completed child for each SequentialAgent
+    // Key: sequential agent name, Value: last completed child agent name
+    const sequentialLastChild = new Map<string, string>();
+    
+    // Track which SequentialAgent each child agent belongs to
+    // Key: child agent name, Value: parent sequential agent name
+    const childToSequentialParent = new Map<string, string>();
     
     // Helper to get or create a branch stack
     const getBranchStack = (branch: string | null | undefined): string[] => {
@@ -201,14 +257,44 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           parentAgent = stack[stack.length - 1];
         }
         
-        // Create transition from parent to this agent
-        if (parentAgent && parentAgent !== agentName) {
-          const transitionKey = `${parentAgent}->${agentName}`;
+        // Check if this agent is a child of a SequentialAgent (from config)
+        // If so, chain from previous sibling instead of parent
+        let effectiveParent = parentAgent;
+        const seqParent = sequentialParentByChild.get(agentName);
+        if (seqParent) {
+          // This agent is a direct child of a sequential agent
+          const prevSibling = getPreviousSibling(agentName, seqParent);
+          if (prevSibling) {
+            // Chain from previous sibling
+            effectiveParent = prevSibling;
+          } else {
+            // First child - chain from the sequential agent itself
+            effectiveParent = seqParent;
+          }
+          // Track for return link later
+          childToSequentialParent.set(agentName, seqParent);
+        } else if (parentAgent && isSequentialAgent(parentAgent)) {
+          // Fallback: runtime detection
+          childToSequentialParent.set(agentName, parentAgent);
+          const lastSibling = sequentialLastChild.get(parentAgent);
+          if (lastSibling && lastSibling !== agentName) {
+            effectiveParent = lastSibling;
+          }
+        }
+        
+        // Create transition
+        if (effectiveParent && effectiveParent !== agentName) {
+          const transitionKey = `${effectiveParent}->${agentName}`;
           // Only count each unique transition once per branch to avoid over-counting
           const branchTransitionKey = `${branch}:${transitionKey}`;
           if (!createdTransitions.has(branchTransitionKey)) {
             transitionMap.set(transitionKey, (transitionMap.get(transitionKey) || 0) + 1);
             createdTransitions.add(branchTransitionKey);
+          }
+          
+          // Track root agent (first agent spawned directly by system on main branch)
+          if (effectiveParent === 'system' && branch === '' && !rootAgent) {
+            rootAgent = agentName;
           }
         }
         
@@ -219,13 +305,45 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       } else if (event.event_type === 'agent_end') {
         const agentName = event.agent_name;
         
+        // Track for runtime fallback (in case config didn't cover this)
+        const sequentialParent = childToSequentialParent.get(agentName);
+        if (sequentialParent) {
+          sequentialLastChild.set(sequentialParent, agentName);
+        }
+        
+        // If this is a SequentialAgent ending, create a return link from last child
+        if (isSequentialAgent(agentName)) {
+          // Get the last sub-agent from config
+          const subAgents = sequentialSubAgents.get(agentName);
+          const lastChild = subAgents && subAgents.length > 0 
+            ? subAgents[subAgents.length - 1] 
+            : sequentialLastChild.get(agentName);
+          
+          if (lastChild) {
+            const returnKey = `${lastChild}->${agentName}`;
+            const branchReturnKey = `${branch}:return:${returnKey}`;
+            if (!createdTransitions.has(branchReturnKey)) {
+              transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
+              createdTransitions.add(branchReturnKey);
+            }
+          }
+          sequentialLastChild.delete(agentName);
+        }
+        
+        // If the root agent is ending, create a return transition to system
+        if (agentName === rootAgent) {
+          const returnKey = `${agentName}->system`;
+          if (!createdTransitions.has(returnKey)) {
+            transitionMap.set(returnKey, (transitionMap.get(returnKey) || 0) + 1);
+            createdTransitions.add(returnKey);
+          }
+        }
+        
         // Remove the agent from ALL branch stacks
-        // This is necessary because ParallelAgent gets added to multiple stacks
-        // when we infer parent relationships
-        for (const [, stack] of branchStacks) {
-          const agentIndex = stack.lastIndexOf(agentName);
-          if (agentIndex > 0) { // Don't remove 'system' at index 0
-            stack.splice(agentIndex, 1);
+        for (const [, stk] of branchStacks) {
+          const agentIndex = stk.lastIndexOf(agentName);
+          if (agentIndex > 0) {
+            stk.splice(agentIndex, 1);
           }
         }
       } else if (event.event_type === 'tool_call') {
@@ -269,7 +387,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       toolCalls: toolCallMap,
       activeBranches: currentActiveBranches
     };
-  }, [events, selectedEventIndex]);
+  }, [events, selectedEventIndex, agents]);
   
   // Build graph data - create nodes for any agent seen in events
   const graphData = useMemo(() => {
@@ -468,6 +586,47 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     // Check if all nodes have saved positions
     const allNodesHavePositions = graphData.nodes.every(n => n.x !== undefined && n.y !== undefined);
     
+    // Initialize positions for new nodes near their connected parent
+    if (!allNodesHavePositions) {
+      // Build a map of node positions for quick lookup
+      const nodePositions = new Map<string, { x: number; y: number }>();
+      for (const node of graphData.nodes) {
+        if (node.x !== undefined && node.y !== undefined) {
+          nodePositions.set(node.id, { x: node.x, y: node.y });
+        }
+      }
+      
+      // For each node without position, find its source and place near it
+      for (const node of graphData.nodes) {
+        if (node.x === undefined || node.y === undefined) {
+          // Find a link where this node is the target
+          const incomingLink = graphData.links.find(l => {
+            const targetId = typeof l.target === 'string' ? l.target : l.target.id;
+            return targetId === node.id;
+          });
+          
+          if (incomingLink) {
+            const sourceId = typeof incomingLink.source === 'string' ? incomingLink.source : incomingLink.source.id;
+            const sourcePos = nodePositions.get(sourceId);
+            if (sourcePos) {
+              // Place slightly offset from source with some randomness for spread
+              const angle = Math.random() * Math.PI * 2;
+              const distance = 50 + Math.random() * 30;
+              node.x = sourcePos.x + Math.cos(angle) * distance;
+              node.y = sourcePos.y + Math.sin(angle) * distance;
+              nodePositions.set(node.id, { x: node.x, y: node.y });
+            }
+          }
+          
+          // If still no position, use small random offset from center
+          if (node.x === undefined || node.y === undefined) {
+            node.x = (Math.random() - 0.5) * 50;
+            node.y = (Math.random() - 0.5) * 50;
+          }
+        }
+      }
+    }
+    
     // Custom boundary force to keep nodes within the circular area
     // The visible radius in screen pixels (accounting for the rounded panel shape)
     const visibleRadiusPixels = 140; // Approximate radius of usable area
@@ -568,14 +727,38 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     
     simulationRef.current = simulation;
     
-    // Create links
+    // Create gradient definitions for each link
+    const defs = svg.append('defs');
+    
+    graphData.links.forEach((link, i) => {
+      const gradient = defs.append('linearGradient')
+        .attr('id', `link-gradient-${i}`)
+        .attr('gradientUnits', 'userSpaceOnUse');
+      
+      // Colors based on link type
+      const colors = link.type === 'transition' 
+        ? { start: '#166534', end: '#4ade80' }  // dark green to bright green
+        : link.type === 'sub_agent'
+        ? { start: '#3730a3', end: '#a5b4fc' }  // dark indigo to bright indigo
+        : { start: '#92400e', end: '#fcd34d' }; // dark amber to bright amber
+      
+      gradient.append('stop')
+        .attr('offset', '0%')
+        .attr('stop-color', colors.start);
+      gradient.append('stop')
+        .attr('offset', '100%')
+        .attr('stop-color', colors.end);
+    });
+    
+    // Create curved links with gradients
     const link = g.append('g')
+      .attr('class', 'links')
       .selectAll('path')
       .data(graphData.links)
       .join('path')
-      .attr('stroke', d => d.type === 'transition' ? '#22c55e' : d.type === 'sub_agent' ? '#6366f1' : '#f59e0b')
-      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 20) : 1.5)
-      .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.4)
+      .attr('stroke', (_d, i) => `url(#link-gradient-${i})`)
+      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 8) : 1.5)
+      .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '4,2' : 'none')
       .attr('fill', 'none');
     
@@ -655,13 +838,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     // Track tick count for throttled updates
     let tickCount = 0;
     
-    // Curved links for multiple transitions
+    // Curved links with gradient direction updates
     simulation.on('tick', () => {
       link.attr('d', (d: any) => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
-        const dr = Math.sqrt(dx * dx + dy * dy) * (d.type === 'transition' ? 1.5 : 2);
+        const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
         return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+      });
+      
+      // Update gradient directions to follow the links
+      graphData.links.forEach((d: any, i: number) => {
+        defs.select(`#link-gradient-${i}`)
+          .attr('x1', d.source.x)
+          .attr('y1', d.source.y)
+          .attr('x2', d.target.x)
+          .attr('y2', d.target.y);
       });
       
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
@@ -799,13 +991,36 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .alpha(allNodesHavePositions ? 0.1 : 0.8)
       .alphaDecay(0.02);
     
-    // Create links
+    // Create gradient definitions for each link (expanded view)
+    const defs = svg.append('defs');
+    
+    graphData.links.forEach((link, i) => {
+      const gradient = defs.append('linearGradient')
+        .attr('id', `exp-link-gradient-${i}`)
+        .attr('gradientUnits', 'userSpaceOnUse');
+      
+      const colors = link.type === 'transition' 
+        ? { start: '#166534', end: '#4ade80' }
+        : link.type === 'sub_agent'
+        ? { start: '#3730a3', end: '#a5b4fc' }
+        : { start: '#92400e', end: '#fcd34d' };
+      
+      gradient.append('stop')
+        .attr('offset', '0%')
+        .attr('stop-color', colors.start);
+      gradient.append('stop')
+        .attr('offset', '100%')
+        .attr('stop-color', colors.end);
+    });
+    
+    // Create curved links with gradients
     const link = g.append('g')
+      .attr('class', 'links')
       .selectAll('path')
       .data(graphData.links)
       .join('path')
-      .attr('stroke', d => d.type === 'transition' ? '#22c55e' : d.type === 'sub_agent' ? '#6366f1' : '#f59e0b')
-      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 20) : 2)
+      .attr('stroke', (_d, i) => `url(#exp-link-gradient-${i})`)
+      .attr('stroke-width', d => d.type === 'transition' ? Math.min(d.count + 2, 8) : 2)
       .attr('stroke-opacity', d => d.type === 'transition' ? 0.8 : 0.5)
       .attr('stroke-dasharray', d => d.type === 'tool' ? '6,3' : 'none')
       .attr('fill', 'none');
@@ -862,10 +1077,19 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       link.attr('d', (d: any) => {
         const dx = d.target.x - d.source.x;
         const dy = d.target.y - d.source.y;
-        const dr = Math.sqrt(dx * dx + dy * dy) * (d.type === 'transition' ? 1.5 : 2);
+        const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
         return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
       });
       
+      // Update gradient directions
+      graphData.links.forEach((d: any, i: number) => {
+        defs.select(`#exp-link-gradient-${i}`)
+          .attr('x1', d.source.x)
+          .attr('y1', d.source.y)
+          .attr('x2', d.target.x)
+          .attr('y2', d.target.y);
+      });
+
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
       
       // Save positions for next render
