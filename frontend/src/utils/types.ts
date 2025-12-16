@@ -27,7 +27,7 @@ export interface MCPServerConfig {
 }
 
 export interface ModelConfig {
-  provider: 'gemini' | 'litellm' | 'anthropic';
+  provider: 'gemini' | 'litellm' | 'anthropic' | 'openai' | 'groq' | 'together';
   model_name: string;
   api_base?: string;
   fallbacks: string[];
@@ -145,7 +145,7 @@ export interface ArtifactConfig {
 export interface AppModelConfig {
   id: string;
   name: string;
-  provider: 'gemini' | 'litellm' | 'anthropic';
+  provider: 'gemini' | 'litellm' | 'anthropic' | 'openai' | 'groq' | 'together';
   model_name: string;
   api_base?: string;
   temperature?: number;
@@ -310,6 +310,7 @@ export interface VolumeMount {
 
 export interface SandboxConfig {
   enabled: boolean;
+  allow_all_network?: boolean;
   allowlist: NetworkAllowlist;
   unknown_action: 'ask' | 'deny' | 'allow';
   approval_timeout: number;

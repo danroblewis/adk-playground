@@ -273,7 +273,7 @@ class SandboxManager:
             return
         
         deps = " ".join(self.AGENT_DEPENDENCIES)
-        logger.info(f"Building cached agent image with: {deps} + uv + node/npm")
+        logger.info(f"Building cached agent image with: {deps} + uv + node/npm + chromium")
         
         # Build command that installs everything
         # 1. Install curl and ca-certificates for downloading
@@ -282,7 +282,17 @@ class SandboxManager:
         # 4. Install tsx globally
         # 5. Install Python packages
         build_command = """sh -c '
-            apt-get update && apt-get install -y --no-install-recommends curl ca-certificates git && \
+            apt-get update && apt-get install -y --no-install-recommends \
+              curl ca-certificates git \
+              chromium chromium-driver \
+              xvfb xauth \
+              fonts-liberation fonts-noto-color-emoji \
+              && \
+            # Compatibility paths expected by some automation SDKs ("Chrome stable")
+            mkdir -p /opt/google/chrome && \
+            ln -sf /usr/bin/chromium /opt/google/chrome/chrome && \
+            ln -sf /usr/bin/chromium /usr/bin/google-chrome && \
+            ln -sf /usr/bin/chromium /usr/bin/google-chrome-stable && \
             curl -LsSf https://astral.sh/uv/install.sh | sh && \
             export PATH="/root/.local/bin:$PATH" && \
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
@@ -426,17 +436,24 @@ class SandboxManager:
             allowlist = config.allowlist.with_defaults()
             allowlist.auto.extend(mcp_domains)
             allowlist.auto = list(set(allowlist.auto))  # Deduplicate
+
+            # Optionally allow all outbound network connections (still via gateway proxy)
+            if config.allow_all_network:
+                # A single wildcard matches any host/url in the gateway addon.
+                allowlist.auto = list(set(allowlist.auto + ["*"]))
             
             # Write project config to temp file
             config_file = await self._write_config_file(project_config)
             
             # Start gateway container
+            gateway_unknown_action = "allow" if config.allow_all_network else config.unknown_action
             gateway_id = await self._start_gateway(
                 app_id=app_id,
                 network_name=network_name,
                 allowlist=allowlist,
-                unknown_action=config.unknown_action,
+                unknown_action=gateway_unknown_action,
                 approval_timeout=config.approval_timeout,
+                allow_all_network=config.allow_all_network,
             )
             instance.gateway_container_id = gateway_id
             
@@ -704,6 +721,7 @@ class SandboxManager:
         allowlist: NetworkAllowlist,
         unknown_action: str,
         approval_timeout: int,
+        allow_all_network: bool = False,
     ) -> str:
         """Start the gateway container."""
         if not self.client:
@@ -737,6 +755,7 @@ class SandboxManager:
                 "ALLOWLIST": json.dumps(patterns),
                 "UNKNOWN_ACTION": unknown_action,
                 "APPROVAL_TIMEOUT": str(approval_timeout),
+                "ALLOW_ALL_NETWORK": "true" if allow_all_network else "false",
                 "WEBHOOK_URL": f"http://host.docker.internal:8080/api/sandbox/webhook/{app_id}",
                 "APP_ID": app_id,
                 "CONTROL_PORT": "8081",
@@ -824,6 +843,27 @@ class SandboxManager:
             "MCP_SERVERS_CONFIG": json.dumps(stdio_mcp_config),
             # PATH includes uvx location
             "PATH": "/root/.local/bin:/usr/local/bin:/usr/bin:/bin",
+
+            # Browser automation defaults (Chromium is installed in cached agent image)
+            "CHROME_BIN": "/usr/bin/chromium",
+            "CHROMIUM_BIN": "/usr/bin/chromium",
+            "CHROMEDRIVER_BIN": "/usr/bin/chromedriver",
+            "GOOGLE_CHROME_BIN": "/opt/google/chrome/chrome",
+            # Puppeteer-based MCP servers: use system Chromium (avoid downloading at runtime)
+            "PUPPETEER_SKIP_DOWNLOAD": "true",
+            "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",
+            # Docker-friendly Chrome launch args (required for running in container)
+            # These flags are needed because:
+            # - --no-sandbox: Chrome sandbox doesn't work as root in Docker
+            # - --disable-dev-shm-usage: /dev/shm is too small in Docker by default
+            # - --disable-gpu: No GPU available in container
+            # - --headless=new: Run headless (no display needed)
+            # - --ignore-certificate-errors: Gateway proxy intercepts HTTPS, causing cert errors
+            "PUPPETEER_ARGS": "--no-sandbox --disable-dev-shm-usage --disable-gpu --headless=new --ignore-certificate-errors",
+            "CHROME_ARGS": "--no-sandbox --disable-dev-shm-usage --disable-gpu --headless=new --ignore-certificate-errors",
+            # Optional virtual display fallback (some automations require a DISPLAY)
+            # Set ENABLE_XVFB=1 at app-level env_vars to enable.
+            "ENABLE_XVFB": "0",
         }
         
         # Pass through app-configured environment variables (API keys, etc.)
@@ -883,7 +923,17 @@ class SandboxManager:
         
         # Use cached image (deps pre-installed) - no pip install needed at runtime
         image = self.AGENT_IMAGE
-        command = ["python", "-u", "/app/agent_runner.py"]
+        # Optional Xvfb display for non-headless browser automation.
+        # Default is headless (ENABLE_XVFB=0). If enabled, we start a minimal virtual X server.
+        command = [
+            "sh",
+            "-c",
+            'if [ "${ENABLE_XVFB:-0}" = "1" ]; then '
+            '  Xvfb :99 -screen 0 1280x720x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & '
+            '  export DISPLAY=:99; '
+            "fi; "
+            "exec python -u /app/agent_runner.py",
+        ]
         
         # Run as current user to match host filesystem permissions for mounted volumes
         # This allows the container to write to mounted storage directories

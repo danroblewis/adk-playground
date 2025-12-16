@@ -203,6 +203,7 @@ export function ModelAutocomplete({
       case 'anthropic': return 'provider-anthropic';
       case 'openai': return 'provider-openai';
       case 'groq': return 'provider-groq';
+      case 'together': return 'provider-together';
       case 'ollama': return 'provider-ollama';
       default: return 'provider-other';
     }

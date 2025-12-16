@@ -226,6 +226,9 @@ class VolumeMount(BaseModel):
 class SandboxConfig(BaseModel):
     """App-scoped sandbox configuration (persisted in project YAML)."""
     enabled: bool = False
+    # If true, allow outbound connections to any host (no approvals/deny).
+    # Traffic is still routed through the gateway proxy via the internal network.
+    allow_all_network: bool = False
     allowlist: NetworkAllowlist = Field(default_factory=NetworkAllowlist)
     unknown_action: str = "ask"  # "ask", "deny", "allow"
     approval_timeout: int = 120
