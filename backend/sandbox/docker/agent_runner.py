@@ -791,15 +791,46 @@ class AgentRunner:
                 parts=[types.Part.from_text(text=user_message)],
             )
             
-            async for event in runner.run_async(
-                user_id=adk_session.user_id,
-                session_id=adk_session.id,
-                new_message=content,
-            ):
-                if not self.running:
+            # Run with retry logic for connection failures
+            max_retries = 3
+            retry_delay = 2  # seconds
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    async for event in runner.run_async(
+                        user_id=adk_session.user_id,
+                        session_id=adk_session.id,
+                        new_message=content,
+                    ):
+                        if not self.running:
+                            break
+                        # Process the event to extract tool calls/results that plugin callbacks might miss
+                        await self._process_event(event)
+                    # Success - break out of retry loop
                     break
-                # Process the event to extract tool calls/results that plugin callbacks might miss
-                await self._process_event(event)
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).lower()
+                    # Check if this is a retryable connection error
+                    is_retryable = any(msg in error_str for msg in [
+                        'connection', 'disconnected', 'closed', 'timeout',
+                        'reset', 'refused', 'unavailable', 'server error'
+                    ])
+                    
+                    if is_retryable and attempt < max_retries - 1:
+                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {e}")
+                        await self._emit_event({
+                            "event_type": "callback_start",
+                            "timestamp": time.time(),
+                            "agent_name": "system",
+                            "data": {"message": f"Connection error, retrying ({attempt + 2}/{max_retries})..."},
+                        })
+                        await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+                    else:
+                        # Not retryable or out of retries
+                        raise
             
             await runner.close()
             

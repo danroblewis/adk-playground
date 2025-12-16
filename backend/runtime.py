@@ -530,19 +530,53 @@ class RuntimeManager:
                 data={"message": user_message},
             )
             
-            # Run the agent
+            # Run the agent with retry logic for connection failures
             content = types.Content(
                 role="user",
                 parts=[types.Part.from_text(text=user_message)],
             )
             
-            async for event in runner.run_async(
-                user_id=adk_session.user_id,
-                session_id=adk_session.id,
-                new_message=content,
-            ):
-                if not self._running.get(session_id, False):
+            max_retries = 3
+            retry_delay = 2  # seconds
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    async for event in runner.run_async(
+                        user_id=adk_session.user_id,
+                        session_id=adk_session.id,
+                        new_message=content,
+                    ):
+                        if not self._running.get(session_id, False):
+                            break
+                    # If we get here without exception, break out of retry loop
                     break
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).lower()
+                    # Check if this is a retryable connection error
+                    is_retryable = any(msg in error_str for msg in [
+                        'connection', 'disconnected', 'closed', 'timeout',
+                        'reset', 'refused', 'unavailable', 'server error'
+                    ])
+                    
+                    if is_retryable and attempt < max_retries - 1:
+                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {e}")
+                        await event_callback(RunEvent(
+                            timestamp=time.time(),
+                            event_type="callback_start",
+                            agent_name="system",
+                            data={"message": f"Connection error, retrying ({attempt + 2}/{max_retries})..."},
+                        ))
+                        await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                        continue
+                    else:
+                        # Not retryable or out of retries
+                        raise
+            
+            if last_error and not self._running.get(session_id, False):
+                # We exited due to stop, not error
+                pass
             
             # Get final state
             final_session = await runner.session_service.get_session(
