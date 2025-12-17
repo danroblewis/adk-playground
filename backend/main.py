@@ -80,8 +80,13 @@ class MCPConnectionPool:
             return f"{conn_type}:{config.get('url')}"
         return f"unknown:{hash(str(config))}"
     
-    async def get_toolset(self, config: dict):
-        """Get or create a toolset for the given server config."""
+    async def get_toolset(self, config: dict, timeout: float = 30.0):
+        """Get or create a toolset for the given server config.
+        
+        Args:
+            config: Server configuration dict
+            timeout: Timeout in seconds for MCP session creation (default: 30)
+        """
         import sys
         import time
         
@@ -93,6 +98,9 @@ class MCPConnectionPool:
             StdioConnectionParams,
             SseConnectionParams,
         )
+        
+        # Use timeout from config if specified, otherwise use parameter
+        session_timeout = float(config.get("timeout", timeout))
         
         server_key = self._get_server_key(config)
         
@@ -115,7 +123,8 @@ class MCPConnectionPool:
                         "command": command,
                         "args": config.get("args", []),
                         "env": config.get("env"),
-                    }
+                    },
+                    timeout=session_timeout,  # Pass timeout to MCP session
                 )
             elif connection_type == "sse":
                 url = config.get("url")
@@ -124,6 +133,7 @@ class MCPConnectionPool:
                 connection_params = SseConnectionParams(
                     url=url,
                     headers=config.get("headers"),
+                    timeout=session_timeout,  # Pass timeout to MCP session
                 )
             else:
                 raise ValueError(f"Unknown connection type: {connection_type}")
@@ -138,7 +148,7 @@ class MCPConnectionPool:
             
             return toolset
     
-    async def get_tools(self, config: dict, timeout: int = 30) -> list:
+    async def get_tools(self, config: dict, timeout: float = 30.0) -> list:
         """Get tools from a server, using cache if available."""
         import time
         
@@ -149,18 +159,18 @@ class MCPConnectionPool:
             self._last_access[server_key] = time.time()
             return self._tools_cache[server_key]
         
-        # Get toolset and fetch tools
-        toolset = await self.get_toolset(config)
+        # Get toolset and fetch tools (pass timeout for session creation)
+        toolset = await self.get_toolset(config, timeout=timeout)
         tools = await asyncio.wait_for(toolset.get_tools(), timeout=timeout)
         
         # Cache the tools
         self._tools_cache[server_key] = tools
         return tools
     
-    async def call_tool(self, config: dict, tool_name: str, arguments: dict, timeout: int = 30):
+    async def call_tool(self, config: dict, tool_name: str, arguments: dict, timeout: float = 30.0):
         """Call a tool on an MCP server."""
-        toolset = await self.get_toolset(config)
-        tools = await self.get_tools(config, timeout)
+        toolset = await self.get_toolset(config, timeout=timeout)
+        tools = await self.get_tools(config, timeout=timeout)
         
         # Find the tool
         tool = next((t for t in tools if t.name == tool_name), None)
@@ -881,13 +891,42 @@ async def test_mcp_server(request: TestMcpRequest):
     except asyncio.TimeoutError:
         return {
             "success": False,
-            "error": f"Connection timed out after {request.timeout} seconds. The MCP server may not be responding.",
+            "error": f"Connection timed out after {request.timeout} seconds. The MCP server may be slow to start. Try increasing the timeout.",
+            "hint": "Some MCP servers (especially those using npm/npx) can take 30+ seconds on first run to download dependencies.",
+            "tools": []
+        }
+    except ConnectionError as e:
+        error_msg = str(e)
+        # Check if this is a timeout during session creation
+        if "TimeoutError" in error_msg or "timed out" in error_msg.lower():
+            return {
+                "success": False,
+                "error": f"MCP server startup timed out. The server took too long to initialize.",
+                "hint": f"Current timeout is {request.timeout}s. Try increasing it to 60+ seconds, especially for npm-based servers that need to download dependencies.",
+                "traceback": traceback.format_exc(),
+                "tools": []
+            }
+        return {
+            "success": False,
+            "error": error_msg,
+            "traceback": traceback.format_exc(),
             "tools": []
         }
     except Exception as e:
+        error_msg = str(e)
+        # Provide helpful hints for common errors
+        hint = None
+        if "spawn" in error_msg.lower() or "not found" in error_msg.lower() or "ENOENT" in error_msg:
+            hint = "The command or executable was not found. Make sure the MCP server is installed and the command path is correct."
+        elif "permission" in error_msg.lower():
+            hint = "Permission denied. Check that you have execute permissions for the MCP server command."
+        elif "timeout" in error_msg.lower():
+            hint = f"The operation timed out. Try increasing the timeout (current: {request.timeout}s)."
+        
         return {
             "success": False,
-            "error": str(e),
+            "error": error_msg,
+            "hint": hint,
             "traceback": traceback.format_exc(),
             "tools": []
         }
