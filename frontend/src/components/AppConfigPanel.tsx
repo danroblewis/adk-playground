@@ -211,11 +211,11 @@ export default function AppConfigPanel() {
     // Note: We can't "remove" from gateway, but new patterns won't require approval
   }
   
-  // Volume mounts management
+  // Volume mounts management (supports both files and directories)
   function addVolumeMount() {
     const newMount: VolumeMount = {
       host_path: '',
-      container_path: '/mnt/data',
+      container_path: '',
       mode: 'ro',
     };
     updateSandbox({ volume_mounts: [...volumeMounts, newMount] });
@@ -1350,17 +1350,20 @@ export default function AppConfigPanel() {
           <div className="section-header">
             <h2 className="section-title">
               <HardDrive size={20} />
-              Volume Mounts
+              File & Volume Mounts
             </h2>
             <button className="btn btn-secondary btn-sm" onClick={addVolumeMount}>
               <Plus size={14} />
               Add
             </button>
           </div>
+          <p className="field-hint" style={{ fontSize: 10, marginBottom: 8 }}>
+            Mount files or directories from host into the sandbox container.
+          </p>
           
           {volumeMounts.length === 0 ? (
             <p className="empty-message" style={{ fontSize: 11 }}>
-              No mounts. Add to give sandbox file access.
+              No mounts. Example: <code>~/.mcp.conf.yml</code> → <code>/root/.mcp.conf.yml</code>
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1378,17 +1381,17 @@ export default function AppConfigPanel() {
                     type="text"
                     value={mount.host_path}
                     onChange={(e) => updateVolumeMount(index, { host_path: e.target.value })}
-                    placeholder="~/path"
+                    placeholder="~/.mcp.conf.yml"
                     style={{ flex: 1, padding: '4px 6px', fontSize: 11 }}
-                    title="Host path"
+                    title="Host path (file or directory)"
                   />
                   <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>→</span>
                   <input
                     type="text"
                     value={mount.container_path}
                     onChange={(e) => updateVolumeMount(index, { container_path: e.target.value })}
-                    placeholder="/mnt"
-                    style={{ width: 70, padding: '4px 6px', fontSize: 11 }}
+                    placeholder="/root/.mcp.conf.yml"
+                    style={{ width: 120, padding: '4px 6px', fontSize: 11 }}
                     title="Container path"
                   />
                   <select
