@@ -1058,6 +1058,125 @@ function VersionedMarkdownModal({
         )}
       </div>
       <style>{`
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        }
+        .modal-content {
+          background: var(--bg-primary, #1a1a1f);
+          border-radius: var(--radius-lg, 12px);
+          width: 90%;
+          max-width: 800px;
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        .modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-color, #333);
+        }
+        .modal-header h3 {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--text-primary, #fff);
+        }
+        .modal-close {
+          background: none;
+          border: none;
+          font-size: 24px;
+          color: var(--text-secondary, #888);
+          cursor: pointer;
+          padding: 0;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: var(--radius-sm, 4px);
+        }
+        .modal-close:hover {
+          background: var(--bg-hover, #333);
+          color: var(--text-primary, #fff);
+        }
+        .modal-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 20px;
+        }
+        .markdown-content {
+          line-height: 1.6;
+          font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 14px;
+          color: var(--text-primary, #fff);
+        }
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3,
+        .markdown-content h4 {
+          margin-top: 1em;
+          margin-bottom: 0.5em;
+          font-weight: 600;
+        }
+        .markdown-content h1 { font-size: 1.5em; }
+        .markdown-content h2 { font-size: 1.3em; }
+        .markdown-content h3 { font-size: 1.1em; }
+        .markdown-content p {
+          margin: 0.5em 0;
+        }
+        .markdown-content code {
+          background: var(--bg-tertiary, #2a2a2f);
+          padding: 2px 6px;
+          border-radius: var(--radius-sm, 4px);
+          font-family: var(--font-mono, monospace);
+          font-size: 0.9em;
+        }
+        .markdown-content pre {
+          background: var(--bg-tertiary, #2a2a2f);
+          padding: 12px;
+          border-radius: var(--radius-md, 8px);
+          overflow-x: auto;
+          margin: 1em 0;
+        }
+        .markdown-content pre code {
+          background: none;
+          padding: 0;
+        }
+        .markdown-content ul,
+        .markdown-content ol {
+          margin: 0.5em 0;
+          padding-left: 1.5em;
+        }
+        .markdown-content blockquote {
+          border-left: 3px solid var(--accent-primary, #3b82f6);
+          padding-left: 1em;
+          margin: 1em 0;
+          color: var(--text-secondary, #888);
+        }
+        .markdown-content strong {
+          font-weight: 700;
+          color: var(--text-primary, #fff);
+        }
+        .markdown-content em {
+          font-style: italic;
+          color: var(--text-secondary, #888);
+        }
+        .markdown-content a {
+          color: var(--accent-primary, #3b82f6);
+          text-decoration: underline;
+        }
+        .markdown-content li {
+          margin: 0.25em 0;
+        }
         .version-nav {
           display: flex;
           align-items: center;
@@ -1066,17 +1185,17 @@ function VersionedMarkdownModal({
           margin-left: 16px;
         }
         .version-btn {
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          color: var(--text-secondary);
+          background: var(--bg-tertiary, #2a2a2f);
+          border: 1px solid var(--border-color, #333);
+          color: var(--text-secondary, #888);
           cursor: pointer;
           padding: 4px 8px;
-          border-radius: var(--radius-sm);
+          border-radius: var(--radius-sm, 4px);
           font-size: 12px;
         }
         .version-btn:hover:not(:disabled) {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+          background: var(--bg-hover, #333);
+          color: var(--text-primary, #fff);
         }
         .version-btn:disabled {
           opacity: 0.4;
@@ -1084,38 +1203,38 @@ function VersionedMarkdownModal({
         }
         .version-info {
           font-size: 12px;
-          color: var(--text-secondary);
+          color: var(--text-secondary, #888);
           font-weight: 500;
         }
         .version-event {
-          color: var(--text-muted);
+          color: var(--text-muted, #666);
           font-weight: normal;
         }
         .modal-footer {
           padding: 8px 20px;
-          border-top: 1px solid var(--border-color);
-          background: var(--bg-secondary);
+          border-top: 1px solid var(--border-color, #333);
+          background: var(--bg-secondary, #222);
         }
         .version-hint {
           font-size: 11px;
-          color: var(--text-muted);
+          color: var(--text-muted, #666);
         }
         .modal-copy-btn {
           display: flex;
           align-items: center;
           gap: 6px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          color: var(--text-secondary);
+          background: var(--bg-tertiary, #2a2a2f);
+          border: 1px solid var(--border-color, #333);
+          color: var(--text-secondary, #888);
           cursor: pointer;
           padding: 6px 12px;
-          border-radius: var(--radius-sm);
+          border-radius: var(--radius-sm, 4px);
           font-size: 12px;
           margin-left: auto;
         }
         .modal-copy-btn:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+          background: var(--bg-hover, #333);
+          color: var(--text-primary, #fff);
         }
       `}</style>
     </div>,
@@ -1167,8 +1286,8 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           z-index: 10000;
         }
         .modal-content {
-          background: var(--bg-primary);
-          border-radius: var(--radius-lg);
+          background: var(--bg-primary, #1a1a1f);
+          border-radius: var(--radius-lg, 12px);
           width: 90%;
           max-width: 800px;
           max-height: 90vh;
@@ -1181,18 +1300,19 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           align-items: center;
           justify-content: space-between;
           padding: 16px 20px;
-          border-bottom: 1px solid var(--border-color);
+          border-bottom: 1px solid var(--border-color, #333);
         }
         .modal-header h3 {
           margin: 0;
           font-size: 16px;
           font-weight: 600;
+          color: var(--text-primary, #fff);
         }
         .modal-close {
           background: none;
           border: none;
           font-size: 24px;
-          color: var(--text-secondary);
+          color: var(--text-secondary, #888);
           cursor: pointer;
           padding: 0;
           width: 32px;
@@ -1200,28 +1320,28 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: var(--radius-sm);
+          border-radius: var(--radius-sm, 4px);
         }
         .modal-close:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+          background: var(--bg-hover, #333);
+          color: var(--text-primary, #fff);
         }
         .modal-copy-btn {
           display: flex;
           align-items: center;
           gap: 6px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-color);
-          color: var(--text-secondary);
+          background: var(--bg-tertiary, #2a2a2f);
+          border: 1px solid var(--border-color, #333);
+          color: var(--text-secondary, #888);
           cursor: pointer;
           padding: 6px 12px;
-          border-radius: var(--radius-sm);
+          border-radius: var(--radius-sm, 4px);
           font-size: 12px;
           margin-left: auto;
         }
         .modal-copy-btn:hover {
-          background: var(--bg-hover);
-          color: var(--text-primary);
+          background: var(--bg-hover, #333);
+          color: var(--text-primary, #fff);
         }
         .modal-body {
           flex: 1;
@@ -1232,6 +1352,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           line-height: 1.6;
           font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           font-size: 14px;
+          color: var(--text-primary, #fff);
         }
         .markdown-content h1,
         .markdown-content h2,
@@ -1248,16 +1369,16 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           margin: 0.5em 0;
         }
         .markdown-content code {
-          background: var(--bg-tertiary);
+          background: var(--bg-tertiary, #2a2a2f);
           padding: 2px 6px;
-          border-radius: var(--radius-sm);
-          font-family: var(--font-mono);
+          border-radius: var(--radius-sm, 4px);
+          font-family: var(--font-mono, monospace);
           font-size: 0.9em;
         }
         .markdown-content pre {
-          background: var(--bg-tertiary);
+          background: var(--bg-tertiary, #2a2a2f);
           padding: 12px;
-          border-radius: var(--radius-md);
+          border-radius: var(--radius-md, 8px);
           overflow-x: auto;
           margin: 1em 0;
         }
@@ -1271,21 +1392,21 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           padding-left: 1.5em;
         }
         .markdown-content blockquote {
-          border-left: 3px solid var(--accent-primary);
+          border-left: 3px solid var(--accent-primary, #3b82f6);
           padding-left: 1em;
           margin: 1em 0;
-          color: var(--text-secondary);
+          color: var(--text-secondary, #888);
         }
         .markdown-content strong {
           font-weight: 700;
-          color: var(--text-primary);
+          color: var(--text-primary, #fff);
         }
         .markdown-content em {
           font-style: italic;
-          color: var(--text-secondary);
+          color: var(--text-secondary, #888);
         }
         .markdown-content a {
-          color: var(--accent-primary);
+          color: var(--accent-primary, #3b82f6);
           text-decoration: underline;
         }
         .markdown-content a:hover {
@@ -1296,7 +1417,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
         }
         .markdown-content hr {
           border: none;
-          border-top: 1px solid var(--border-color);
+          border-top: 1px solid var(--border-color, #333);
           margin: 1em 0;
         }
         .markdown-content table {
@@ -1306,12 +1427,12 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
         }
         .markdown-content th,
         .markdown-content td {
-          border: 1px solid var(--border-color);
+          border: 1px solid var(--border-color, #333);
           padding: 8px 12px;
           text-align: left;
         }
         .markdown-content th {
-          background: var(--bg-tertiary);
+          background: var(--bg-tertiary, #2a2a2f);
           font-weight: 600;
         }
         .markdown-content img {
@@ -1522,29 +1643,29 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
               : JSON.stringify(value, null, 2);
           
           return (
-            <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
-              <div className="state-key">
-                {key}
-                {type && <span className="state-type">({type})</span>}
+          <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
+            <div className="state-key">
+              {key}
+              {type && <span className="state-type">({type})</span>}
                 {versions.length > 1 && (
                   <span className="state-version-count" title="Number of versions">
                     [{versions.length} versions]
                   </span>
                 )}
-              </div>
+            </div>
               <div className="state-value-row">
-                <div 
-                  className="state-value"
-                  onClick={() => {
+            <div 
+              className="state-value"
+              onClick={() => {
                     if (value !== undefined && versions.length > 0) {
                       setModalState({
                         key,
                         versions,
                         initialVersionIndex: getInitialVersionIndex(key),
                       });
-                    }
-                  }}
-                  style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
+                }
+              }}
+              style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
                   title={value !== undefined 
                     ? versions.length > 1 
                       ? `Click to view (${versions.length} versions, use ↑↓ to navigate)` 
@@ -1556,12 +1677,12 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
                 {value !== undefined && (
                   <StateCopyButton value={displayValue} />
                 )}
-              </div>
-              {description && <div className="state-desc">{description}</div>}
-              {timestamp && (
-                <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
-              )}
             </div>
+            {description && <div className="state-desc">{description}</div>}
+            {timestamp && (
+              <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
+            )}
+          </div>
           );
         })
       )}
@@ -2970,7 +3091,7 @@ export default function RunPanel() {
     }
     
     // Always start fresh - clear events and start a new session
-    clearRunEvents();
+      clearRunEvents();
     clearWatchHistories();
     setSelectedSessionId(null);
     setCurrentSessionId(null);  // Clear so we get a new session
@@ -3089,7 +3210,7 @@ export default function RunPanel() {
     websocket.onclose = (event) => {
       // Only handle unexpected closures - if completed, the message handler already set isRunning=false
       if (isRunning) {
-        setIsRunning(false);
+      setIsRunning(false);
         // Check if this was an abnormal closure (not code 1000/normal)
         if (event.code !== 1000 && event.code !== 1005) {
           addRunEvent({
