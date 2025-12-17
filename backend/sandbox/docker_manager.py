@@ -28,7 +28,6 @@ from .models import (
     SandboxInstance,
     SandboxStatus,
 )
-from mcp_config import get_mcp_env_vars, get_mcp_config, get_server_auth
 from .mcp_manager import MCPContainerManager
 
 # Import code generator for creating executable Python code
@@ -882,19 +881,6 @@ class SandboxManager:
         ]:
             if key not in env_vars and os.environ.get(key):
                 env_vars[key] = os.environ[key]
-        
-        # Load MCP server credentials from ~/.mcp.conf.yml
-        # This allows centralized credential management across environments
-        try:
-            mcp_env_vars = get_mcp_env_vars()
-            if mcp_env_vars:
-                logger.info(f"Loading {len(mcp_env_vars)} MCP config env vars from ~/.mcp.conf.yml")
-                # Don't override existing env vars (app config takes precedence)
-                for key, value in mcp_env_vars.items():
-                    if key not in env_vars:
-                        env_vars[key] = value
-        except Exception as e:
-            logger.warning(f"Failed to load MCP config: {e}")
         
         # Create agent on the sandbox network
         # All HTTP/HTTPS traffic is routed through the gateway proxy via env vars
