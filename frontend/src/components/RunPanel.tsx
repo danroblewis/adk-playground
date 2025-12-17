@@ -162,7 +162,7 @@ function getEventSummary(event: RunEvent): string {
       const preview = event.data?.summary_preview || '';
       return `📦 COMPACTION "${preview.slice(0, 80)}${preview.length > 80 ? '...' : ''}"`;
     default:
-      return event.event_type.toUpperCase();
+      return event.event_type?.toUpperCase() || 'UNKNOWN';
   }
 }
 
@@ -2099,6 +2099,9 @@ export default function RunPanel() {
     // Look at the last few events for error indicators
     const lastEvents = runEvents.slice(-5);
     const hasError = lastEvents.some(event => {
+      // Guard against malformed events
+      if (!event || !event.event_type) return false;
+      
       // Check for explicit error data
       if (event.data?.error) return true;
       if (event.event_type === 'callback_error') return true;
