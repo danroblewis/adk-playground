@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
   CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, Settings, Target, Percent,
-  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy
+  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy, Sparkles
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
-import { api } from '../utils/api';
+import { api, generateEvalSet } from '../utils/api';
 
 // ADK Prebuilt Metrics
 type EvalMetricType = 
@@ -497,6 +497,33 @@ export default function EvalPanel() {
       setExpandedSets(prev => new Set([...prev, response.eval_set.id]));
     } catch (err: any) {
       setError(err.message || 'Failed to create eval set');
+    }
+  };
+  
+  // Generate eval set with AI
+  const [isGenerating, setIsGenerating] = useState(false);
+  
+  const generateEvalSetWithAI = async () => {
+    if (!project?.id) return;
+    
+    setIsGenerating(true);
+    setError(null);
+    
+    try {
+      const result = await generateEvalSet(project.id, {});
+      
+      if (result.success && result.eval_set) {
+        setEvalSets(prev => [...prev, result.eval_set]);
+        setSelectedSetId(result.eval_set.id);
+        setExpandedSets(prev => new Set([...prev, result.eval_set.id]));
+      } else {
+        setError(result.error || 'Failed to generate eval set');
+        console.error('AI generation error:', result.traceback || result.raw_output);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate eval set with AI');
+    } finally {
+      setIsGenerating(false);
     }
   };
   
@@ -1297,6 +1324,28 @@ export default function EvalPanel() {
               <Plus size={14} />
               Set
             </button>
+            <button 
+              className="btn btn-primary btn-sm" 
+              onClick={generateEvalSetWithAI}
+              disabled={isGenerating}
+              title="Generate eval set with AI"
+              style={{ 
+                background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                gap: '6px',
+              }}
+            >
+              {isGenerating ? (
+                <>
+                  <RefreshCw size={14} className="spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles size={14} />
+                  AI
+                </>
+              )}
+            </button>
           </div>
         </div>
         
@@ -1312,7 +1361,7 @@ export default function EvalPanel() {
           {!loading && evalSets.length === 0 && (
             <div className="empty-state" style={{ padding: '32px' }}>
               <Target size={32} />
-              <p>No evaluation sets yet.<br/>Create one to get started.</p>
+              <p>No evaluation sets yet.<br/>Create one or use AI to generate tests.</p>
             </div>
           )}
           

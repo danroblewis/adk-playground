@@ -647,6 +647,35 @@ export function createSandboxWebSocket(appId: string): WebSocket {
 // Generic API object for simpler CRUD operations
 // ============================================================================
 
+// ============================================================================
+// Eval Set Generation
+// ============================================================================
+
+export interface GenerateEvalSetRequest {
+  agent_id?: string;
+  context?: string;
+}
+
+export interface GenerateEvalSetResponse {
+  success: boolean;
+  eval_set?: any;
+  cases_generated?: number;
+  error?: string;
+  traceback?: string;
+  raw_output?: string;
+}
+
+export async function generateEvalSet(
+  projectId: string,
+  options: GenerateEvalSetRequest = {}
+): Promise<GenerateEvalSetResponse> {
+  return fetchJSON(`/projects/${projectId}/generate-eval-set`, {
+    method: 'POST',
+    body: JSON.stringify(options),
+  });
+}
+
+// Generic API helper for simple cases
 export const api = {
   async get<T = any>(url: string): Promise<T> {
     return fetchJSON<T>(url);

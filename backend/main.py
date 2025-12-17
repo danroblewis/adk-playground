@@ -2994,6 +2994,206 @@ async def delete_eval_set(project_id: str, eval_set_id: str):
     return {"success": True}
 
 
+class GenerateEvalSetRequest(BaseModel):
+    """Request to generate an eval set using AI."""
+    agent_id: Optional[str] = None  # Which agent to generate tests for (defaults to root)
+    context: Optional[str] = None  # Additional context or focus areas
+
+
+@app.post("/api/projects/{project_id}/generate-eval-set")
+async def generate_eval_set(project_id: str, request: GenerateEvalSetRequest):
+    """Generate an evaluation set using AI based on the project's agents."""
+    import time
+    import json
+    import traceback
+    
+    project = project_manager.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    try:
+        # Find the target agent
+        target_agent_id = request.agent_id or project.app.root_agent_id
+        target_agent = next((a for a in project.agents if a.id == target_agent_id), None)
+        
+        if not target_agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{target_agent_id}' not found")
+        
+        # Build context about the agent for the AI
+        agent_info = {
+            "name": target_agent.name,
+            "type": target_agent.type,
+            "description": getattr(target_agent, "description", ""),
+            "instruction": getattr(target_agent, "instruction", ""),
+        }
+        
+        # Collect tool information
+        tools_info = []
+        if hasattr(target_agent, "tools"):
+            for tool in (target_agent.tools or []):
+                if tool.get("type") == "builtin":
+                    tools_info.append({"type": "builtin", "name": tool.get("name")})
+                elif tool.get("type") == "mcp":
+                    server = tool.get("server", {})
+                    tools_info.append({
+                        "type": "mcp",
+                        "server": server.get("name"),
+                        "tools": server.get("tool_filter"),
+                    })
+                elif tool.get("type") == "function":
+                    tools_info.append({"type": "function", "name": tool.get("name")})
+        
+        # Collect state key information
+        state_keys_info = []
+        for key in project.app.state_keys:
+            state_keys_info.append({
+                "name": key.name,
+                "type": key.type,
+                "description": key.description,
+            })
+        
+        # Build the prompt for the AI
+        prompt = f"""Generate a comprehensive evaluation test set for the following AI agent:
+
+## Agent Configuration
+
+**Name:** {agent_info['name']}
+**Type:** {agent_info['type']}
+**Description:** {agent_info['description'] or 'No description provided'}
+
+**Instruction:**
+{agent_info['instruction'] or 'No instruction provided'}
+
+## Available Tools
+{json.dumps(tools_info, indent=2) if tools_info else 'No tools configured'}
+
+## State Keys
+{json.dumps(state_keys_info, indent=2) if state_keys_info else 'No state keys defined'}
+
+{f"## Additional Context{chr(10)}{request.context}" if request.context else ""}
+
+## Requirements
+
+Based on this agent configuration, generate a test set that:
+1. Tests the agent's core functionality
+2. Includes expected tool calls if the agent has tools
+3. Includes expected state changes if state keys are defined
+4. Has rubrics for each test case to assess response quality
+5. Covers both happy paths and edge cases
+
+Remember to output ONLY valid JSON with no markdown code blocks.
+"""
+        
+        # Get model config from project
+        model_config = None
+        if project.app.models and len(project.app.models) > 0:
+            if project.app.default_model_id:
+                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+            if not model_config:
+                model_config = project.app.models[0]
+        
+        # Run the eval_set_generator agent
+        result = await run_agent(
+            agent_name="eval_set_generator",
+            message=prompt,
+            model_config=model_config,
+            env_vars=project.app.env_vars,
+            output_key="generated_eval_set",
+        )
+        
+        if not result["success"]:
+            return {
+                "success": False,
+                "error": result.get("error"),
+                "traceback": result.get("traceback"),
+            }
+        
+        # Parse the generated JSON
+        output = result["output"]
+        json_str = extract_json_from_text(output)
+        
+        try:
+            generated = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            return {
+                "success": False,
+                "error": f"Failed to parse AI output as JSON: {e}",
+                "raw_output": output,
+            }
+        
+        # Create the eval set
+        eval_set_id = f"eval_set_{int(time.time())}_{target_agent.name}"
+        
+        # Convert generated cases to proper format
+        eval_cases = []
+        for i, case_data in enumerate(generated.get("eval_cases", [])):
+            case_id = f"case_{i+1}_{case_data.get('name', 'unnamed')}"
+            
+            # Parse expected tool calls
+            expected_tool_calls = []
+            for tc in case_data.get("expected_tool_calls", []):
+                expected_tool_calls.append(ExpectedToolCall(
+                    name=tc.get("name", ""),
+                    args=tc.get("args"),
+                    args_match_mode=tc.get("args_match_mode", "ignore"),
+                ))
+            
+            # Parse rubrics
+            rubrics = []
+            for r in case_data.get("rubrics", []):
+                if isinstance(r, dict) and "rubric" in r:
+                    rubrics.append(Rubric(rubric=r["rubric"]))
+                elif isinstance(r, str):
+                    rubrics.append(Rubric(rubric=r))
+            
+            # Create invocation from user_message
+            invocations = [EvalInvocation(
+                id=f"inv_1",
+                user_message=case_data.get("user_message", ""),
+                expected_response=case_data.get("expected_response"),
+                expected_tool_calls=expected_tool_calls,
+                rubrics=rubrics,
+            )]
+            
+            eval_case = EvalCase(
+                id=case_id,
+                name=case_data.get("name", f"test_case_{i+1}"),
+                description=case_data.get("description", ""),
+                invocations=invocations,
+                expected_final_state=case_data.get("expected_final_state"),
+                target_agent=target_agent_id if target_agent_id != project.app.root_agent_id else None,
+            )
+            eval_cases.append(eval_case)
+        
+        # Create the eval set
+        eval_set = EvalSet(
+            id=eval_set_id,
+            name=generated.get("name", f"Tests for {target_agent.name}"),
+            description=generated.get("description", f"AI-generated test set for {target_agent.name}"),
+            eval_cases=eval_cases,
+            eval_config=EvalConfig(),
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+        
+        # Save to project
+        project.eval_sets.append(eval_set)
+        project_manager.save_project(project)
+        
+        return {
+            "success": True,
+            "eval_set": eval_set.model_dump(mode="json"),
+            "cases_generated": len(eval_cases),
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
+
+
 @app.post("/api/projects/{project_id}/eval-sets/{eval_set_id}/cases")
 async def create_eval_case(project_id: str, eval_set_id: str, request: CreateEvalCaseRequest):
     """Create a new evaluation case in an eval set."""
