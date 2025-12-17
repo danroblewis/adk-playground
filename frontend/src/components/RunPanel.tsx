@@ -988,10 +988,22 @@ function VersionedMarkdownModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [versions.length, onClose]);
   
+  const [copied, setCopied] = useState(false);
+  
   const currentVersion = versions[currentIndex];
   const content = typeof currentVersion.value === 'string' 
     ? currentVersion.value 
     : JSON.stringify(currentVersion.value, null, 2);
+  
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
   
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -1022,6 +1034,14 @@ function VersionedMarkdownModal({
               </button>
             </div>
           )}
+          <button 
+            className="modal-copy-btn" 
+            onClick={handleCopy}
+            title="Copy to clipboard"
+          >
+            {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body markdown-content">
@@ -1079,6 +1099,23 @@ function VersionedMarkdownModal({
           font-size: 11px;
           color: var(--text-muted);
         }
+        .modal-copy-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 6px 12px;
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+          margin-left: auto;
+        }
+        .modal-copy-btn:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
       `}</style>
     </div>
   );
@@ -1086,12 +1123,31 @@ function VersionedMarkdownModal({
 
 // Markdown modal component (simple version for non-versioned content)
 function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
   
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
+          <button 
+            className="modal-copy-btn" 
+            onClick={handleCopy}
+            title="Copy to clipboard"
+          >
+            {copied ? <CheckCircle size={16} /> : <Copy size={16} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-body markdown-content">
@@ -1145,6 +1201,23 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           border-radius: var(--radius-sm);
         }
         .modal-close:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+        .modal-copy-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 6px 12px;
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+          margin-left: auto;
+        }
+        .modal-copy-btn:hover {
           background: var(--bg-hover);
           color: var(--text-primary);
         }
@@ -1398,6 +1471,36 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           color: #666;
           margin-top: 2px;
         }
+        .state-value-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 8px;
+        }
+        .state-value-row .state-value {
+          flex: 1;
+        }
+        .state-copy-btn {
+          flex-shrink: 0;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: var(--radius-sm);
+          font-size: 10px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          opacity: 0.6;
+          transition: opacity 0.15s;
+        }
+        .state-entry:hover .state-copy-btn {
+          opacity: 1;
+        }
+        .state-copy-btn:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
       `}</style>
       <div className="state-header">
         {selectedEventIndex !== null 
@@ -1409,6 +1512,12 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
       ) : (
         entries.map(([key, { value, timestamp, defined, description, type }]) => {
           const versions = stateVersions[key] || [];
+          const displayValue = value === undefined 
+            ? '(not set)' 
+            : typeof value === 'string' 
+              ? value 
+              : JSON.stringify(value, null, 2);
+          
           return (
             <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
               <div className="state-key">
@@ -1420,29 +1529,30 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
                   </span>
                 )}
               </div>
-              <div 
-                className="state-value"
-                onClick={() => {
-                  if (value !== undefined && versions.length > 0) {
-                    setModalState({
-                      key,
-                      versions,
-                      initialVersionIndex: getInitialVersionIndex(key),
-                    });
-                  }
-                }}
-                style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
-                title={value !== undefined 
-                  ? versions.length > 1 
-                    ? `Click to view (${versions.length} versions, use ↑↓ to navigate)` 
-                    : 'Click to view in markdown viewer' 
-                  : undefined}
-              >
-                {value === undefined 
-                  ? '(not set)' 
-                  : typeof value === 'string' 
-                    ? value 
-                    : JSON.stringify(value, null, 2)}
+              <div className="state-value-row">
+                <div 
+                  className="state-value"
+                  onClick={() => {
+                    if (value !== undefined && versions.length > 0) {
+                      setModalState({
+                        key,
+                        versions,
+                        initialVersionIndex: getInitialVersionIndex(key),
+                      });
+                    }
+                  }}
+                  style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
+                  title={value !== undefined 
+                    ? versions.length > 1 
+                      ? `Click to view (${versions.length} versions, use ↑↓ to navigate)` 
+                      : 'Click to view in markdown viewer' 
+                    : undefined}
+                >
+                  {displayValue}
+                </div>
+                {value !== undefined && (
+                  <StateCopyButton value={displayValue} />
+                )}
               </div>
               {description && <div className="state-desc">{description}</div>}
               {timestamp && (
@@ -1454,6 +1564,32 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
       )}
     </div>
     </>
+  );
+}
+
+// Small copy button for state values
+function StateCopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+  
+  return (
+    <button 
+      className="state-copy-btn" 
+      onClick={handleCopy}
+      title="Copy to clipboard"
+    >
+      {copied ? <CheckCircle size={12} /> : <Copy size={12} />}
+    </button>
   );
 }
 
@@ -5592,4 +5728,5 @@ export default function RunPanel() {
     </div>
   );
 }
+
 
