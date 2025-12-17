@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import type { AgentConfig, RunEvent } from '../utils/types';
 
 interface AgentGraphProps {
@@ -1575,60 +1575,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           to { transform: scale(1); opacity: 1; }
         }
         
-        .agent-graph-modal-close {
-          position: absolute;
-          top: 3%;
-          right: 3%;
-          width: 60px;
-          height: 60px;
-          background: transparent;
-          border: none;
-          cursor: pointer;
-          z-index: 2001;
-          padding: 0;
-          transform: rotate(45deg);
-        }
-        
-        .agent-graph-modal-close-arc {
-          width: 100%;
-          height: 100%;
-          position: relative;
-        }
-        
-        .agent-graph-modal-close-arc::before {
-          content: '';
-          position: absolute;
-          top: 0;
-          right: 0;
-          width: 60px;
-          height: 60px;
-          background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-          border-radius: 0 0 0 100%;
-          box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.3);
-          transition: all 0.2s ease;
-        }
-        
-        .agent-graph-modal-close:hover .agent-graph-modal-close-arc::before {
-          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-          box-shadow: -3px 3px 12px rgba(220, 38, 38, 0.5);
-          width: 70px;
-          height: 70px;
-        }
-        
-        .agent-graph-modal-close-icon {
-          position: absolute;
-          top: 12px;
-          right: 12px;
-          color: white;
-          transform: rotate(-45deg);
-          transition: transform 0.2s ease;
-          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
-        }
-        
-        .agent-graph-modal-close:hover .agent-graph-modal-close-icon {
-          transform: rotate(-45deg) scale(1.1);
-        }
-        
         .agent-graph-modal-svg {
           width: 100%;
           height: 100%;
@@ -1760,18 +1706,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
             ref={expandedContainerRef}
             onClick={(e) => e.stopPropagation()}
           >
-            <button 
-              className="agent-graph-modal-close"
-              onClick={() => {
-                setIsExpanded(false);
-                expandedTransformRef.current = null; // Reset so it re-centers next time
-              }}
-              title="Close"
-            >
-              <div className="agent-graph-modal-close-arc">
-                <X size={18} className="agent-graph-modal-close-icon" />
-              </div>
-            </button>
             <svg ref={expandedSvgRef} className="agent-graph-modal-svg" />
             {expandedTooltip && (
               <div 
