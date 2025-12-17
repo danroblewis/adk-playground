@@ -385,9 +385,22 @@ class MCPSessionManager:
             if key in os.environ:
                 env[key] = os.environ[key]
         
-        # Add server-specific env vars
+        # Add server-specific env vars from project config
         if config.get("env"):
             env.update(config["env"])
+        
+        # Load credentials from ~/.mcp.conf.yml via environment variables
+        # These are passed from docker_manager.py as e.g., JIRA_USER, JIRA_TOKEN
+        server_name_upper = server_name.upper().replace("-", "_")
+        for key, value in os.environ.items():
+            if key.startswith(f"{server_name_upper}_"):
+                # Pass through credential env vars to the MCP server
+                env[key] = value
+        
+        # Also check for MCP_ prefixed global settings
+        for key, value in os.environ.items():
+            if key.startswith("MCP_") and key not in env:
+                env[key] = value
         
         # Check if this is a browser-related MCP server
         is_browser = self._is_browser_mcp_server(server_name, original_args)
