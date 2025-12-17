@@ -828,10 +828,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .attr('stroke-width', 3)
       .attr('stroke-opacity', d => d.wasActive ? 0.9 : 0.4)
       .attr('stroke-dasharray', d => {
-        // Different dash patterns for different types
-        if (d.type === 'LoopAgent') return '6,3'; // Dashed for loops
-        if (d.type === 'ParallelAgent') return '3,3'; // Dotted for parallel
-        return 'none'; // Solid for sequential and LLM
+        // Different dash patterns for workflow agent types
+        if (d.type === 'SequentialAgent') return '8,4'; // Long dashes for sequential
+        if (d.type === 'LoopAgent') return '6,3'; // Medium dashes for loops
+        if (d.type === 'ParallelAgent') return '3,3'; // Dots for parallel
+        return 'none'; // Solid for LLM agents
       });
     
     // Node circles (inner fill)
@@ -1134,10 +1135,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .attr('stroke-width', 4)
       .attr('stroke-opacity', d => d.wasActive ? 0.9 : 0.4)
       .attr('stroke-dasharray', d => {
-        // Different dash patterns for different types
-        if (d.type === 'LoopAgent') return '8,4'; // Dashed for loops
-        if (d.type === 'ParallelAgent') return '4,4'; // Dotted for parallel
-        return 'none'; // Solid for sequential and LLM
+        // Different dash patterns for workflow agent types
+        if (d.type === 'SequentialAgent') return '10,5'; // Long dashes for sequential
+        if (d.type === 'LoopAgent') return '8,4'; // Medium dashes for loops
+        if (d.type === 'ParallelAgent') return '4,4'; // Dots for parallel
+        return 'none'; // Solid for LLM agents
       });
     
     // Node circles (inner fill)
@@ -1587,7 +1589,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                   <span>LLM</span>
                 </div>
                 <div className="legend-item">
-                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px solid ${AGENT_TYPE_COLORS.SequentialAgent}` }} />
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px dashed ${AGENT_TYPE_COLORS.SequentialAgent}` }} />
                   <span>Sequential</span>
                 </div>
                 <div className="legend-item">
