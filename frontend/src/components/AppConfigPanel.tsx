@@ -1206,6 +1206,70 @@ export default function AppConfigPanel() {
         )}
       </section>
       
+      {/* Sandbox Settings */}
+      <section className="section">
+        <div className="section-header">
+          <h2 className="section-title">
+            <Clock size={20} />
+            Sandbox Limits
+          </h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <div className="form-field">
+            <label>Run Timeout</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="number"
+                value={sandbox.run_timeout}
+                onChange={(e) => updateSandbox({ run_timeout: parseInt(e.target.value) || 3600 })}
+                min={60}
+                max={86400}
+                step={60}
+                style={{ width: 100 }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                {sandbox.run_timeout >= 3600 
+                  ? `${Math.floor(sandbox.run_timeout / 3600)}h ${Math.floor((sandbox.run_timeout % 3600) / 60)}m`
+                  : `${Math.floor(sandbox.run_timeout / 60)}m`}
+              </span>
+            </div>
+            <p className="field-hint">Max time for agent run (seconds)</p>
+          </div>
+          <div className="form-field">
+            <label>Agent Memory</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="number"
+                value={sandbox.agent_memory_limit_mb}
+                onChange={(e) => updateSandbox({ agent_memory_limit_mb: parseInt(e.target.value) || 512 })}
+                min={128}
+                max={8192}
+                step={128}
+                style={{ width: 100 }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>MB</span>
+            </div>
+            <p className="field-hint">Memory limit for agent container</p>
+          </div>
+          <div className="form-field">
+            <label>Agent CPU</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="number"
+                value={sandbox.agent_cpu_limit}
+                onChange={(e) => updateSandbox({ agent_cpu_limit: parseFloat(e.target.value) || 1.0 })}
+                min={0.25}
+                max={8}
+                step={0.25}
+                style={{ width: 100 }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>cores</span>
+            </div>
+            <p className="field-hint">CPU limit for agent container</p>
+          </div>
+        </div>
+      </section>
+      
       {/* Network Allowlist & Volume Mounts - Two Column Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
         {/* Network Allowlist */}
