@@ -106,6 +106,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     }
   };
   const [tooltip, setTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
+  const [expandedTooltip, setExpandedTooltip] = useState<{ x: number; y: number; node: GraphNode } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const expandedSvgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1102,7 +1103,33 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       .attr('stroke-width', d => d.isActive ? 4 : 2)
       .attr('opacity', d => d.wasActive ? 1 : 0.5)
       .attr('class', d => d.isActive ? 'active-node' : '')
-      .style('cursor', 'grab');
+      .style('cursor', 'grab')
+      .on('mouseenter', function(event, d) {
+        // Get container position for tooltip placement
+        const containerRect = expandedContainerRef.current?.getBoundingClientRect();
+        if (!containerRect) return;
+        
+        // Get mouse position relative to container
+        const x = event.clientX - containerRect.left;
+        const y = event.clientY - containerRect.top;
+        
+        setExpandedTooltip({ x, y, node: d });
+        
+        // Highlight effect
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr('r', getExpandedNodeRadius(d) + 8);
+      })
+      .on('mouseleave', function(_event, d) {
+        setExpandedTooltip(null);
+        
+        // Remove highlight
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr('r', getExpandedNodeRadius(d));
+      });
     
     // Node labels
     node.append('text')
@@ -1346,6 +1373,21 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           font-weight: 500;
         }
         
+        .agent-graph-tooltip.expanded-tooltip {
+          z-index: 10002;
+          font-size: 14px;
+          padding: 12px 16px;
+        }
+        
+        .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-name {
+          font-size: 16px;
+          margin-bottom: 6px;
+        }
+        
+        .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-type {
+          font-size: 13px;
+        }
+        
         /* Expanded modal styles */
         .agent-graph-modal-overlay {
           position: fixed;
@@ -1583,6 +1625,42 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
               </div>
             </button>
             <svg ref={expandedSvgRef} className="agent-graph-modal-svg" />
+            {expandedTooltip && (
+              <div 
+                className="agent-graph-tooltip expanded-tooltip"
+                style={{ 
+                  left: Math.min(expandedTooltip.x + 20, window.innerWidth - 200), 
+                  top: Math.max(expandedTooltip.y - 20, 20) 
+                }}
+              >
+                <div className="agent-graph-tooltip-name">{expandedTooltip.node.name}</div>
+                <div className="agent-graph-tooltip-type">
+                  <div 
+                    className="agent-graph-tooltip-dot" 
+                    style={{ 
+                      background: expandedTooltip.node.type === 'Tool' 
+                        ? TOOL_COLOR.bg 
+                        : getAgentColor(expandedTooltip.node.name).bg,
+                      border: expandedTooltip.node.type !== 'Tool' && expandedTooltip.node.type !== 'System'
+                        ? `2px solid ${getAgentTypeColor(expandedTooltip.node.type)}`
+                        : 'none',
+                      width: 12,
+                      height: 12,
+                    }}
+                  />
+                  <span style={{ color: getAgentTypeColor(expandedTooltip.node.type) }}>
+                    {expandedTooltip.node.type === 'LlmAgent' ? 'LLM Agent' : 
+                     expandedTooltip.node.type === 'SequentialAgent' ? 'Sequential' :
+                     expandedTooltip.node.type === 'LoopAgent' ? 'Loop' :
+                     expandedTooltip.node.type === 'ParallelAgent' ? 'Parallel' :
+                     expandedTooltip.node.type}
+                  </span>
+                </div>
+                {expandedTooltip.node.isActive && (
+                  <div className="agent-graph-tooltip-active">● Currently executing</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
