@@ -1605,6 +1605,84 @@ export default function EvalPanel() {
           </div>
         )}
       </div>
+      
+      {/* AI Generate Dialog */}
+      {showGenerateDialog && (
+        <div 
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+          onClick={() => setShowGenerateDialog(false)}
+        >
+          <div 
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '500px',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <Sparkles size={24} style={{ color: '#8b5cf6' }} />
+              <h3 style={{ margin: 0, fontSize: '18px' }}>Generate Test Set with AI</h3>
+            </div>
+            
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+              Describe what you want to test. The AI will generate test cases with expected outcomes, 
+              tool calls, and evaluation rubrics.
+            </p>
+            
+            <textarea
+              value={generateContext}
+              onChange={(e) => setGenerateContext(e.target.value)}
+              placeholder="e.g., Test error handling when user provides invalid input, edge cases for date parsing, scenarios where the agent should ask clarifying questions..."
+              style={{
+                width: '100%',
+                minHeight: '120px',
+                padding: '12px',
+                fontSize: '14px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-primary)',
+                resize: 'vertical',
+              }}
+              autoFocus
+            />
+            
+            <div style={{ display: 'flex', gap: '12px', marginTop: '20px', justifyContent: 'flex-end' }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowGenerateDialog(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={generateEvalSetWithAI}
+                style={{ 
+                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <Sparkles size={16} />
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3594,84 +3672,6 @@ function EvalSetEditor({
           </>
         )}
       </div>
-      
-      {/* AI Generate Dialog */}
-      {showGenerateDialog && (
-        <div 
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-          }}
-          onClick={() => setShowGenerateDialog(false)}
-        >
-          <div 
-            style={{
-              background: 'var(--bg-primary)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '24px',
-              width: '90%',
-              maxWidth: '500px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <Sparkles size={24} style={{ color: '#8b5cf6' }} />
-              <h3 style={{ margin: 0, fontSize: '18px' }}>Generate Test Set with AI</h3>
-            </div>
-            
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-              Describe what you want to test. The AI will generate test cases with expected outcomes, 
-              tool calls, and evaluation rubrics.
-            </p>
-            
-            <textarea
-              value={generateContext}
-              onChange={(e) => setGenerateContext(e.target.value)}
-              placeholder="e.g., Test error handling when user provides invalid input, edge cases for date parsing, scenarios where the agent should ask clarifying questions..."
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '12px',
-                fontSize: '14px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--text-primary)',
-                resize: 'vertical',
-              }}
-              autoFocus
-            />
-            
-            <div style={{ display: 'flex', gap: '12px', marginTop: '20px', justifyContent: 'flex-end' }}>
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setShowGenerateDialog(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-primary"
-                onClick={generateEvalSetWithAI}
-                style={{ 
-                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <Sparkles size={16} />
-                Generate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
