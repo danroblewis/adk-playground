@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -120,8 +121,12 @@ def extract_exception_details(exc: Exception) -> dict:
       - hint: Optional suggestion to fix
       - error_type: Categorized error type
       - raw: Original exception string
+      - stack_trace: Full stack trace
       - sub_errors: List of sub-error dicts (for ExceptionGroup)
     """
+    # Capture the full stack trace
+    stack_trace = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    
     # Handle ExceptionGroup (Python 3.11+ with asyncio.TaskGroup)
     if sys.version_info >= (3, 11):
         if isinstance(exc, ExceptionGroup):
@@ -129,6 +134,10 @@ def extract_exception_details(exc: Exception) -> dict:
             for sub_exc in exc.exceptions:
                 parsed = parse_adk_error(str(sub_exc))
                 parsed["exception_type"] = type(sub_exc).__name__
+                # Capture stack trace for each sub-exception
+                parsed["stack_trace"] = ''.join(
+                    traceback.format_exception(type(sub_exc), sub_exc, sub_exc.__traceback__)
+                )
                 sub_errors.append(parsed)
             
             # Combine messages
@@ -140,6 +149,7 @@ def extract_exception_details(exc: Exception) -> dict:
                 "hint": hints[0] if hints else None,  # Show first hint
                 "error_type": "parallel_execution_error",
                 "raw": str(exc),
+                "stack_trace": stack_trace,
                 "sub_errors": sub_errors,
                 "is_exception_group": True,
             }
@@ -148,6 +158,7 @@ def extract_exception_details(exc: Exception) -> dict:
     parsed = parse_adk_error(str(exc))
     parsed["exception_type"] = type(exc).__name__
     parsed["raw"] = str(exc)
+    parsed["stack_trace"] = stack_trace
     parsed["is_exception_group"] = False
     return parsed
 
@@ -972,6 +983,7 @@ class AgentRunner:
                                 "is_exception_group": error_info.get("is_exception_group", False),
                                 "sub_errors": error_info.get("sub_errors"),
                                 "raw_error": error_info.get("raw"),
+                                "stack_trace": error_info.get("stack_trace"),
                             },
                         })
                         # Don't re-raise - we've already reported the error

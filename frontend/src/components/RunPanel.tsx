@@ -487,11 +487,54 @@ function EventDetail({ event }: { event: RunEvent }) {
                         💡 {subErr.hint}
                       </div>
                     )}
+                    {subErr.stack_trace && (
+                      <details style={{ marginTop: '6px' }}>
+                        <summary style={{ cursor: 'pointer', opacity: 0.7, fontSize: '0.9em' }}>
+                          Stack trace
+                        </summary>
+                        <pre style={{ 
+                          marginTop: '4px', 
+                          padding: '6px', 
+                          backgroundColor: '#1a1a1a', 
+                          borderRadius: '4px',
+                          fontSize: '0.75em',
+                          overflow: 'auto',
+                          maxHeight: '200px',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                        }}>
+                          {subErr.stack_trace}
+                        </pre>
+                      </details>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            {event.data.raw_error && event.data.raw_error !== event.data.error && (
+            {event.data.stack_trace && (
+              <details style={{ marginTop: '12px' }}>
+                <summary style={{ cursor: 'pointer', opacity: 0.8, fontWeight: 500 }}>
+                  📋 Stack Trace
+                </summary>
+                <pre style={{ 
+                  marginTop: '4px', 
+                  padding: '8px', 
+                  backgroundColor: '#1a1a1a', 
+                  borderRadius: '4px',
+                  fontSize: '0.8em',
+                  overflow: 'auto',
+                  maxHeight: '400px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                  lineHeight: '1.4',
+                }}>
+                  {event.data.stack_trace}
+                </pre>
+              </details>
+            )}
+            {event.data.raw_error && event.data.raw_error !== event.data.error && !event.data.stack_trace && (
               <details style={{ marginTop: '8px' }}>
                 <summary style={{ cursor: 'pointer', opacity: 0.7 }}>Raw error</summary>
                 <pre style={{ 
