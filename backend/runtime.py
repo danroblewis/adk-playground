@@ -139,7 +139,10 @@ class TrackingPlugin:
     def _get_branch(self, context) -> str | None:
         """Extract branch from callback_context or tool_context."""
         if hasattr(context, "_invocation_context"):
-            return getattr(context._invocation_context, "branch", None)
+            branch = getattr(context._invocation_context, "branch", None)
+            # Ensure branch is a valid string (not a mock or other object)
+            if isinstance(branch, str):
+                return branch
         return None
     
     async def _emit(self, event: RunEvent):
@@ -170,6 +173,8 @@ class TrackingPlugin:
     async def on_event_callback(self, *, invocation_context, event, **kwargs):
         if hasattr(event, "actions") and event.actions and event.actions.state_delta:
             branch = getattr(invocation_context, "branch", None)
+            # Ensure branch is a valid string (not a mock or other object)
+            branch = branch if isinstance(branch, str) else None
             await self._emit(RunEvent(
                 timestamp=time.time(),
                 event_type="state_change",
