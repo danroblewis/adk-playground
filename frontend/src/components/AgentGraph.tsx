@@ -19,6 +19,7 @@ interface GraphNode {
   isActive: boolean;
   wasActive: boolean;
   lastMessage?: string;
+  lastToolCall?: { args: any; result?: string };
   x?: number;
   y?: number;
   fx?: number | null;
@@ -121,7 +122,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
   const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
   // Calculate active agents (supports parallel execution), transitions, visited agents, tool calls, and last messages
-  const { activeAgents, activeTools, transitions, visitedAgents, toolCalls, activeBranches, lastMessages } = useMemo(() => {
+  const { activeAgents, activeTools, transitions, visitedAgents, toolCalls, activeBranches, lastMessages, toolLastCalls } = useMemo(() => {
     // If no event selected, use the most recent event
     const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
     
@@ -133,7 +134,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         visitedAgents: new Set<string>(),
         toolCalls: new Map<string, number>(),
         activeBranches: new Set<string>(),
-        lastMessages: new Map<string, string>()
+        lastMessages: new Map<string, string>(),
+        toolLastCalls: new Map<string, { args: any; result?: string }>()
       };
     }
     
@@ -188,6 +190,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     const visited = new Set<string>();
     const visitedTools = new Set<string>();
     const agentLastMessages = new Map<string, string>();
+    const toolLastCalls = new Map<string, { args: any; result?: string }>();
     
     // Always include system node
     visited.add('system');
@@ -360,8 +363,23 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           const key = `${callingAgent}->tool:${toolName}`;
           toolCallMap.set(key, (toolCallMap.get(key) || 0) + 1);
           branchTools.set(branch, toolName);
+          // Track the tool call args
+          toolLastCalls.set(toolName, { args: event.data?.args || event.data?.arguments });
         }
       } else if (event.event_type === 'tool_result') {
+        const toolName = event.data?.tool_name;
+        if (toolName) {
+          // Update the tool's last result
+          const existing = toolLastCalls.get(toolName);
+          const resultText = event.data?.result?.content?.[0]?.text 
+            || event.data?.result 
+            || event.data?.output;
+          if (existing) {
+            existing.result = typeof resultText === 'string' ? resultText : JSON.stringify(resultText);
+          } else {
+            toolLastCalls.set(toolName, { args: null, result: typeof resultText === 'string' ? resultText : JSON.stringify(resultText) });
+          }
+        }
         branchTools.set(branch, null);
       } else if (event.event_type === 'model_response') {
         // Track the last message for this agent
@@ -401,7 +419,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       visitedAgents: visited, 
       toolCalls: toolCallMap,
       activeBranches: currentActiveBranches,
-      lastMessages: agentLastMessages
+      lastMessages: agentLastMessages,
+      toolLastCalls
     };
   }, [events, selectedEventIndex, agents]);
   
@@ -450,6 +469,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         type: 'Tool',
         isActive: activeTools.has(toolName), // Can have multiple active tools in parallel
         wasActive: true,
+        lastToolCall: toolLastCalls.get(toolName),
         x: prevPos?.x,
         y: prevPos?.y,
       });
@@ -495,7 +515,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     }
     
     return { nodes, links };
-  }, [agents, activeAgents, activeTools, visitedAgents, transitions, toolCalls, lastMessages]);
+  }, [agents, activeAgents, activeTools, visitedAgents, transitions, toolCalls, lastMessages, toolLastCalls]);
   
   // D3 force simulation
   useEffect(() => {
@@ -1447,6 +1467,28 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           padding-top: 6px;
         }
         
+        .agent-graph-tooltip-tool {
+          font-size: 9px;
+          color: #a1a1aa;
+          margin-top: 6px;
+          line-height: 1.4;
+          max-width: 200px;
+          word-break: break-word;
+          border-top: 1px solid rgba(20, 184, 166, 0.3);
+          padding-top: 6px;
+        }
+        
+        .tooltip-tool-args,
+        .tooltip-tool-result {
+          margin-bottom: 4px;
+          font-family: 'Monaco', 'Menlo', monospace;
+        }
+        
+        .tooltip-tool-label {
+          color: #14b8a6;
+          font-weight: 600;
+        }
+        
         .agent-graph-tooltip.expanded-tooltip {
           z-index: 10002;
           font-size: 14px;
@@ -1465,6 +1507,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-message {
           font-size: 12px;
           max-width: 280px;
+        }
+        
+        .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-tool {
+          font-size: 11px;
+          max-width: 320px;
         }
         
         /* Expanded modal styles */
@@ -1493,7 +1540,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           width: min(80vh, 80vw);
           height: min(80vh, 80vw);
           border-radius: 50%;
-          overflow: hidden;
+          /*overflow: hidden;*/
           animation: modalScaleIn 0.3s ease;
           transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
         }
@@ -1673,6 +1720,23 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                     "{tooltip.node.lastMessage.slice(0, 80)}{tooltip.node.lastMessage.length > 80 ? '...' : ''}"
                   </div>
                 )}
+                {tooltip.node.type === 'Tool' && tooltip.node.lastToolCall && (
+                  <div className="agent-graph-tooltip-tool">
+                    {tooltip.node.lastToolCall.args && (
+                      <div className="tooltip-tool-args">
+                        <span className="tooltip-tool-label">Args:</span> {(() => {
+                          const argsStr = JSON.stringify(tooltip.node.lastToolCall.args);
+                          return argsStr.slice(0, 60) + (argsStr.length > 60 ? '...' : '');
+                        })()}
+                      </div>
+                    )}
+                    {tooltip.node.lastToolCall.result && (
+                      <div className="tooltip-tool-result">
+                        <span className="tooltip-tool-label">Result:</span> {tooltip.node.lastToolCall.result.slice(0, 60)}{tooltip.node.lastToolCall.result.length > 60 ? '...' : ''}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1746,6 +1810,23 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                 {expandedTooltip.node.lastMessage && (
                   <div className="agent-graph-tooltip-message">
                     "{expandedTooltip.node.lastMessage.slice(0, 120)}{expandedTooltip.node.lastMessage.length > 120 ? '...' : ''}"
+                  </div>
+                )}
+                {expandedTooltip.node.type === 'Tool' && expandedTooltip.node.lastToolCall && (
+                  <div className="agent-graph-tooltip-tool">
+                    {expandedTooltip.node.lastToolCall.args && (
+                      <div className="tooltip-tool-args">
+                        <span className="tooltip-tool-label">Args:</span> {(() => {
+                          const argsStr = JSON.stringify(expandedTooltip.node.lastToolCall.args);
+                          return argsStr.slice(0, 100) + (argsStr.length > 100 ? '...' : '');
+                        })()}
+                      </div>
+                    )}
+                    {expandedTooltip.node.lastToolCall.result && (
+                      <div className="tooltip-tool-result">
+                        <span className="tooltip-tool-label">Result:</span> {expandedTooltip.node.lastToolCall.result.slice(0, 100)}{expandedTooltip.node.lastToolCall.result.length > 100 ? '...' : ''}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
