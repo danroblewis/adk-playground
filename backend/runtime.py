@@ -18,20 +18,130 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def extract_exception_details(exc: Exception) -> str:
+def parse_adk_error(error_msg: str) -> dict:
+    """Parse common ADK errors and provide helpful hints.
+    
+    Returns a dict with:
+      - message: The user-friendly error message
+      - hint: Optional suggestion to fix the issue
+      - error_type: Categorized error type
+    """
+    import re
+    
+    # Context variable not found
+    match = re.search(r"Context variable not found: `(\w+)`", error_msg)
+    if match:
+        var_name = match.group(1)
+        return {
+            "message": f"Missing state variable: {var_name}",
+            "hint": f"Add '{var_name}' as a State Key in your App configuration, or use '{{{var_name}?}}' (with ?) in your instruction to make it optional.",
+            "error_type": "missing_state_variable",
+            "variable": var_name,
+        }
+    
+    # Artifact not found
+    match = re.search(r"Artifact (\w+) not found", error_msg)
+    if match:
+        artifact_name = match.group(1)
+        return {
+            "message": f"Missing artifact: {artifact_name}",
+            "hint": f"The artifact '{artifact_name}' referenced in the instruction doesn't exist. Create it or use '{{artifact:{artifact_name}?}}' to make it optional.",
+            "error_type": "missing_artifact",
+            "artifact": artifact_name,
+        }
+    
+    # Tool not found
+    match = re.search(r"Tool '(\w+)' not found|Unknown tool: (\w+)", error_msg)
+    if match:
+        tool_name = match.group(1) or match.group(2)
+        return {
+            "message": f"Unknown tool: {tool_name}",
+            "hint": f"The tool '{tool_name}' is not available. Check your tool configuration or remove references to this tool.",
+            "error_type": "missing_tool",
+            "tool": tool_name,
+        }
+    
+    # Agent transfer failed
+    match = re.search(r"Agent '(\w+)' not found|Cannot transfer to agent: (\w+)", error_msg)
+    if match:
+        agent_name = match.group(1) or match.group(2)
+        return {
+            "message": f"Cannot find agent: {agent_name}",
+            "hint": f"The agent '{agent_name}' doesn't exist. Check the agent name spelling or add it as a sub-agent.",
+            "error_type": "missing_agent",
+            "agent": agent_name,
+        }
+    
+    # LLM/API errors
+    if "rate limit" in error_msg.lower():
+        return {
+            "message": "Rate limit exceeded",
+            "hint": "The LLM API rate limit was exceeded. Wait a moment and try again, or consider using a different model.",
+            "error_type": "rate_limit",
+        }
+    
+    if "api key" in error_msg.lower() or "authentication" in error_msg.lower():
+        return {
+            "message": "API authentication error",
+            "hint": "Check your API key configuration. Make sure the appropriate API key environment variable is set.",
+            "error_type": "auth_error",
+        }
+    
+    if "timeout" in error_msg.lower():
+        return {
+            "message": "Request timeout",
+            "hint": "The request took too long. Try increasing the timeout in your model configuration, or use a faster model.",
+            "error_type": "timeout",
+        }
+    
+    # Default: return the original message
+    return {
+        "message": error_msg,
+        "hint": None,
+        "error_type": "unknown",
+    }
+
+
+def extract_exception_details(exc: Exception) -> dict:
     """Extract meaningful error details from an exception.
     
     Handles ExceptionGroup (Python 3.11+) specially to extract sub-exceptions.
+    
+    Returns a dict with:
+      - message: User-friendly error message
+      - hint: Optional suggestion to fix
+      - error_type: Categorized error type
+      - raw: Original exception string
+      - sub_errors: List of sub-error dicts (for ExceptionGroup)
     """
     # Handle ExceptionGroup (Python 3.11+ with asyncio.TaskGroup)
     if sys.version_info >= (3, 11):
         if isinstance(exc, ExceptionGroup):
-            messages = []
+            sub_errors = []
             for sub_exc in exc.exceptions:
-                messages.append(f"{type(sub_exc).__name__}: {sub_exc}")
-            return f"Multiple errors in parallel execution: {'; '.join(messages)}"
+                parsed = parse_adk_error(str(sub_exc))
+                parsed["exception_type"] = type(sub_exc).__name__
+                sub_errors.append(parsed)
+            
+            # Combine messages
+            messages = [e["message"] for e in sub_errors]
+            hints = [e["hint"] for e in sub_errors if e.get("hint")]
+            
+            return {
+                "message": f"Errors in parallel execution: {'; '.join(messages)}",
+                "hint": hints[0] if hints else None,  # Show first hint
+                "error_type": "parallel_execution_error",
+                "raw": str(exc),
+                "sub_errors": sub_errors,
+                "is_exception_group": True,
+            }
     
-    return str(exc)
+    # Single exception
+    parsed = parse_adk_error(str(exc))
+    parsed["exception_type"] = type(exc).__name__
+    parsed["raw"] = str(exc)
+    parsed["is_exception_group"] = False
+    return parsed
 
 from models import Project, RunSession, RunEvent
 from code_generator import generate_python_code
@@ -574,11 +684,8 @@ class RuntimeManager:
                     break
                 except BaseException as e:
                     last_error = e
-                    error_details = extract_exception_details(e)
-                    error_str = error_details.lower()
-                    
-                    # Handle ExceptionGroup (Python 3.11+ TaskGroup errors)
-                    is_exception_group = sys.version_info >= (3, 11) and isinstance(e, ExceptionGroup)
+                    error_info = extract_exception_details(e)
+                    error_str = error_info.get("raw", str(e)).lower()
                     
                     # Check if this is a retryable connection error
                     is_retryable = any(msg in error_str for msg in [
@@ -587,7 +694,7 @@ class RuntimeManager:
                     ])
                     
                     if is_retryable and attempt < max_retries - 1:
-                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {error_details}")
+                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {error_info['message']}")
                         await event_callback(RunEvent(
                             timestamp=time.time(),
                             event_type="callback_start",
@@ -597,16 +704,20 @@ class RuntimeManager:
                         await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
                         continue
                     else:
-                        # Emit error event with detailed information
-                        logger.error(f"Agent run error: {error_details}")
+                        # Emit error event with detailed, user-friendly information
+                        logger.error(f"Agent run error: {error_info['message']}")
                         await event_callback(RunEvent(
                             timestamp=time.time(),
                             event_type="agent_end",
                             agent_name="system",
                             data={
-                                "error": error_details,
-                                "exception_type": type(e).__name__,
-                                "is_exception_group": is_exception_group,
+                                "error": error_info["message"],
+                                "hint": error_info.get("hint"),
+                                "error_type": error_info.get("error_type"),
+                                "exception_type": error_info.get("exception_type"),
+                                "is_exception_group": error_info.get("is_exception_group", False),
+                                "sub_errors": error_info.get("sub_errors"),
+                                "raw_error": error_info.get("raw"),
                             },
                         ))
                         # Don't re-raise - we've already reported the error

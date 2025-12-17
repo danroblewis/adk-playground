@@ -92,7 +92,11 @@ function getEventSummary(event: RunEvent): string {
     case 'agent_start':
       return `START ${event.agent_name}`;
     case 'agent_end':
-      return event.data?.error ? `END ${event.agent_name} [ERROR]` : `END ${event.agent_name}`;
+      if (event.data?.error) {
+        const hint = event.data?.hint ? ` 💡 ${event.data.hint.slice(0, 100)}` : '';
+        return `END ${event.agent_name} [ERROR] ${event.data.error}${hint}`;
+      }
+      return `END ${event.agent_name}`;
     case 'tool_call':
       const args = Object.entries(event.data?.args || {})
         .map(([k, v]) => {
@@ -434,7 +438,82 @@ function EventDetail({ event }: { event: RunEvent }) {
         <span className="detail-time">{new Date(event.timestamp * 1000).toISOString()}</span>
       </div>
       
-      {/* Event Data - full JSON first */}
+      {/* Error Details - show prominently if there's an error */}
+      {event.data?.error && (
+        <div className="detail-section" style={{ borderColor: '#dc2626' }}>
+          <div className="section-header" style={{ color: '#fca5a5' }}>
+            <AlertTriangle size={12} style={{ color: '#ef4444' }} />
+            <span>⚠️ Error</span>
+          </div>
+          <div className="section-content" style={{ color: '#fca5a5' }}>
+            <div style={{ marginBottom: '8px' }}>
+              <strong>Message:</strong> {event.data.error}
+            </div>
+            {event.data.hint && (
+              <div style={{ 
+                marginBottom: '8px', 
+                padding: '8px 12px', 
+                backgroundColor: 'rgba(34, 197, 94, 0.1)', 
+                borderRadius: '6px',
+                borderLeft: '3px solid #22c55e',
+              }}>
+                <strong style={{ color: '#22c55e' }}>💡 Hint:</strong>{' '}
+                <span style={{ color: '#86efac' }}>{event.data.hint}</span>
+              </div>
+            )}
+            {event.data.error_type && event.data.error_type !== 'unknown' && (
+              <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                <strong>Type:</strong> {event.data.error_type}
+              </div>
+            )}
+            {event.data.sub_errors && event.data.sub_errors.length > 0 && (
+              <div style={{ marginTop: '12px' }}>
+                <strong>Sub-errors ({event.data.sub_errors.length}):</strong>
+                {event.data.sub_errors.map((subErr: any, i: number) => (
+                  <div key={i} style={{ 
+                    marginTop: '8px', 
+                    marginLeft: '12px', 
+                    padding: '8px', 
+                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                    borderRadius: '4px',
+                  }}>
+                    <div><strong>{subErr.exception_type}:</strong> {subErr.message}</div>
+                    {subErr.hint && (
+                      <div style={{ 
+                        marginTop: '4px', 
+                        color: '#86efac', 
+                        fontSize: '0.9em' 
+                      }}>
+                        💡 {subErr.hint}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {event.data.raw_error && event.data.raw_error !== event.data.error && (
+              <details style={{ marginTop: '8px' }}>
+                <summary style={{ cursor: 'pointer', opacity: 0.7 }}>Raw error</summary>
+                <pre style={{ 
+                  marginTop: '4px', 
+                  padding: '8px', 
+                  backgroundColor: '#1a1a1a', 
+                  borderRadius: '4px',
+                  fontSize: '0.85em',
+                  overflow: 'auto',
+                  maxHeight: '200px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {event.data.raw_error}
+                </pre>
+              </details>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Event Data - full JSON */}
       <div className="detail-section">
         <div className="section-header" onClick={() => toggleSection('data')}>
           {expandedSections.has('data') ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
