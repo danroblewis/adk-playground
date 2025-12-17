@@ -1370,26 +1370,54 @@ class SandboxManager:
                 except Exception as e:
                     logger.warning(f"Failed to load project config: {e}")
             
-            # Send the run request (through proxy)
+            # Send the run request (through proxy) with retry logic
             # Use run_timeout from config, default to 3600 (1 hour)
             run_timeout = instance.config.run_timeout if instance.config else 3600
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{agent_url}/run",
-                    proxy=proxy_url,
-                    json={
-                        "message": message,
-                        "session_id": session_id,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=run_timeout),
-                ) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    else:
-                        text = await resp.text()
-                        return {"error": f"Agent returned {resp.status}: {text}"}
-        except asyncio.TimeoutError:
-            return {"error": "Agent request timed out"}
+            max_retries = 3
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{agent_url}/run",
+                            proxy=proxy_url,
+                            json={
+                                "message": message,
+                                "session_id": session_id,
+                            },
+                            timeout=aiohttp.ClientTimeout(total=run_timeout),
+                        ) as resp:
+                            if resp.status == 200:
+                                return await resp.json()
+                            else:
+                                text = await resp.text()
+                                error_msg = f"Agent returned {resp.status}: {text}"
+                                # Retry on 5xx errors
+                                if resp.status >= 500 and attempt < max_retries - 1:
+                                    logger.warning(f"Agent request failed (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                                    continue
+                                return {"error": error_msg}
+                except asyncio.TimeoutError:
+                    last_error = "Agent request timed out"
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Agent request timed out (attempt {attempt + 1}/{max_retries}), retrying...")
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff: 1s, 2s, 4s
+                        continue
+                    return {"error": f"Agent request timed out after {max_retries} attempts"}
+                except (aiohttp.ClientError, ConnectionError) as e:
+                    last_error = str(e)
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Agent request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    return {"error": f"Connection error after {max_retries} attempts: {e}"}
+                except Exception as e:
+                    logger.error(f"Failed to send message to agent: {e}")
+                    return {"error": str(e)}
+            
+            return {"error": last_error or "Unknown error after retries"}
         except Exception as e:
             logger.error(f"Failed to send message to agent: {e}")
             return {"error": str(e)}
