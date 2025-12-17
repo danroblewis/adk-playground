@@ -2703,10 +2703,10 @@ async def generate_eval_set(project_id: str, request: GenerateEvalSetRequest):
                 "description": key.description,
             })
         
-        # Build the prompt for the AI
-        prompt = f"""Generate a comprehensive evaluation test set for the following AI agent:
-
-## Agent Configuration
+        # Build context message for the eval_set_generator agent
+        # The agent's instruction already contains the "how to generate test sets" guidance
+        # We just need to provide the agent configuration and available resources
+        context_message = f"""## Agent to Test
 
 **Name:** {agent_info['name']}
 **Type:** {agent_info['type']}
@@ -2721,18 +2721,7 @@ async def generate_eval_set(project_id: str, request: GenerateEvalSetRequest):
 ## State Keys
 {json.dumps(state_keys_info, indent=2) if state_keys_info else 'No state keys defined'}
 
-{f"## Additional Context{chr(10)}{request.context}" if request.context else ""}
-
-## Requirements
-
-Based on this agent configuration, generate a test set that:
-1. Tests the agent's core functionality
-2. Includes expected tool calls if the agent has tools
-3. Includes expected state changes if state keys are defined
-4. Has rubrics for each test case to assess response quality
-5. Covers both happy paths and edge cases
-
-Remember to output ONLY valid JSON with no markdown code blocks.
+{f"## Additional Context / Focus Areas{chr(10)}{request.context}" if request.context else ""}
 """
         
         # Get model config from project
@@ -2746,7 +2735,7 @@ Remember to output ONLY valid JSON with no markdown code blocks.
         # Run the eval_set_generator agent
         result = await run_agent(
             agent_name="eval_set_generator",
-            message=prompt,
+            message=context_message,
             model_config=model_config,
             env_vars=project.app.env_vars,
             output_key="generated_eval_set",
