@@ -1694,10 +1694,10 @@ async def generate_agent_prompt(project_id: str, request: GeneratePromptRequest)
             summary["sub_agents"] = getattr(target_agent, "sub_agent_ids", [])
         agent_summaries.append(summary)
     
-    # Build the meta-prompt for prompt generation
-    meta_prompt = f"""You are an expert prompt engineer for AI agents. Your task is to write a detailed, effective instruction prompt for an agent in a multi-agent system.
-
-## Project Context
+    # Build context message for the prompt_generator agent
+    # The agent's instruction already contains the "how to write prompts" guidance
+    # We just need to provide the project and agent context
+    context_message = f"""## Project Context
 Project Name: {project.name}
 Project Description: {project.description or 'No description'}
 
@@ -1707,38 +1707,25 @@ The following agents exist in this project:
 """
     for summary in agent_summaries:
         marker = ">>> TARGET AGENT <<<" if summary.get("is_target") else ""
-        meta_prompt += f"""
+        context_message += f"""
 ### {summary['name']} ({summary['type']}) {marker}
 - Description: {summary['description'] or 'No description yet'}
 """
         if summary.get("tools"):
-            meta_prompt += f"- Tools: {', '.join(summary['tools'])}\n"
+            context_message += f"- Tools: {', '.join(summary['tools'])}\n"
         if summary.get("sub_agents"):
-            meta_prompt += f"- Sub-agents: {', '.join(summary['sub_agents'])}\n"
+            context_message += f"- Sub-agents: {', '.join(summary['sub_agents'])}\n"
         if summary.get("current_instruction"):
-            meta_prompt += f"- Current instruction preview: {summary['current_instruction']}...\n"
+            context_message += f"- Current instruction preview: {summary['current_instruction']}...\n"
     
-    meta_prompt += f"""
-## Your Task
-Write a detailed instruction prompt for the TARGET AGENT: **{target_agent.name}**
-
-The prompt should:
-1. Clearly define the agent's role and responsibilities
-2. Explain how it fits within the multi-agent system
-3. Specify how to interact with any tools it has access to
-4. Define expected input/output formats if applicable
-5. Include any relevant constraints or guidelines
-6. Be specific and actionable, not vague
-
+    context_message += f"""
+## Target Agent
+Write an instruction prompt for: **{target_agent.name}**
 """
     if request.context:
-        meta_prompt += f"""## Additional Context from User
+        context_message += f"""
+## Additional Context from User
 {request.context}
-
-"""
-    
-    meta_prompt += """## Output Format
-Write ONLY the instruction prompt itself, without any preamble or explanation. The prompt should be ready to use directly as the agent's instruction.
 """
     
     # Get model config from project
@@ -1752,7 +1739,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
     # Run the prompt_generator agent
     result = await run_agent(
         agent_name="prompt_generator",
-        message=meta_prompt,
+        message=context_message,
         model_config=model_config,
         env_vars=project.app.env_vars,
         output_key="generated_prompt",
@@ -1778,127 +1765,6 @@ class GenerateToolCodeRequest(BaseModel):
     tool_description: str
     state_keys_used: List[str] = []
     context: Optional[str] = None  # Additional hints from user
-
-ADK_TOOL_SYSTEM_PROMPT = '''You are an expert Python developer specializing in writing tools for the Google Agent Development Kit (ADK).
-
-## ADK Tool Architecture
-
-ADK tools are Python functions that agents can call. The key component is `ToolContext`, which provides access to:
-
-### ToolContext Properties and Methods:
-- `tool_context.state` - Dictionary-like access to session state. Read: `tool_context.state.get('key')`, Write: `tool_context.state['key'] = value`
-- `tool_context.actions` - EventActions object for signaling behavior:
-  - `tool_context.actions.escalate = True` - Escalate to parent agent (exit loops)
-  - `tool_context.actions.skip_summarization = True` - Skip LLM summarization of result
-  - `tool_context.actions.state_delta` - Dict of state changes (auto-tracked when using state)
-- `tool_context.agent_name` - Name of the agent calling this tool
-- `tool_context.invocation_id` - Unique ID for this invocation
-- `tool_context.function_call_id` - ID of the specific function call
-- `await tool_context.search_memory(query)` - Search the memory service
-- `await tool_context.list_artifacts()` - List available artifacts
-- `await tool_context.load_artifact(filename)` - Load an artifact
-- `await tool_context.save_artifact(filename, artifact)` - Save an artifact
-- `tool_context.request_credential(auth_config)` - Request authentication
-- `tool_context.get_auth_response(auth_config)` - Get auth credentials
-
-### Tool Function Signature:
-```python
-from google.adk.tools.tool_context import ToolContext
-
-def my_tool(tool_context: ToolContext, param1: str, param2: int = 10) -> dict:
-    """Tool description shown to the LLM.
-    
-    Args:
-        param1: Description of param1 (used by LLM to understand the parameter)
-        param2: Description of param2 (optional parameters have defaults)
-    
-    Returns:
-        A dictionary with the result (converted to JSON for LLM)
-    """
-    # Implementation
-    return {{"result": "value", "status": "success"}}
-```
-
-### Async Tools:
-```python
-async def my_async_tool(tool_context: ToolContext, query: str) -> dict:
-    """Async tools can use await for I/O operations."""
-    results = await tool_context.search_memory(query)
-    return {{"memories": results.memories}}
-```
-
-### State Management Patterns:
-```python
-def tool_with_state(tool_context: ToolContext) -> dict:
-    # Reading state
-    counter = tool_context.state.get('counter', 0)
-    user_prefs = tool_context.state.get('user_preferences', {{}})
-    
-    # Writing state (automatically tracked in state_delta)
-    tool_context.state['counter'] = counter + 1
-    tool_context.state['last_action'] = 'incremented'
-    
-    return {{"new_counter": counter + 1}}
-```
-
-### Control Flow Tools:
-```python
-def exit_loop_tool(tool_context: ToolContext) -> dict:
-    """Exit the current loop (LoopAgent)."""
-    tool_context.actions.escalate = True
-    tool_context.actions.skip_summarization = True
-    return {{"status": "exiting loop"}}
-
-def continue_without_summary(tool_context: ToolContext, data: dict) -> dict:
-    """Return data directly without LLM summarization."""
-    tool_context.actions.skip_summarization = True
-    return data
-```
-
-### Working with Artifacts:
-```python
-async def save_report(tool_context: ToolContext, content: str, filename: str) -> dict:
-    """Save content as an artifact."""
-    from google.genai import types
-    artifact = types.Part.from_text(text=content)
-    version = await tool_context.save_artifact(filename, artifact)
-    return {{"saved": filename, "version": version}}
-
-async def load_document(tool_context: ToolContext, filename: str) -> dict:
-    """Load a previously saved artifact."""
-    artifact = await tool_context.load_artifact(filename)
-    if artifact and hasattr(artifact, 'text'):
-        return {{"content": artifact.text}}
-    return {{"error": "Not found"}}
-```
-
-### Error Handling:
-```python
-def safe_tool(tool_context: ToolContext, input_data: str) -> dict:
-    """Tools should handle errors gracefully."""
-    try:
-        # Processing logic
-        result = process(input_data)
-        return {{"success": True, "result": result}}
-    except ValueError as err:
-        return {{"success": False, "error": "Invalid input: " + str(err)}}
-    except Exception as err:
-        return {{"success": False, "error": "Unexpected error: " + str(err)}}
-```
-
-## Important Guidelines:
-1. Always include `tool_context: ToolContext` as the first parameter
-2. Use type hints for all parameters - the LLM uses these to understand the tool
-3. Write clear docstrings - they're shown to the LLM to explain what the tool does
-4. Return dictionaries (they're serialized to JSON for the LLM)
-5. Use descriptive parameter names and docstrings for each parameter
-6. Handle errors gracefully and return informative error messages
-7. For async operations (memory, artifacts), make the function async
-8. State changes are automatically tracked when you modify tool_context.state
-
-## Output Format:
-Return ONLY the Python code for the tool function. Do not include any explanation, markdown formatting, or code blocks. Just the raw Python code starting with the imports (if any) and the function definition.
-'''
 
 @app.post("/api/projects/{project_id}/generate-tool-code")
 async def generate_tool_code(project_id: str, request: GenerateToolCodeRequest):
@@ -1988,194 +1854,6 @@ class GenerateCallbackCodeRequest(BaseModel):
     callback_type: str  # e.g., "before_agent", "after_agent", "before_model", etc.
     state_keys_used: List[str] = []
     context: Optional[str] = None  # Additional hints from user
-
-ADK_CALLBACK_SYSTEM_PROMPT = '''You are an expert Python developer specializing in writing callbacks for the Google Agent Development Kit (ADK).
-
-## ADK Callback Architecture
-
-ADK callbacks are Python functions that are invoked at specific points during agent execution. The key component is `CallbackContext`, which provides access to:
-
-### CallbackContext Properties and Methods:
-- `callback_context.state` - Dictionary-like access to session state. Read: `callback_context.state.get('key')`, Write: `callback_context.state['key'] = value`
-- `callback_context.agent_name` - Name of the agent
-- `callback_context.agent_id` - ID of the agent
-- `callback_context.invocation_id` - Unique ID for this invocation
-- `callback_context.model_name` - Name of the model (for model callbacks)
-- `callback_context.tool_name` - Name of the tool (for tool callbacks)
-- `callback_context.tool_args` - Arguments passed to the tool (for tool callbacks)
-- `await callback_context.load_artifact(filename, version=None)` - Load an artifact
-- `await callback_context.save_artifact(filename, artifact, custom_metadata=None)` - Save an artifact
-
-### Callback Function Signatures:
-
-#### Agent Callbacks (before_agent, after_agent):
-```python
-from google.adk.agents.callback_context import CallbackContext
-from typing import Optional
-from google.genai import types
-
-def my_callback(callback_context: CallbackContext) -> Optional[types.Content]:
-    """Callback description.
-    
-    Args:
-        callback_context: The callback context containing agent and state information.
-            MUST be named 'callback_context' (enforced by ADK).
-    
-    Returns:
-        Optional[types.Content]: Return a Content object to short-circuit (before_*) or add response (after_*), or None to proceed normally.
-    """
-    # Implementation
-    return None  # Proceed normally
-```
-
-#### Model Callbacks (before_model, after_model):
-```python
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest, LlmResponse
-from typing import Optional
-
-# Before model callback
-def before_model_callback(*, callback_context: CallbackContext, llm_request: LlmRequest) -> Optional[LlmResponse]:
-    """Before model callback description.
-    
-    Args:
-        callback_context: The callback context (MUST be named 'callback_context').
-        llm_request: The LLM request about to be made.
-    
-    Returns:
-        Optional[LlmResponse]: Return LlmResponse to short-circuit, or None to proceed.
-    """
-    # Implementation
-    return None  # Proceed with model call
-
-# After model callback
-def after_model_callback(*, callback_context: CallbackContext, llm_response: LlmResponse, model_response_event: Optional[Event] = None) -> Optional[LlmResponse]:
-    """After model callback description.
-    
-    Args:
-        callback_context: The callback context (MUST be named 'callback_context').
-        llm_response: The LLM response that was received.
-        model_response_event: Optional event object.
-    
-    Returns:
-        Optional[LlmResponse]: Return modified LlmResponse or None to keep original.
-    """
-    # Implementation
-    return None  # Keep original response
-```
-
-#### Tool Callbacks (before_tool, after_tool):
-```python
-from google.adk.tools.base_tool import BaseTool
-from google.adk.tools.tool_context import ToolContext
-from typing import Dict, Any, Optional
-
-# Before tool callback
-def before_tool_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext) -> Optional[Dict]:
-    """Before tool callback description.
-    
-    Args:
-        tool: The tool about to be called.
-        tool_args: The arguments passed to the tool.
-        tool_context: The tool context.
-    
-    Returns:
-        Optional[Dict]: Return modified args or None to use original.
-    """
-    # Implementation
-    return None  # Use original args
-
-# After tool callback
-def after_tool_callback(tool: BaseTool, tool_args: Dict[str, Any], tool_context: ToolContext, result: Dict) -> Optional[Dict]:
-    """After tool callback description.
-    
-    Args:
-        tool: The tool that was called.
-        tool_args: The arguments that were passed.
-        tool_context: The tool context.
-        result: The result from the tool.
-    
-    Returns:
-        Optional[Dict]: Return modified result or None to keep original.
-    """
-    # Implementation
-    return None  # Keep original result
-```
-
-### State Management Patterns:
-```python
-def callback_with_state(callback_context: CallbackContext) -> Optional[types.Content]:
-    # Reading state
-    counter = callback_context.state.get('counter', 0)
-    user_prefs = callback_context.state.get('user_preferences', {{}})
-    
-    # Writing state (automatically tracked in state_delta)
-    callback_context.state['counter'] = counter + 1
-    callback_context.state['last_action'] = 'callback_executed'
-    
-    return None
-```
-
-### Working with Artifacts:
-```python
-async def callback_with_artifacts(callback_context: CallbackContext) -> Optional[types.Content]:
-    """Load or save artifacts in callbacks."""
-    from google.genai import types
-    
-    # Load artifact
-    artifact = await callback_context.load_artifact("report.txt")
-    if artifact and hasattr(artifact, 'text'):
-        content = artifact.text
-    
-    # Save artifact
-    new_artifact = types.Part.from_text(text="New content")
-    version = await callback_context.save_artifact("output.txt", new_artifact)
-    
-    return None
-```
-
-### Short-circuiting Execution (before_* callbacks):
-```python
-def short_circuit_callback(callback_context: CallbackContext) -> Optional[types.Content]:
-    """Skip execution and return custom response."""
-    from google.genai import types
-    
-    # For agent callbacks
-    return types.Content(
-        role="assistant",
-        parts=[types.Part.from_text(text="Custom response without executing agent")]
-    )
-    
-    # For model callbacks, return LlmResponse instead
-    # from google.adk.models.llm_request import LlmResponse
-    # return LlmResponse(contents=[...])
-```
-
-### Adding Additional Responses (after_* callbacks):
-```python
-def add_response_callback(callback_context: CallbackContext) -> Optional[types.Content]:
-    """Add additional response after execution."""
-    from google.genai import types
-    
-    return types.Content(
-        role="assistant",
-        parts=[types.Part.from_text(text="Additional information")]
-    )
-```
-
-## Important Guidelines:
-1. Always name the callback context parameter exactly `callback_context` (enforced by ADK)
-2. Use type hints for all parameters - ADK uses these for proper binding
-3. Write clear docstrings explaining what the callback does
-4. Return `None` to proceed normally or keep original values
-5. For before_* callbacks, you can return a value to short-circuit execution
-6. For after_* callbacks, you can return a modified value or additional response
-7. State changes are automatically tracked when you modify callback_context.state
-8. For async operations (artifacts), make the function async
-
-## Output Format:
-Return ONLY the Python code for the callback function. Do not include any explanation, markdown formatting, or code blocks. Just the raw Python code starting with the imports (if any) and the function definition.
-'''
 
 @app.post("/api/projects/{project_id}/generate-callback-code")
 async def generate_callback_code(project_id: str, request: GenerateCallbackCodeRequest):
@@ -2291,9 +1969,10 @@ async def generate_agent_config(project_id: str, request: GenerateAgentConfigReq
     # Get custom tools
     custom_tools = [{"name": t.name, "description": t.description} for t in project.custom_tools]
     
-    meta_prompt = f"""You are an expert AI agent architect. Based on the user's description, generate a complete agent configuration.
-
-## User's Request
+    # Build context message for the agent_config_generator agent
+    # The agent's instruction already contains the "how to generate configs" guidance
+    # We just need to provide the user's request and available resources
+    context_message = f"""## User's Request
 {request.description}
 
 ## Available Resources
@@ -2309,35 +1988,7 @@ async def generate_agent_config(project_id: str, request: GenerateAgentConfigReq
 
 ### Existing Agents (can be used as sub-agents)
 {json.dumps(existing_agents, indent=2)}
-
-## Your Task
-Generate a JSON configuration for an LLM agent that fulfills the user's request.
-
-The JSON must have this exact structure:
-{{
-  "name": "short_snake_case_name",
-  "description": "Brief third-person description for other agents (e.g., 'Searches the web for information')",
-  "instruction": "Detailed markdown instruction for the agent...",
-  "tools": {{
-    "builtin": ["tool_name1", "tool_name2"],
-    "mcp": [
-      {{"server": "server_name", "tools": ["tool1", "tool2"]}}
-    ],
-    "custom": ["custom_tool_name"],
-    "agents": ["agent_id"]
-  }},
-  "sub_agents": ["agent_id1", "agent_id2"]
-}}
-
-Rules:
-1. Only include tools/servers that are relevant to the task
-2. For MCP servers, only enable specific tools that are needed
-3. The instruction should be detailed and well-formatted markdown
-4. The description should be under 100 characters, third-person
-5. Sub-agents are other agents this agent can delegate to
-6. Return ONLY valid JSON, no explanation
-
-JSON:"""
+"""
 
     # Get model config from project
     model_config = None
@@ -2354,8 +2005,8 @@ JSON:"""
     
     for attempt in range(max_retries):
         if attempt == 0:
-            # First attempt: use the original prompt
-            message = meta_prompt
+            # First attempt: use the context message
+            message = context_message
         else:
             # Retry: ask for just the JSON, referencing the failed attempt
             message = f"""Your previous response was not valid JSON. Here's what you returned:
