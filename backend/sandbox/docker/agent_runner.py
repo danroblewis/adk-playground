@@ -25,6 +25,23 @@ from aiohttp import web
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def extract_exception_details(exc: Exception) -> str:
+    """Extract meaningful error details from an exception.
+    
+    Handles ExceptionGroup (Python 3.11+) specially to extract sub-exceptions.
+    """
+    # Handle ExceptionGroup (Python 3.11+ with asyncio.TaskGroup)
+    if sys.version_info >= (3, 11):
+        if isinstance(exc, ExceptionGroup):
+            messages = []
+            for sub_exc in exc.exceptions:
+                messages.append(f"{type(sub_exc).__name__}: {sub_exc}")
+            return f"Multiple errors in parallel execution: {'; '.join(messages)}"
+    
+    return str(exc)
+
+
 # MCP imports - optional, may not be available
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -809,9 +826,14 @@ class AgentRunner:
                         await self._process_event(event)
                     # Success - break out of retry loop
                     break
-                except Exception as e:
+                except BaseException as e:
                     last_error = e
-                    error_str = str(e).lower()
+                    error_details = extract_exception_details(e)
+                    error_str = error_details.lower()
+                    
+                    # Handle ExceptionGroup (Python 3.11+ TaskGroup errors)
+                    is_exception_group = sys.version_info >= (3, 11) and isinstance(e, ExceptionGroup)
+                    
                     # Check if this is a retryable connection error
                     is_retryable = any(msg in error_str for msg in [
                         'connection', 'disconnected', 'closed', 'timeout',
@@ -819,7 +841,7 @@ class AgentRunner:
                     ])
                     
                     if is_retryable and attempt < max_retries - 1:
-                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {e}")
+                        logger.warning(f"Agent run failed (attempt {attempt + 1}/{max_retries}): {error_details}")
                         await self._emit_event({
                             "event_type": "callback_start",
                             "timestamp": time.time(),
@@ -829,8 +851,20 @@ class AgentRunner:
                         await asyncio.sleep(retry_delay * (attempt + 1))  # Exponential backoff
                         continue
                     else:
-                        # Not retryable or out of retries
-                        raise
+                        # Emit error event with detailed information
+                        logger.error(f"Agent run error: {error_details}")
+                        await self._emit_event({
+                            "event_type": "agent_end",
+                            "timestamp": time.time(),
+                            "agent_name": "system",
+                            "data": {
+                                "error": error_details,
+                                "exception_type": type(e).__name__,
+                                "is_exception_group": is_exception_group,
+                            },
+                        })
+                        # Don't re-raise - we've already reported the error
+                        break
             
             # Check for compaction events after run completes
             try:

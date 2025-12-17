@@ -22,6 +22,7 @@ from models import (
     LlmAgentConfig,
     SequentialAgentConfig,
     LoopAgentConfig,
+    ParallelAgentConfig,
     ModelConfig,
     BuiltinToolConfig,
     FunctionToolConfig,
@@ -314,6 +315,72 @@ def loop_agent_project() -> Project:
                 name="looping_agent",
                 description="Agent that loops",
                 instruction="Count up from where you left off. Use exit_loop when you reach 3.",
+                tools=[
+                    BuiltinToolConfig(type="builtin", name="exit_loop"),
+                ],
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def parallel_loop_agents_project() -> Project:
+    """Create a project with a ParallelAgent containing LoopAgents.
+    
+    This tests the nested structure:
+    - ParallelAgent
+      - LoopAgent1
+        - LlmAgent1
+      - LoopAgent2
+        - LlmAgent2
+    """
+    return Project(
+        id="parallel_loop_project",
+        name="Parallel Loop Project",
+        description="A project with parallel loop agents",
+        app=AppConfig(
+            id="app_parallel_loop",
+            name="Parallel Loop App",
+            root_agent_id="parallel_agent",
+            session_service_uri="memory://",
+            memory_service_uri="memory://",
+            artifact_service_uri="memory://",
+        ),
+        agents=[
+            ParallelAgentConfig(
+                id="parallel_agent",
+                name="parallel_controller",
+                description="Runs loop agents in parallel",
+                sub_agents=["loop_agent_1", "loop_agent_2"],
+            ),
+            LoopAgentConfig(
+                id="loop_agent_1",
+                name="loop_controller_1",
+                description="First loop agent",
+                sub_agents=["llm_agent_1"],
+                max_iterations=2,
+            ),
+            LoopAgentConfig(
+                id="loop_agent_2",
+                name="loop_controller_2",
+                description="Second loop agent",
+                sub_agents=["llm_agent_2"],
+                max_iterations=2,
+            ),
+            LlmAgentConfig(
+                id="llm_agent_1",
+                name="agent_in_loop_1",
+                description="Agent inside first loop",
+                instruction="Say 'Loop 1 iteration' and then EXIT LOOP NOW.",
+                tools=[
+                    BuiltinToolConfig(type="builtin", name="exit_loop"),
+                ],
+            ),
+            LlmAgentConfig(
+                id="llm_agent_2",
+                name="agent_in_loop_2",
+                description="Agent inside second loop",
+                instruction="Say 'Loop 2 iteration' and then EXIT LOOP NOW.",
                 tools=[
                     BuiltinToolConfig(type="builtin", name="exit_loop"),
                 ],
