@@ -737,19 +737,41 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         .attr('id', `link-gradient-${i}`)
         .attr('gradientUnits', 'userSpaceOnUse');
       
-      // Colors based on link type
-      const colors = link.type === 'transition' 
-        ? { start: '#166534', end: '#4ade80' }  // dark green to bright green
-        : link.type === 'sub_agent'
-        ? { start: '#3730a3', end: '#a5b4fc' }  // dark indigo to bright indigo
-        : { start: '#92400e', end: '#fcd34d' }; // dark amber to bright amber
-      
-      gradient.append('stop')
-        .attr('offset', '0%')
-        .attr('stop-color', colors.start);
-      gradient.append('stop')
-        .attr('offset', '100%')
-        .attr('stop-color', colors.end);
+      // Colors based on link type - using multi-stop gradient for transitions
+      if (link.type === 'transition') {
+        // Agent-to-agent: start transparent, fade in over distance, end bright
+        gradient.append('stop')
+          .attr('offset', '0%')
+          .attr('stop-color', '#166534')
+          .attr('stop-opacity', 0.1);
+        gradient.append('stop')
+          .attr('offset', '25%')
+          .attr('stop-color', '#166534')
+          .attr('stop-opacity', 0.4);
+        gradient.append('stop')
+          .attr('offset', '50%')
+          .attr('stop-color', '#22c55e')
+          .attr('stop-opacity', 0.7);
+        gradient.append('stop')
+          .attr('offset', '75%')
+          .attr('stop-color', '#4ade80')
+          .attr('stop-opacity', 0.9);
+        gradient.append('stop')
+          .attr('offset', '100%')
+          .attr('stop-color', '#86efac')
+          .attr('stop-opacity', 1);
+      } else {
+        const colors = link.type === 'sub_agent'
+          ? { start: '#3730a3', end: '#a5b4fc' }  // dark indigo to bright indigo
+          : { start: '#92400e', end: '#fcd34d' }; // dark amber to bright amber
+        
+        gradient.append('stop')
+          .attr('offset', '0%')
+          .attr('stop-color', colors.start);
+        gradient.append('stop')
+          .attr('offset', '100%')
+          .attr('stop-color', colors.end);
+      }
     });
     
     // Create curved links with gradients
@@ -1021,18 +1043,41 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         .attr('id', `exp-link-gradient-${i}`)
         .attr('gradientUnits', 'userSpaceOnUse');
       
-      const colors = link.type === 'transition' 
-        ? { start: '#166534', end: '#4ade80' }
-        : link.type === 'sub_agent'
-        ? { start: '#3730a3', end: '#a5b4fc' }
-        : { start: '#92400e', end: '#fcd34d' };
-      
-      gradient.append('stop')
-        .attr('offset', '0%')
-        .attr('stop-color', colors.start);
-      gradient.append('stop')
-        .attr('offset', '100%')
-        .attr('stop-color', colors.end);
+      // Colors based on link type - using multi-stop gradient for transitions
+      if (link.type === 'transition') {
+        // Agent-to-agent: start transparent, fade in over distance, end bright
+        gradient.append('stop')
+          .attr('offset', '0%')
+          .attr('stop-color', '#166534')
+          .attr('stop-opacity', 0.1);
+        gradient.append('stop')
+          .attr('offset', '25%')
+          .attr('stop-color', '#166534')
+          .attr('stop-opacity', 0.4);
+        gradient.append('stop')
+          .attr('offset', '50%')
+          .attr('stop-color', '#22c55e')
+          .attr('stop-opacity', 0.7);
+        gradient.append('stop')
+          .attr('offset', '75%')
+          .attr('stop-color', '#4ade80')
+          .attr('stop-opacity', 0.9);
+        gradient.append('stop')
+          .attr('offset', '100%')
+          .attr('stop-color', '#86efac')
+          .attr('stop-opacity', 1);
+      } else {
+        const colors = link.type === 'sub_agent'
+          ? { start: '#3730a3', end: '#a5b4fc' }  // dark indigo to bright indigo
+          : { start: '#92400e', end: '#fcd34d' }; // dark amber to bright amber
+        
+        gradient.append('stop')
+          .attr('offset', '0%')
+          .attr('stop-color', colors.start);
+        gradient.append('stop')
+          .attr('offset', '100%')
+          .attr('stop-color', colors.end);
+      }
     });
     
     // Create curved links with gradients
