@@ -77,6 +77,21 @@ function getAgentColor(agentName: string): { bg: string; fg: string } {
 // Special colors for tools
 const TOOL_COLOR = { bg: '#14b8a6', fg: '#ccfbf1' }; // Teal for tools
 
+// Agent type colors (matches AgentsPanel AGENT_TYPES)
+const AGENT_TYPE_COLORS: Record<string, string> = {
+  'LlmAgent': '#00f5d4',      // Cyan/teal
+  'SequentialAgent': '#7b2cbf', // Purple
+  'LoopAgent': '#ffd93d',      // Yellow
+  'ParallelAgent': '#ff6b6b',  // Red/coral
+  'Tool': '#14b8a6',           // Teal
+  'System': '#6b7280',         // Gray
+};
+
+// Get the type color for an agent
+function getAgentTypeColor(type: string): string {
+  return AGENT_TYPE_COLORS[type] || '#6b7280';
+}
+
 export default function AgentGraph({ agents, events, selectedEventIndex, isOpen: controlledIsOpen, onOpenChange, runState = 'idle' }: AgentGraphProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -781,7 +796,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       return 18;
     };
     
-    // Node circles
+    // Outer ring for agent type (only for non-LlmAgent agents to highlight workflow agents)
+    node.filter(d => d.type !== 'Tool' && d.type !== 'System')
+      .append('circle')
+      .attr('r', d => getNodeRadius(d) + 5)
+      .attr('fill', 'none')
+      .attr('stroke', d => getAgentTypeColor(d.type))
+      .attr('stroke-width', 3)
+      .attr('stroke-opacity', d => d.wasActive ? 0.9 : 0.4)
+      .attr('stroke-dasharray', d => {
+        // Different dash patterns for different types
+        if (d.type === 'LoopAgent') return '6,3'; // Dashed for loops
+        if (d.type === 'ParallelAgent') return '3,3'; // Dotted for parallel
+        return 'none'; // Solid for sequential and LLM
+      });
+    
+    // Node circles (inner fill)
     node.append('circle')
       .attr('r', d => getNodeRadius(d))
       .attr('fill', d => d.type === 'Tool' ? TOOL_COLOR.bg : getAgentColor(d.name).bg)
@@ -1049,7 +1079,22 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           d.fy = null;
         }) as any);
     
-    // Node circles
+    // Outer ring for agent type (only for non-LlmAgent agents to highlight workflow agents)
+    node.filter(d => d.type !== 'Tool' && d.type !== 'System')
+      .append('circle')
+      .attr('r', d => getExpandedNodeRadius(d) + 6)
+      .attr('fill', 'none')
+      .attr('stroke', d => getAgentTypeColor(d.type))
+      .attr('stroke-width', 4)
+      .attr('stroke-opacity', d => d.wasActive ? 0.9 : 0.4)
+      .attr('stroke-dasharray', d => {
+        // Different dash patterns for different types
+        if (d.type === 'LoopAgent') return '8,4'; // Dashed for loops
+        if (d.type === 'ParallelAgent') return '4,4'; // Dotted for parallel
+        return 'none'; // Solid for sequential and LLM
+      });
+    
+    // Node circles (inner fill)
     node.append('circle')
       .attr('r', d => getExpandedNodeRadius(d))
       .attr('fill', d => d.type === 'Tool' ? TOOL_COLOR.bg : getAgentColor(d.name).bg)
@@ -1449,6 +1494,24 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                 <div className="legend-line" style={{ background: '#f59e0b', borderStyle: 'dashed' }} />
                 <span>tool call</span>
               </div>
+              <div style={{ marginTop: 4, borderTop: '1px solid #333', paddingTop: 4 }}>
+                <div className="legend-item">
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px solid ${AGENT_TYPE_COLORS.LlmAgent}` }} />
+                  <span>LLM</span>
+                </div>
+                <div className="legend-item">
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px solid ${AGENT_TYPE_COLORS.SequentialAgent}` }} />
+                  <span>Sequential</span>
+                </div>
+                <div className="legend-item">
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px dashed ${AGENT_TYPE_COLORS.LoopAgent}` }} />
+                  <span>Loop</span>
+                </div>
+                <div className="legend-item">
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', border: `2px dotted ${AGENT_TYPE_COLORS.ParallelAgent}` }} />
+                  <span>Parallel</span>
+                </div>
+              </div>
             </div>
             {tooltip && (
               <div 
@@ -1465,10 +1528,21 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                     style={{ 
                       background: tooltip.node.type === 'Tool' 
                         ? TOOL_COLOR.bg 
-                        : getAgentColor(tooltip.node.name).bg 
+                        : getAgentColor(tooltip.node.name).bg,
+                      border: tooltip.node.type !== 'Tool' && tooltip.node.type !== 'System'
+                        ? `2px solid ${getAgentTypeColor(tooltip.node.type)}`
+                        : 'none',
+                      width: 12,
+                      height: 12,
                     }}
                   />
-                  {tooltip.node.type}
+                  <span style={{ color: getAgentTypeColor(tooltip.node.type) }}>
+                    {tooltip.node.type === 'LlmAgent' ? 'LLM Agent' : 
+                     tooltip.node.type === 'SequentialAgent' ? 'Sequential' :
+                     tooltip.node.type === 'LoopAgent' ? 'Loop' :
+                     tooltip.node.type === 'ParallelAgent' ? 'Parallel' :
+                     tooltip.node.type}
+                  </span>
                 </div>
                 {tooltip.node.isActive && (
                   <div className="agent-graph-tooltip-active">● Currently executing</div>
