@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
@@ -1005,7 +1006,7 @@ function VersionedMarkdownModal({
     }
   };
   
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -1117,7 +1118,8 @@ function VersionedMarkdownModal({
           color: var(--text-primary);
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1135,7 +1137,7 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
     }
   };
   
-  return (
+  return createPortal(
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -1317,7 +1319,8 @@ function MarkdownModal({ content, title, onClose }: { content: string; title: st
           height: auto;
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }
 
