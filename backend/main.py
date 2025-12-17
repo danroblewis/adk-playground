@@ -26,7 +26,7 @@ from models import (
     RunEvent, EvalSet, EvalCase, EvalInvocation, ExpectedToolCall,
     EvalSetResult, EvalCaseResult, InvocationResult, ToolTrajectoryMatchType,
     EvalConfig, EvalMetricConfig, EvalMetricType, EvalCriterion, JudgeModelOptions,
-    MetricResult, Rubric,
+    MetricResult, Rubric, EnabledMetric,
 )
 from project_manager import ProjectManager
 from runtime import RuntimeManager
@@ -3155,12 +3155,29 @@ Remember to output ONLY valid JSON with no markdown code blocks.
                 rubrics=rubrics,
             )]
             
+            # Enable rubric-based LLM judge metrics if we have rubrics
+            enabled_metrics = []
+            if rubrics:
+                # Enable rubric-based response quality judge with 0.7 threshold
+                enabled_metrics.append(EnabledMetric(
+                    metric="rubric_based_final_response_quality_v1",
+                    threshold=0.7
+                ))
+                # If there are expected tool calls, also enable tool use quality judge
+                if expected_tool_calls:
+                    enabled_metrics.append(EnabledMetric(
+                        metric="rubric_based_tool_use_quality_v1",
+                        threshold=0.7
+                    ))
+            
             eval_case = EvalCase(
                 id=case_id,
                 name=case_data.get("name", f"test_case_{i+1}"),
                 description=case_data.get("description", ""),
                 invocations=invocations,
                 expected_final_state=case_data.get("expected_final_state"),
+                rubrics=rubrics,  # Also add rubrics at case level
+                enabled_metrics=enabled_metrics,
                 target_agent=target_agent_id if target_agent_id != project.app.root_agent_id else None,
             )
             eval_cases.append(eval_case)
