@@ -949,7 +949,142 @@ function StringMarkdownModal({ content, onClose }: { content: string; onClose: (
   );
 }
 
-// Markdown modal component
+// State version type for versioned modal
+interface StateVersion {
+  value: any;
+  eventIndex: number;
+  timestamp: number;
+}
+
+// Versioned Markdown modal component - supports navigating through state versions
+function VersionedMarkdownModal({ 
+  title, 
+  versions, 
+  initialVersionIndex,
+  onClose 
+}: { 
+  title: string; 
+  versions: StateVersion[];
+  initialVersionIndex: number;
+  onClose: () => void;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(initialVersionIndex);
+  
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentIndex(prev => Math.max(0, prev - 1));
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentIndex(prev => Math.min(versions.length - 1, prev + 1));
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [versions.length, onClose]);
+  
+  const currentVersion = versions[currentIndex];
+  const content = typeof currentVersion.value === 'string' 
+    ? currentVersion.value 
+    : JSON.stringify(currentVersion.value, null, 2);
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          {versions.length > 1 && (
+            <div className="version-nav">
+              <button 
+                className="version-btn"
+                onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
+                disabled={currentIndex === 0}
+                title="Previous version (↑)"
+              >
+                ▲
+              </button>
+              <span className="version-info">
+                v{currentIndex + 1}/{versions.length}
+                <span className="version-event"> (event #{currentVersion.eventIndex})</span>
+              </span>
+              <button 
+                className="version-btn"
+                onClick={() => setCurrentIndex(prev => Math.min(versions.length - 1, prev + 1))}
+                disabled={currentIndex === versions.length - 1}
+                title="Next version (↓)"
+              >
+                ▼
+              </button>
+            </div>
+          )}
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body markdown-content">
+          <ReactMarkdown>{content}</ReactMarkdown>
+        </div>
+        {versions.length > 1 && (
+          <div className="modal-footer">
+            <span className="version-hint">
+              Use ↑↓ arrow keys to navigate versions • 
+              Set at {new Date(currentVersion.timestamp * 1000).toLocaleTimeString()}
+            </span>
+          </div>
+        )}
+      </div>
+      <style>{`
+        .version-nav {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-right: auto;
+          margin-left: 16px;
+        }
+        .version-btn {
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+        }
+        .version-btn:hover:not(:disabled) {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
+        .version-btn:disabled {
+          opacity: 0.4;
+          cursor: not-allowed;
+        }
+        .version-info {
+          font-size: 12px;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+        .version-event {
+          color: var(--text-muted);
+          font-weight: normal;
+        }
+        .modal-footer {
+          padding: 8px 20px;
+          border-top: 1px solid var(--border-color);
+          background: var(--bg-secondary);
+        }
+        .version-hint {
+          font-size: 11px;
+          color: var(--text-muted);
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Markdown modal component (simple version for non-versioned content)
 function MarkdownModal({ content, title, onClose }: { content: string; title: string; onClose: () => void }) {
   
   return (
@@ -1119,10 +1254,16 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
   selectedEventIndex: number | null;
   project: Project | null;
 }) {
-  const [modalContent, setModalContent] = useState<{ content: string; title: string } | null>(null);
+  const [modalState, setModalState] = useState<{ 
+    key: string; 
+    versions: StateVersion[]; 
+    initialVersionIndex: number;
+  } | null>(null);
   
-  const state = useMemo(() => {
+  // Build version history for all state keys
+  const { state, stateVersions } = useMemo(() => {
     const snapshot: Record<string, { value: any; timestamp: number | null; defined: boolean; description?: string; type?: string }> = {};
+    const versions: Record<string, StateVersion[]> = {};
     
     // First, add all state keys defined in the App config
     if (project?.app?.state_keys) {
@@ -1134,6 +1275,7 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           description: key.description,
           type: key.type
         };
+        versions[key.name] = [];
       });
     }
     
@@ -1150,10 +1292,29 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
               description: `Output from ${agent.name}`,
               type: 'string'
             };
+            versions[outputKey] = [];
           }
         }
       });
     }
+    
+    // Collect ALL versions from all events (not just up to selected)
+    events
+      .filter(e => e.event_type === 'state_change')
+      .forEach((e, _i) => {
+        if (e.data?.state_delta) {
+          // Find the event index in the original events array
+          const eventIndex = events.indexOf(e);
+          Object.entries(e.data.state_delta).forEach(([key, value]) => {
+            if (!versions[key]) versions[key] = [];
+            versions[key].push({
+              value,
+              eventIndex,
+              timestamp: e.timestamp,
+            });
+          });
+        }
+      });
     
     // If an event is selected, show state up to and including that event
     // Otherwise show state at end of all events
@@ -1176,18 +1337,41 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
         }
       });
     
-    return snapshot;
+    return { state: snapshot, stateVersions: versions };
   }, [events, selectedEventIndex, project]);
+  
+  // Calculate which version index to show initially based on selectedEventIndex
+  const getInitialVersionIndex = (key: string): number => {
+    const versions = stateVersions[key] || [];
+    if (versions.length === 0) return 0;
+    
+    if (selectedEventIndex === null) {
+      // Show the last version
+      return versions.length - 1;
+    }
+    
+    // Find the version at or just before the selected event
+    let bestIndex = 0;
+    for (let i = 0; i < versions.length; i++) {
+      if (versions[i].eventIndex <= selectedEventIndex) {
+        bestIndex = i;
+      } else {
+        break;
+      }
+    }
+    return bestIndex;
+  };
   
   const entries = Object.entries(state);
   
   return (
     <>
-      {modalContent && (
-        <MarkdownModal
-          content={modalContent.content}
-          title={modalContent.title}
-          onClose={() => setModalContent(null)}
+      {modalState && (
+        <VersionedMarkdownModal
+          title={modalState.key}
+          versions={modalState.versions}
+          initialVersionIndex={modalState.initialVersionIndex}
+          onClose={() => setModalState(null)}
         />
       )}
     <div className="state-snapshot">
@@ -1204,6 +1388,11 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
           color: #888;
           margin-left: 8px;
         }
+        .state-version-count {
+          font-size: 10px;
+          color: #666;
+          margin-left: 4px;
+        }
         .state-desc {
           font-size: 11px;
           color: #666;
@@ -1218,35 +1407,50 @@ function StateSnapshot({ events, selectedEventIndex, project }: {
       {entries.length === 0 ? (
         <div className="state-empty">No state keys defined</div>
       ) : (
-        entries.map(([key, { value, timestamp, defined, description, type }]) => (
-          <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
-            <div className="state-key">
-              {key}
-              {type && <span className="state-type">({type})</span>}
+        entries.map(([key, { value, timestamp, defined, description, type }]) => {
+          const versions = stateVersions[key] || [];
+          return (
+            <div key={key} className={`state-entry ${value === undefined ? 'unset' : ''}`}>
+              <div className="state-key">
+                {key}
+                {type && <span className="state-type">({type})</span>}
+                {versions.length > 1 && (
+                  <span className="state-version-count" title="Number of versions">
+                    [{versions.length} versions]
+                  </span>
+                )}
+              </div>
+              <div 
+                className="state-value"
+                onClick={() => {
+                  if (value !== undefined && versions.length > 0) {
+                    setModalState({
+                      key,
+                      versions,
+                      initialVersionIndex: getInitialVersionIndex(key),
+                    });
+                  }
+                }}
+                style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
+                title={value !== undefined 
+                  ? versions.length > 1 
+                    ? `Click to view (${versions.length} versions, use ↑↓ to navigate)` 
+                    : 'Click to view in markdown viewer' 
+                  : undefined}
+              >
+                {value === undefined 
+                  ? '(not set)' 
+                  : typeof value === 'string' 
+                    ? value 
+                    : JSON.stringify(value, null, 2)}
+              </div>
+              {description && <div className="state-desc">{description}</div>}
+              {timestamp && (
+                <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
+              )}
             </div>
-            <div 
-              className="state-value"
-              onClick={() => {
-                if (value !== undefined) {
-                  const displayValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-                  setModalContent({ content: displayValue, title: key });
-                }
-              }}
-              style={{ cursor: value !== undefined ? 'pointer' : 'default' }}
-              title={value !== undefined ? 'Click to view in markdown viewer' : undefined}
-            >
-              {value === undefined 
-                ? '(not set)' 
-                : typeof value === 'string' 
-                  ? value 
-                  : JSON.stringify(value, null, 2)}
-            </div>
-            {description && <div className="state-desc">{description}</div>}
-            {timestamp && (
-              <div className="state-time">{new Date(timestamp * 1000).toLocaleTimeString()}</div>
-            )}
-          </div>
-        ))
+          );
+        })
       )}
     </div>
     </>
