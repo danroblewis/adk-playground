@@ -1279,11 +1279,11 @@ async def run_agent_ws(websocket: WebSocket, project_id: str):
             if not session_id and event.event_type == "agent_start":
                 logger.info(f"[WS] agent_start event: agent_name={event.agent_name}, data={event.data}")
                 if event.data.get("session_id"):
-                session_id = event.data["session_id"]
-                await connection_manager.connect(websocket, session_id)
-                # Send session_id to client
+                    session_id = event.data["session_id"]
+                    await connection_manager.connect(websocket, session_id)
+                    # Send session_id to client
                     logger.info(f"[WS] Sending session_started: {session_id}")
-                await websocket.send_json({"type": "session_started", "session_id": session_id})
+                    await websocket.send_json({"type": "session_started", "session_id": session_id})
             
             await websocket.send_json(event.model_dump(mode="json"))
         
@@ -1701,15 +1701,15 @@ The prompt should:
     meta_prompt += """## Output Format
 Write ONLY the instruction prompt itself, without any preamble or explanation. The prompt should be ready to use directly as the agent's instruction.
 """
-        
-        # Get model config from project
-        model_config = None
-        if project.app.models and len(project.app.models) > 0:
-            if project.app.default_model_id:
-                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
-            if not model_config:
-                model_config = project.app.models[0]
-        
+    
+    # Get model config from project
+    model_config = None
+    if project.app.models and len(project.app.models) > 0:
+        if project.app.default_model_id:
+            model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+        if not model_config:
+            model_config = project.app.models[0]
+    
     # Run the prompt_generator agent
     result = await run_agent(
         agent_name="prompt_generator",
@@ -1721,7 +1721,7 @@ Write ONLY the instruction prompt itself, without any preamble or explanation. T
     
     if result["success"]:
         return {"prompt": result["output"], "success": True}
-            else:
+    else:
         return {
             "prompt": None,
             "success": False,
@@ -1917,8 +1917,8 @@ Write the complete Python code for this tool. Include appropriate imports at the
         
         if result["success"]:
             code = clean_code_output(result["output"])
-        return {"code": code, "success": True}
-            else:
+            return {"code": code, "success": True}
+        else:
             print(f"[generate-tool-code] ERROR: {result.get('error')}", file=sys.stderr, flush=True)
             return {
                 "code": None,
@@ -2200,8 +2200,8 @@ Write the complete Python code for this callback. Include appropriate imports at
         
         if result["success"]:
             code = clean_code_output(result["output"])
-        return {"code": code, "success": True}
-            else:
+            return {"code": code, "success": True}
+        else:
             print(f"[generate-callback-code] ERROR: {result.get('error')}", file=sys.stderr, flush=True)
             return {
                 "code": None,
@@ -2299,34 +2299,34 @@ Rules:
 6. Return ONLY valid JSON, no explanation
 
 JSON:"""
-        
-        # Get model config from project
-        model_config = None
-        if project.app.models and len(project.app.models) > 0:
-            if project.app.default_model_id:
-                model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
-            if not model_config:
-                model_config = project.app.models[0]
-        
-        # Retry logic for models that don't always return JSON
-        max_retries = 3
-        last_error = None
-        last_raw_response = None
-        
-        for attempt in range(max_retries):
-            if attempt == 0:
-                # First attempt: use the original prompt
-                message = meta_prompt
-            else:
-                # Retry: ask for just the JSON, referencing the failed attempt
-                message = f"""Your previous response was not valid JSON. Here's what you returned:
+
+    # Get model config from project
+    model_config = None
+    if project.app.models and len(project.app.models) > 0:
+        if project.app.default_model_id:
+            model_config = next((m for m in project.app.models if m.id == project.app.default_model_id), None)
+        if not model_config:
+            model_config = project.app.models[0]
+    
+    # Retry logic for models that don't always return JSON
+    max_retries = 3
+    last_error = None
+    last_raw_response = None
+    
+    for attempt in range(max_retries):
+        if attempt == 0:
+            # First attempt: use the original prompt
+            message = meta_prompt
+        else:
+            # Retry: ask for just the JSON, referencing the failed attempt
+            message = f"""Your previous response was not valid JSON. Here's what you returned:
 
 {last_raw_response[:2000] if last_raw_response else 'No response'}
 
 The error was: {last_error}
 
 Please return ONLY the JSON object with the agent configuration. No explanation, no markdown, just the raw JSON starting with {{ and ending with }}. Make sure to close all brackets and quotes properly."""
-            
+        
         # Run the agent_config_generator agent
         result = await run_agent(
             agent_name="agent_config_generator",
@@ -2346,30 +2346,30 @@ Please return ONLY the JSON object with the agent configuration. No explanation,
         
         # Extract and parse JSON from the response
         generated_text = result["output"]
-            last_raw_response = generated_text
-            
+        last_raw_response = generated_text
+        
         # Try to extract JSON
         json_text = extract_json_from_text(generated_text)
-            
-            try:
-            config = json.loads(json_text)
-                return {"config": config, "success": True, "attempts": attempt + 1}
-            except json.JSONDecodeError as e:
-                last_error = str(e)
-                if attempt < max_retries - 1:
-                    continue  # Try again
-                else:
-                    # All retries exhausted
-                    return {
-                        "config": None,
-                        "success": False,
-                        "error": f"Failed to parse JSON after {max_retries} attempts: {last_error}",
-                        "raw_response": last_raw_response[:2000] if last_raw_response else None,
-                        "attempts": max_retries,
-                    }
         
-        # Should not reach here, but just in case
-        return {"config": None, "success": False, "error": "Unknown error"}
+        try:
+            config = json.loads(json_text)
+            return {"config": config, "success": True, "attempts": attempt + 1}
+        except json.JSONDecodeError as e:
+            last_error = str(e)
+            if attempt < max_retries - 1:
+                continue  # Try again
+            else:
+                # All retries exhausted
+                return {
+                    "config": None,
+                    "success": False,
+                    "error": f"Failed to parse JSON after {max_retries} attempts: {last_error}",
+                    "raw_response": last_raw_response[:2000] if last_raw_response else None,
+                    "attempts": max_retries,
+                }
+    
+    # Should not reach here, but just in case
+    return {"config": None, "success": False, "error": "Unknown error"}
 
 
 # ============================================================================
