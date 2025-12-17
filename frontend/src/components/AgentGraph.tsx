@@ -18,6 +18,7 @@ interface GraphNode {
   type: 'LlmAgent' | 'SequentialAgent' | 'LoopAgent' | 'ParallelAgent' | 'Tool' | 'System';
   isActive: boolean;
   wasActive: boolean;
+  lastMessage?: string;
   x?: number;
   y?: number;
   fx?: number | null;
@@ -119,8 +120,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
   // Store the last zoom transform
   const lastTransformRef = useRef<d3.ZoomTransform | null>(null);
   
-  // Calculate active agents (supports parallel execution), transitions, visited agents, and tool calls
-  const { activeAgents, activeTools, transitions, visitedAgents, toolCalls, activeBranches } = useMemo(() => {
+  // Calculate active agents (supports parallel execution), transitions, visited agents, tool calls, and last messages
+  const { activeAgents, activeTools, transitions, visitedAgents, toolCalls, activeBranches, lastMessages } = useMemo(() => {
     // If no event selected, use the most recent event
     const effectiveIndex = selectedEventIndex !== null ? selectedEventIndex : events.length - 1;
     
@@ -131,7 +132,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         transitions: new Map<string, number>(), 
         visitedAgents: new Set<string>(),
         toolCalls: new Map<string, number>(),
-        activeBranches: new Set<string>()
+        activeBranches: new Set<string>(),
+        lastMessages: new Map<string, string>()
       };
     }
     
@@ -185,6 +187,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     const toolCallMap = new Map<string, number>();
     const visited = new Set<string>();
     const visitedTools = new Set<string>();
+    const agentLastMessages = new Map<string, string>();
     
     // Always include system node
     visited.add('system');
@@ -360,6 +363,16 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         }
       } else if (event.event_type === 'tool_result') {
         branchTools.set(branch, null);
+      } else if (event.event_type === 'model_response') {
+        // Track the last message for this agent
+        const agentName = event.agent_name;
+        if (agentName && agentName !== 'system') {
+          const parts = event.data?.response_content?.parts || event.data?.parts || [];
+          const textPart = parts.find((p: any) => p?.type === 'text' && p?.text);
+          if (textPart?.text) {
+            agentLastMessages.set(agentName, textPart.text);
+          }
+        }
       }
     }
     
@@ -387,7 +400,8 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
       transitions: transitionMap, 
       visitedAgents: visited, 
       toolCalls: toolCallMap,
-      activeBranches: currentActiveBranches
+      activeBranches: currentActiveBranches,
+      lastMessages: agentLastMessages
     };
   }, [events, selectedEventIndex, agents]);
   
@@ -414,6 +428,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         type: agentName === 'system' ? 'System' : (config?.type || 'LlmAgent'),
         isActive: activeAgents.has(agentName), // Can have multiple active agents in parallel
         wasActive: true,
+        lastMessage: lastMessages.get(agentName),
         x: prevPos?.x,
         y: prevPos?.y,
       });
@@ -480,7 +495,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
     }
     
     return { nodes, links };
-  }, [agents, activeAgents, activeTools, visitedAgents, transitions, toolCalls]);
+  }, [agents, activeAgents, activeTools, visitedAgents, transitions, toolCalls, lastMessages]);
   
   // D3 force simulation
   useEffect(() => {
@@ -1420,6 +1435,18 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           font-weight: 500;
         }
         
+        .agent-graph-tooltip-message {
+          font-size: 10px;
+          color: #a1a1aa;
+          margin-top: 6px;
+          font-style: italic;
+          line-height: 1.4;
+          max-width: 200px;
+          word-break: break-word;
+          border-top: 1px solid rgba(99, 102, 241, 0.2);
+          padding-top: 6px;
+        }
+        
         .agent-graph-tooltip.expanded-tooltip {
           z-index: 10002;
           font-size: 14px;
@@ -1433,6 +1460,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
         
         .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-type {
           font-size: 13px;
+        }
+        
+        .agent-graph-tooltip.expanded-tooltip .agent-graph-tooltip-message {
+          font-size: 12px;
+          max-width: 280px;
         }
         
         /* Expanded modal styles */
@@ -1636,6 +1668,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                 {tooltip.node.isActive && (
                   <div className="agent-graph-tooltip-active">● Currently executing</div>
                 )}
+                {tooltip.node.lastMessage && (
+                  <div className="agent-graph-tooltip-message">
+                    "{tooltip.node.lastMessage.slice(0, 80)}{tooltip.node.lastMessage.length > 80 ? '...' : ''}"
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1705,6 +1742,11 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
                 </div>
                 {expandedTooltip.node.isActive && (
                   <div className="agent-graph-tooltip-active">● Currently executing</div>
+                )}
+                {expandedTooltip.node.lastMessage && (
+                  <div className="agent-graph-tooltip-message">
+                    "{expandedTooltip.node.lastMessage.slice(0, 120)}{expandedTooltip.node.lastMessage.length > 120 ? '...' : ''}"
+                  </div>
                 )}
               </div>
             )}
