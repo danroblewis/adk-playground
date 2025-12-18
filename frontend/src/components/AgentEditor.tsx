@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code, Database, FileText } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig, CallbackConfig, CustomCallbackDefinition } from '../utils/types';
@@ -24,6 +24,12 @@ export default function AgentEditor({ agent }: Props) {
   const [showRequestChanges, setShowRequestChanges] = useState(false);
   const [requestChangesText, setRequestChangesText] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
+  const [localName, setLocalName] = useState(agent.name);
+  
+  // Sync local name when agent changes (e.g., switching agents)
+  useEffect(() => {
+    setLocalName(agent.name);
+  }, [agent.id]);
   
   if (!project) return null;
   
@@ -32,6 +38,8 @@ export default function AgentEditor({ agent }: Props) {
   }
   
   function handleNameChange(value: string) {
+    setLocalName(value);
+    
     if (value === '') {
       setNameError(null);
       update({ name: value });
@@ -44,11 +52,14 @@ export default function AgentEditor({ agent }: Props) {
       setNameError(null);
     }
     
-    // For LlmAgents, also update the output_key to match the new name
-    if (agent.type === 'LlmAgent') {
-      update({ name: value, output_key: value });
-    } else {
-      update({ name: value });
+    // Only update the name immediately, not the output_key
+    update({ name: value });
+  }
+  
+  function handleNameBlur() {
+    // For LlmAgents, update output_key to match the name when user finishes typing
+    if (agent.type === 'LlmAgent' && localName && isValidName(localName)) {
+      update({ output_key: localName });
     }
   }
   
@@ -565,8 +576,9 @@ Your response (5-10 words only):`;
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <input
           type="text"
-          value={agent.name}
+          value={localName}
             onChange={(e) => handleNameChange(e.target.value)}
+            onBlur={handleNameBlur}
           placeholder="Agent name"
             style={{ borderColor: nameError ? 'var(--error)' : undefined }}
           />
