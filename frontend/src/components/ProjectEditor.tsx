@@ -20,7 +20,7 @@ const tabs = [
   { id: 'tools' as const, label: 'Tools', icon: Wrench },
   { id: 'callbacks' as const, label: 'Callbacks', icon: Code },
   { id: 'run' as const, label: 'Run', icon: Layers },
-  { id: 'skillsets' as const, label: 'SkillSets', icon: Brain },
+  // { id: 'skillsets' as const, label: 'SkillSets', icon: Brain },
   { id: 'eval' as const, label: 'Evaluate', icon: TestTube },
   { id: 'yaml' as const, label: 'YAML', icon: FileCode },
   { id: 'code' as const, label: 'Code', icon: Code },
