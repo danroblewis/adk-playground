@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code, Database } from 'lucide-react';
+import { Bot, Cpu, Wrench, Users, Plus, Trash2, ChevronDown, ChevronRight, Star, Loader, Play, Code, Database, FileText } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import type { AgentConfig, LlmAgentConfig, ToolConfig, ModelConfig, AppModelConfig, CallbackConfig, CustomCallbackDefinition } from '../utils/types';
 import { generatePrompt } from '../utils/api';
@@ -18,7 +18,7 @@ function isValidName(name: string): boolean {
 
 export default function AgentEditor({ agent }: Props) {
   const { project, updateAgent, mcpServers, builtinTools, setActiveTab, setRunAgentId } = useStore();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'model', 'tools', 'subagents', 'callbacks']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'tools', 'subagents', 'instruction']));
   const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [showRequestChanges, setShowRequestChanges] = useState(false);
@@ -633,72 +633,6 @@ Your response (5-10 words only):`;
           {isLlmAgent && (
             <>
               <div className="form-row">
-                <div className="form-group full-width">
-                  <div className="label-with-action">
-                    <label>Instruction</label>
-                    <div className="action-buttons">
-                      <button 
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setShowRequestChanges(!showRequestChanges)}
-                        disabled={isGeneratingPrompt || !llmAgent.instruction}
-                        title="Request specific changes to the instruction"
-                      >
-                        Request Changes
-                      </button>
-                      <button 
-                        className="btn btn-secondary btn-sm"
-                        onClick={handleGeneratePrompt}
-                        disabled={isGeneratingPrompt}
-                        title="Uses AI to improve and expand the current instruction"
-                      >
-                        {isGeneratingPrompt ? (
-                          <>
-                            <Loader size={14} className="spin" />
-                            Working...
-                          </>
-                        ) : (
-                          'Auto-Improve'
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {showRequestChanges && (
-                    <div className="request-changes-box">
-                      <input
-                        type="text"
-                        value={requestChangesText}
-                        onChange={(e) => setRequestChangesText(e.target.value)}
-                        placeholder="Describe what changes you want..."
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && requestChangesText.trim()) {
-                            handleRequestChanges();
-                          } else if (e.key === 'Escape') {
-                            setShowRequestChanges(false);
-                            setRequestChangesText('');
-                          }
-                        }}
-                        autoFocus
-                      />
-                      <button 
-                        className="btn btn-primary btn-sm"
-                        onClick={handleRequestChanges}
-                        disabled={isGeneratingPrompt || !requestChangesText.trim()}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  )}
-                  
-                  <MarkdownEditor
-                    value={llmAgent.instruction}
-                    onChange={(value) => update({ instruction: value } as Partial<LlmAgentConfig>)}
-                    placeholder="Write your agent's instruction here... (Markdown supported)"
-                    minHeight={200}
-                  />
-                </div>
-              </div>
-              <div className="form-row">
                 <div className="form-group">
                   <label>Output Key</label>
                   <select
@@ -783,68 +717,75 @@ Your response (5-10 words only):`;
           </Section>
         )}
         
-        {/* Tools (LLM only) */}
-        {isLlmAgent && (
-          <Section
-            id="tools"
-            title={`Tools (${llmAgent.tools.length})`}
-            icon={<Wrench size={16} />}
-            expanded={expandedSections.has('tools')}
-            onToggle={() => toggleSection('tools')}
-          >
-            <ToolsEditor
-              tools={llmAgent.tools}
-              onAdd={addTool}
-              onRemove={removeTool}
-              onUpdate={updateTool}
-              builtinTools={builtinTools}
-              mcpServers={mcpServers}
-              projectMcpServers={project.mcp_servers}
-              customTools={project.custom_tools}
-              agents={availableAgents}
-              skillsets={project.skillsets || []}
-            />
-          </Section>
-        )}
-        
-        {/* Sub-agents */}
-        {'sub_agents' in agent && (
-          <Section
-            id="subagents"
-            title={`Sub-Agents (${agent.sub_agents.length})`}
-            icon={<Users size={16} />}
-            expanded={expandedSections.has('subagents')}
-            onToggle={() => toggleSection('subagents')}
-          >
-            <div className="sub-agent-list">
-              {agent.sub_agents.map(subId => {
-                const subAgent = project.agents.find(a => a.id === subId);
-                if (!subAgent) return null;
-                return (
-                  <div key={subId} className="sub-agent-chip">
-                    {subAgent.name}
-                    <button onClick={() => removeSubAgent(subId)}>
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                );
-              })}
-              <select
-                value=""
-                onChange={(e) => { if (e.target.value) addSubAgent(e.target.value); }}
-                style={{ width: 150, padding: '6px 10px', fontSize: 13 }}
+        {/* Sub-agents and Tools side by side */}
+        <div style={{ display: 'flex', gap: 16 }}>
+          {/* Sub-agents */}
+          {'sub_agents' in agent && (
+            <div style={{ flex: 1 }}>
+              <Section
+                id="subagents"
+                title={`Sub-Agents (${agent.sub_agents.length})`}
+                icon={<Users size={16} />}
+                expanded={expandedSections.has('subagents')}
+                onToggle={() => toggleSection('subagents')}
               >
-                <option value="">Add agent...</option>
-                {availableAgents
-                  .filter(a => !agent.sub_agents.includes(a.id))
-                  .map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))
-                }
-              </select>
+                <div className="sub-agent-list">
+                  {agent.sub_agents.map(subId => {
+                    const subAgent = project.agents.find(a => a.id === subId);
+                    if (!subAgent) return null;
+                    return (
+                      <div key={subId} className="sub-agent-chip">
+                        {subAgent.name}
+                        <button onClick={() => removeSubAgent(subId)}>
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) addSubAgent(e.target.value); }}
+                    style={{ width: 150, padding: '6px 10px', fontSize: 13 }}
+                  >
+                    <option value="">Add agent...</option>
+                    {availableAgents
+                      .filter(a => !agent.sub_agents.includes(a.id))
+                      .map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+              </Section>
             </div>
-          </Section>
-        )}
+          )}
+
+          {/* Tools (LLM only) */}
+          {isLlmAgent && (
+            <div style={{ flex: 1 }}>
+              <Section
+                id="tools"
+                title={`Tools (${llmAgent.tools.length})`}
+                icon={<Wrench size={16} />}
+                expanded={expandedSections.has('tools')}
+                onToggle={() => toggleSection('tools')}
+              >
+                <ToolsEditor
+                  tools={llmAgent.tools}
+                  onAdd={addTool}
+                  onRemove={removeTool}
+                  onUpdate={updateTool}
+                  builtinTools={builtinTools}
+                  mcpServers={mcpServers}
+                  projectMcpServers={project.mcp_servers}
+                  customTools={project.custom_tools}
+                  agents={availableAgents}
+                  skillsets={project.skillsets || []}
+                />
+              </Section>
+            </div>
+          )}
+        </div>
         
         {/* Callbacks - available for all agent types */}
         <Section
@@ -861,6 +802,83 @@ Your response (5-10 words only):`;
             isLlmAgent={isLlmAgent}
           />
         </Section>
+
+        {/* Instruction (LLM only) */}
+        {isLlmAgent && (
+          <Section
+            id="instruction"
+            title="Instruction"
+            icon={<FileText size={16} />}
+            expanded={expandedSections.has('instruction')}
+            onToggle={() => toggleSection('instruction')}
+          >
+            <div className="form-row">
+              <div className="form-group full-width">
+                <div className="label-with-action">
+                  <div className="action-buttons">
+                    <button 
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowRequestChanges(!showRequestChanges)}
+                      disabled={isGeneratingPrompt || !llmAgent.instruction}
+                      title="Request specific changes to the instruction"
+                    >
+                      Request Changes
+                    </button>
+                    <button 
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleGeneratePrompt}
+                      disabled={isGeneratingPrompt}
+                      title="Uses AI to improve and expand the current instruction"
+                    >
+                      {isGeneratingPrompt ? (
+                        <>
+                          <Loader size={14} className="spin" />
+                          Working...
+                        </>
+                      ) : (
+                        'Auto-Improve'
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                {showRequestChanges && (
+                  <div className="request-changes-box">
+                    <input
+                      type="text"
+                      value={requestChangesText}
+                      onChange={(e) => setRequestChangesText(e.target.value)}
+                      placeholder="Describe what changes you want..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && requestChangesText.trim()) {
+                          handleRequestChanges();
+                        } else if (e.key === 'Escape') {
+                          setShowRequestChanges(false);
+                          setRequestChangesText('');
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button 
+                      className="btn btn-primary btn-sm"
+                      onClick={handleRequestChanges}
+                      disabled={isGeneratingPrompt || !requestChangesText.trim()}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                )}
+                
+                <MarkdownEditor
+                  value={llmAgent.instruction}
+                  onChange={(value) => update({ instruction: value } as Partial<LlmAgentConfig>)}
+                  placeholder="Write your agent's instruction here... (Markdown supported)"
+                  minHeight={200}
+                />
+              </div>
+            </div>
+          </Section>
+        )}
       </div>
     </div>
   );
