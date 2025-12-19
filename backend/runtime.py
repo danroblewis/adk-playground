@@ -461,6 +461,31 @@ class RuntimeManager:
         self.sessions: Dict[str, RunSession] = {}
         self._running: Dict[str, bool] = {}
         self._temp_dirs: Dict[str, Path] = {}
+        # Cache services by (app_name, uri) to persist sessions across calls
+        self._session_services: Dict[tuple, Any] = {}
+        self._memory_services: Dict[tuple, Any] = {}
+        self._artifact_services: Dict[tuple, Any] = {}
+    
+    def _get_session_service(self, app_name: str, uri: str):
+        """Get or create a cached session service."""
+        key = (app_name, uri)
+        if key not in self._session_services:
+            self._session_services[key] = create_session_service_from_uri(uri)
+        return self._session_services[key]
+    
+    def _get_memory_service(self, app_name: str, uri: str):
+        """Get or create a cached memory service."""
+        key = (app_name, uri)
+        if key not in self._memory_services:
+            self._memory_services[key] = create_memory_service_from_uri(uri)
+        return self._memory_services[key]
+    
+    def _get_artifact_service(self, app_name: str, uri: str):
+        """Get or create a cached artifact service."""
+        key = (app_name, uri)
+        if key not in self._artifact_services:
+            self._artifact_services[key] = create_artifact_service_from_uri(uri)
+        return self._artifact_services[key]
     
     def _prepare_temp_dir(self, project: Project, session_id: str) -> Path:
         """Create temp directory with tool/callback files from project."""
@@ -620,13 +645,17 @@ class RuntimeManager:
                 app.plugins = []
             app.plugins.insert(0, TrackingPluginWrapper(tracking))
             
-            # Create services
+            # Get cached services (persists sessions across calls)
             from google.adk.runners import Runner
             from google.genai import types
             
-            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
-            memory_service = create_memory_service_from_uri(project.app.memory_service_uri or "memory://")
-            artifact_service = create_artifact_service_from_uri(project.app.artifact_service_uri or "memory://")
+            session_uri = project.app.session_service_uri or "memory://"
+            memory_uri = project.app.memory_service_uri or "memory://"
+            artifact_uri = project.app.artifact_service_uri or "memory://"
+            
+            session_service = self._get_session_service(project.app.name, session_uri)
+            memory_service = self._get_memory_service(project.app.name, memory_uri)
+            artifact_service = self._get_artifact_service(project.app.name, artifact_uri)
             
             # Check for existing ADK session
             adk_session = await session_service.get_session(
@@ -812,7 +841,8 @@ class RuntimeManager:
     async def list_sessions_from_service(self, project: Project) -> List[dict]:
         """List all sessions from the session service."""
         try:
-            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
+            session_uri = project.app.session_service_uri or "memory://"
+            session_service = self._get_session_service(project.app.name, session_uri)
             response = await session_service.list_sessions(
                 app_name=project.app.name,
                 user_id=None,  # List all users' sessions
@@ -844,7 +874,8 @@ class RuntimeManager:
     async def load_session_from_service(self, project: Project, session_id: str, user_id: Optional[str] = None) -> Optional[RunSession]:
         """Load a session from the session service."""
         try:
-            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
+            session_uri = project.app.session_service_uri or "memory://"
+            session_service = self._get_session_service(project.app.name, session_uri)
             
             # Try with provided user_id first, then common fallbacks
             user_ids_to_try = [user_id] if user_id else []
@@ -933,8 +964,10 @@ class RuntimeManager:
             return {"success": False, "error": "Session not found"}
         
         try:
-            memory_service = create_memory_service_from_uri(project.app.memory_service_uri or "memory://")
-            session_service = create_session_service_from_uri(project.app.session_service_uri or "memory://")
+            memory_uri = project.app.memory_service_uri or "memory://"
+            session_uri = project.app.session_service_uri or "memory://"
+            memory_service = self._get_memory_service(project.app.name, memory_uri)
+            session_service = self._get_session_service(project.app.name, session_uri)
             
             adk_session = await session_service.get_session(
                 app_name=project.app.name,
