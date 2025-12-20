@@ -25,10 +25,12 @@ export default function AgentEditor({ agent }: Props) {
   const [requestChangesText, setRequestChangesText] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
   const [localName, setLocalName] = useState(agent.name);
+  const [localOutputKey, setLocalOutputKey] = useState((agent as LlmAgentConfig).output_key || '');
   
   // Sync local name when agent changes (e.g., switching agents)
   useEffect(() => {
     setLocalName(agent.name);
+    setLocalOutputKey((agent as LlmAgentConfig).output_key || '');
   }, [agent.id]);
   
   if (!project) return null;
@@ -647,15 +649,25 @@ Your response (5-10 words only):`;
               <div className="form-row">
                 <div className="form-group">
                   <label>Output Key</label>
-                  <select
-                    value={llmAgent.output_key || ''}
-                    onChange={(e) => update({ output_key: e.target.value || undefined } as Partial<LlmAgentConfig>)}
-                  >
-                    <option value="">None</option>
+                  <input
+                    type="text"
+                    list={`output-key-suggestions-${agent.id}`}
+                    value={localOutputKey}
+                    onChange={(e) => setLocalOutputKey(e.target.value)}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      // Only update if value changed - updateAgent will create the state key if needed
+                      if (value !== (llmAgent.output_key || '')) {
+                        update({ output_key: value || undefined } as Partial<LlmAgentConfig>);
+                      }
+                    }}
+                    placeholder="Enter key name or select existing"
+                  />
+                  <datalist id={`output-key-suggestions-${agent.id}`}>
                     {project.app.state_keys.map(key => (
-                      <option key={key.name} value={key.name}>{key.name}</option>
+                      <option key={key.name} value={key.name} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div className="form-group">
                   <label>Include Contents</label>
