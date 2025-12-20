@@ -2675,7 +2675,7 @@ function MetricsTimeSeriesChart({ data, color, label, currentValue, unit = '%', 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 8, right: 8, bottom: 4, left: 8 };
+    const margin = { top: 8, right: 8, bottom: 10, left: 8 };
     const width = dimensions.width - margin.left - margin.right;
     const chartHeight = dimensions.height - margin.top - margin.bottom;
 
@@ -2684,13 +2684,13 @@ function MetricsTimeSeriesChart({ data, color, label, currentValue, unit = '%', 
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // Scales
+    // Scales - use -5 as min so 0% line is visible above the bottom
     const xScale = d3.scaleTime()
       .domain(d3.extent(data, d => d.timestamp) as [number, number])
       .range([0, width]);
 
     const yScale = d3.scaleLinear()
-      .domain([0, 100])
+      .domain([-5, 100])
       .range([chartHeight, 0]);
 
     // Gradient fill - sanitize label for valid SVG ID
@@ -2825,7 +2825,7 @@ function CpuStatsTimeSeriesChart({ data, height = 80 }: CpuStatsChartProps) {
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const margin = { top: 8, right: 8, bottom: 4, left: 8 };
+    const margin = { top: 8, right: 8, bottom: 10, left: 8 };
     const width = dimensions.width - margin.left - margin.right;
     const chartHeight = dimensions.height - margin.top - margin.bottom;
 
@@ -2834,13 +2834,13 @@ function CpuStatsTimeSeriesChart({ data, height = 80 }: CpuStatsChartProps) {
     const g = svg.append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // Scales
+    // Scales - use -5 as min so 0% line is visible above the bottom
     const xScale = d3.scaleTime()
       .domain(d3.extent(statsData, d => d.timestamp) as [number, number])
       .range([0, width]);
 
     const yScale = d3.scaleLinear()
-      .domain([0, 100])
+      .domain([-5, 100])
       .range([chartHeight, 0]);
 
     // Gradient for the min-max range fill
