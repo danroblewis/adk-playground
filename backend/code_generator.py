@@ -30,6 +30,22 @@ def escape_triple_quoted(s: str) -> str:
     return s
 
 
+def sanitize_identifier(name: str) -> str:
+    """Sanitize a name to be a valid Python identifier.
+    
+    Replaces invalid characters (like '-') with underscores.
+    Ensures the result starts with a letter or underscore.
+    """
+    if not name:
+        return "_unnamed"
+    # Replace any non-alphanumeric/underscore characters with underscore
+    safe = "".join(c if c.isalnum() or c == "_" else "_" for c in name)
+    # Ensure it starts with a letter or underscore (not a digit)
+    if safe and safe[0].isdigit():
+        safe = "_" + safe
+    return safe or "_unnamed"
+
+
 def escape_double_quoted(s: str) -> str:
     """Escape a string for use in Python double-quoted strings.
     
@@ -116,7 +132,7 @@ def generate_tool_code(tool: ToolConfig, project: Project, agent_var_names: Dict
         return ""  # Skip if agent doesn't exist
     elif tool_type == "mcp":
         if tool.server and tool.server.name:
-            return f"{tool.server.name}_tools"
+            return f"{sanitize_identifier(tool.server.name)}_tools"
         return ""
     elif tool_type == "skillset":
         skillset_id = getattr(tool, "skillset_id", None)
@@ -196,7 +212,7 @@ def generate_mcp_toolset_code(server: MCPServerConfig) -> str:
                 if flag_base not in existing_args_str and flag not in existing_args_str:
                     args.append(flag)
         
-        lines.append(f"{server.name}_tools = McpToolset(")
+        lines.append(f"{sanitize_identifier(server.name)}_tools = McpToolset(")
         lines.append("    connection_params=StdioConnectionParams(")
         lines.append("        server_params=StdioServerParameters(")
         if server.command:
@@ -224,7 +240,7 @@ def generate_mcp_toolset_code(server: MCPServerConfig) -> str:
         lines.append("    ),")
         lines.append(")")
     elif server.connection_type == "sse":
-        lines.append(f"{server.name}_tools = McpToolset(")
+        lines.append(f"{sanitize_identifier(server.name)}_tools = McpToolset(")
         lines.append("    connection_params=SseConnectionParams(")
         if server.url:
             lines.append(f'        url="{server.url}",')
