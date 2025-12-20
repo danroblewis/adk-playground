@@ -2772,6 +2772,173 @@ function MetricsTimeSeriesChart({ data, color, label, currentValue, unit = '%', 
   );
 }
 
+// CPU Stats Time Series Chart Component (min, avg, max)
+interface CpuStatsChartProps {
+  data: Array<{ timestamp: number; cores: number[] }>;
+  height?: number;
+}
+
+function CpuStatsTimeSeriesChart({ data, height = 80 }: CpuStatsChartProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 200, height });
+
+  // Handle resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height,
+        });
+      }
+    });
+    
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [height]);
+
+  // Calculate stats for each timestamp
+  const statsData = useMemo(() => {
+    return data.map(d => {
+      const cores = d.cores.filter(c => c !== undefined && c !== null);
+      if (cores.length === 0) {
+        return { timestamp: d.timestamp, min: 0, avg: 0, max: 0 };
+      }
+      const min = Math.min(...cores);
+      const max = Math.max(...cores);
+      const avg = cores.reduce((a, b) => a + b, 0) / cores.length;
+      return { timestamp: d.timestamp, min, avg, max };
+    });
+  }, [data]);
+
+  // Get number of cores and current values
+  const numCores = data.length > 0 ? data[0].cores.length : 0;
+  const currentStats = statsData.length > 0 ? statsData[statsData.length - 1] : { min: 0, avg: 0, max: 0 };
+
+  // Draw chart with D3
+  useEffect(() => {
+    if (!svgRef.current || statsData.length < 2) return;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const margin = { top: 8, right: 8, bottom: 4, left: 8 };
+    const width = dimensions.width - margin.left - margin.right;
+    const chartHeight = dimensions.height - margin.top - margin.bottom;
+
+    if (width <= 0 || chartHeight <= 0) return;
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const xScale = d3.scaleTime()
+      .domain(d3.extent(statsData, d => d.timestamp) as [number, number])
+      .range([0, width]);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 100])
+      .range([chartHeight, 0]);
+
+    // Gradient for the min-max range fill
+    const defs = svg.append('defs');
+    const gradient = defs.append('linearGradient')
+      .attr('id', 'cpu-range-gradient')
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%');
+    
+    gradient.append('stop')
+      .attr('offset', '0%')
+      .attr('stop-color', '#34d399')
+      .attr('stop-opacity', 0.3);
+    
+    gradient.append('stop')
+      .attr('offset', '100%')
+      .attr('stop-color', '#34d399')
+      .attr('stop-opacity', 0.1);
+
+    // Area generator for min-max range
+    const area = d3.area<{ timestamp: number; min: number; max: number }>()
+      .x(d => xScale(d.timestamp))
+      .y0(d => yScale(d.min))
+      .y1(d => yScale(d.max))
+      .curve(d3.curveMonotoneX);
+
+    // Draw the min-max range area
+    g.append('path')
+      .datum(statsData)
+      .attr('fill', 'url(#cpu-range-gradient)')
+      .attr('d', area);
+
+    // Line generators
+    const lineGenerator = d3.line<{ timestamp: number; min: number; avg: number; max: number }>()
+      .curve(d3.curveMonotoneX);
+
+    // Draw max line (lighter)
+    g.append('path')
+      .datum(statsData)
+      .attr('fill', 'none')
+      .attr('stroke', '#34d399')
+      .attr('stroke-width', 1)
+      .attr('stroke-opacity', 0.4)
+      .attr('stroke-dasharray', '2,2')
+      .attr('d', lineGenerator.x(d => xScale(d.timestamp)).y(d => yScale(d.max)));
+
+    // Draw min line (lighter)
+    g.append('path')
+      .datum(statsData)
+      .attr('fill', 'none')
+      .attr('stroke', '#34d399')
+      .attr('stroke-width', 1)
+      .attr('stroke-opacity', 0.4)
+      .attr('stroke-dasharray', '2,2')
+      .attr('d', lineGenerator.x(d => xScale(d.timestamp)).y(d => yScale(d.min)));
+
+    // Draw avg line (solid, prominent)
+    g.append('path')
+      .datum(statsData)
+      .attr('fill', 'none')
+      .attr('stroke', '#34d399')
+      .attr('stroke-width', 2)
+      .attr('d', lineGenerator.x(d => xScale(d.timestamp)).y(d => yScale(d.avg)));
+
+    // Draw current value dot for avg
+    if (statsData.length > 0) {
+      const lastPoint = statsData[statsData.length - 1];
+      g.append('circle')
+        .attr('cx', xScale(lastPoint.timestamp))
+        .attr('cy', yScale(lastPoint.avg))
+        .attr('r', 4)
+        .attr('fill', '#34d399')
+        .attr('stroke', '#18181b')
+        .attr('stroke-width', 2);
+    }
+
+  }, [statsData, dimensions]);
+
+  return (
+    <div ref={containerRef} className="metrics-chart-container">
+      <div className="metrics-chart-header">
+        <span className="metrics-chart-label">CPU ({numCores} cores)</span>
+        <span className="metrics-chart-value" style={{ color: '#34d399' }}>
+          {currentStats.avg.toFixed(1)}%
+        </span>
+      </div>
+      <svg
+        ref={svgRef}
+        width={dimensions.width}
+        height={dimensions.height}
+        style={{ display: 'block' }}
+      />
+    </div>
+  );
+}
+
 export default function RunPanel() {
   const { project, updateProject, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch, currentSessionId, setCurrentSessionId } = useStore();
   
@@ -2816,6 +2983,7 @@ export default function RunPanel() {
   const [metricsHistory, setMetricsHistory] = useState<Array<{
     timestamp: number;
     cpu: number;
+    cpuCores: number[];
     memory: number;
     gpu?: number;
     gpuMemory?: number;
@@ -3072,6 +3240,7 @@ export default function RunPanel() {
           const newPoint = {
             timestamp: Date.now(),
             cpu: metrics.cpu.percent || 0,
+            cpuCores: metrics.cpu.percent_per_core || [],
             memory: metrics.memory.percent || 0,
             gpu: metrics.gpu[0]?.utilization_percent ?? undefined,
             gpuMemory: metrics.gpu[0]?.memory_percent ?? undefined,
@@ -6279,12 +6448,9 @@ export default function RunPanel() {
                 </div>
               ) : (
                 <div className="metrics-charts-row">
-                  {/* CPU Chart */}
-                  <MetricsTimeSeriesChart
-                    data={metricsHistory.map(m => ({ timestamp: m.timestamp, value: m.cpu }))}
-                    color="#22d3ee"
-                    label="CPU"
-                    currentValue={systemMetrics.cpu.percent || 0}
+                  {/* CPU Stats Chart (min/avg/max) */}
+                  <CpuStatsTimeSeriesChart
+                    data={metricsHistory.map(m => ({ timestamp: m.timestamp, cores: m.cpuCores }))}
                   />
                   
                   {/* Memory Chart */}
