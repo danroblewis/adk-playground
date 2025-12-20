@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import * as d3 from 'd3';
 import { 
   Play, Square, Clock, Cpu, Wrench, GitBranch, MessageSquare, Database, 
   ChevronDown, ChevronRight, Zap, Filter, Search, Terminal, Eye,
   CheckCircle, XCircle, AlertTriangle, Copy, RefreshCw, Layers, Plus, Trash2, X,
-  Download, Upload, Code, TestTube, FileBox, Image, File
+  Download, Upload, Code, TestTube, FileBox, Image, File, Activity
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../hooks/useStore';
 import type { RunEvent, Project, MCPServerConfig, ApprovalRequest, PatternType } from '../utils/types';
-import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession, listArtifacts, getArtifactUrl, type ArtifactInfo } from '../utils/api';
+import { createRunWebSocket, fetchJSON, getMcpServers, saveSessionToMemory, listProjectSessions, loadSession, listArtifacts, getArtifactUrl, getSystemMetrics, type ArtifactInfo, type SystemMetrics } from '../utils/api';
 import { NetworkApprovalDialog } from './sandbox/NetworkApprovalDialog';
 import AgentGraph from './AgentGraph';
 
@@ -2635,6 +2636,142 @@ void _MCPToolRunnerRemovedPlaceholder; // silence unused warning
 
 // Legacy MCPToolRunner removed - functionality replaced by ToolWatchPanel
 
+// D3 Time Series Chart Component for Metrics
+interface MetricsChartProps {
+  data: Array<{ timestamp: number; value: number }>;
+  color: string;
+  label: string;
+  currentValue: number;
+  unit?: string;
+  height?: number;
+}
+
+function MetricsTimeSeriesChart({ data, color, label, currentValue, unit = '%', height = 80 }: MetricsChartProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 200, height });
+
+  // Handle resize
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setDimensions({
+          width: entry.contentRect.width,
+          height,
+        });
+      }
+    });
+    
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [height]);
+
+  // Draw chart with D3
+  useEffect(() => {
+    if (!svgRef.current || data.length < 2) return;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const margin = { top: 8, right: 8, bottom: 4, left: 8 };
+    const width = dimensions.width - margin.left - margin.right;
+    const chartHeight = dimensions.height - margin.top - margin.bottom;
+
+    if (width <= 0 || chartHeight <= 0) return;
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const xScale = d3.scaleTime()
+      .domain(d3.extent(data, d => d.timestamp) as [number, number])
+      .range([0, width]);
+
+    const yScale = d3.scaleLinear()
+      .domain([0, 100])
+      .range([chartHeight, 0]);
+
+    // Gradient fill - sanitize label for valid SVG ID
+    const gradientId = `gradient-${label.replace(/[^a-zA-Z0-9]/g, '-')}`;
+    const defs = svg.append('defs');
+    const gradient = defs.append('linearGradient')
+      .attr('id', gradientId)
+      .attr('x1', '0%')
+      .attr('y1', '0%')
+      .attr('x2', '0%')
+      .attr('y2', '100%');
+    
+    gradient.append('stop')
+      .attr('offset', '0%')
+      .attr('stop-color', color)
+      .attr('stop-opacity', 0.3);
+    
+    gradient.append('stop')
+      .attr('offset', '100%')
+      .attr('stop-color', color)
+      .attr('stop-opacity', 0.05);
+
+    // Area generator
+    const area = d3.area<{ timestamp: number; value: number }>()
+      .x(d => xScale(d.timestamp))
+      .y0(chartHeight)
+      .y1(d => yScale(d.value))
+      .curve(d3.curveMonotoneX);
+
+    // Line generator
+    const line = d3.line<{ timestamp: number; value: number }>()
+      .x(d => xScale(d.timestamp))
+      .y(d => yScale(d.value))
+      .curve(d3.curveMonotoneX);
+
+    // Draw area
+    g.append('path')
+      .datum(data)
+      .attr('fill', `url(#${gradientId})`)
+      .attr('d', area);
+
+    // Draw line
+    g.append('path')
+      .datum(data)
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', 2)
+      .attr('d', line);
+
+    // Draw current value dot
+    if (data.length > 0) {
+      const lastPoint = data[data.length - 1];
+      g.append('circle')
+        .attr('cx', xScale(lastPoint.timestamp))
+        .attr('cy', yScale(lastPoint.value))
+        .attr('r', 4)
+        .attr('fill', color)
+        .attr('stroke', '#18181b')
+        .attr('stroke-width', 2);
+    }
+
+  }, [data, dimensions, color, label]);
+
+  return (
+    <div ref={containerRef} className="metrics-chart-container">
+      <div className="metrics-chart-header">
+        <span className="metrics-chart-label">{label}</span>
+        <span className="metrics-chart-value" style={{ color }}>
+          {currentValue.toFixed(1)}{unit}
+        </span>
+      </div>
+      <svg
+        ref={svgRef}
+        width={dimensions.width}
+        height={dimensions.height}
+        style={{ display: 'block' }}
+      />
+    </div>
+  );
+}
+
 export default function RunPanel() {
   const { project, updateProject, isRunning, setIsRunning, runEvents, addRunEvent, clearRunEvents, clearWatchHistories, runAgentId, setRunAgentId, watches, updateWatch, currentSessionId, setCurrentSessionId } = useStore();
   
@@ -2672,6 +2809,63 @@ export default function RunPanel() {
   const [isResizing, setIsResizing] = useState(false);
   const [isAgentGraphOpen, setIsAgentGraphOpen] = useState(false);
   const [wasCancelled, setWasCancelled] = useState(false);
+  
+  // System metrics drawer state
+  const [isMetricsDrawerOpen, setIsMetricsDrawerOpen] = useState(false);
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<Array<{
+    timestamp: number;
+    cpu: number;
+    memory: number;
+    gpu?: number;
+    gpuMemory?: number;
+  }>>([]);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
+  const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_METRICS_HISTORY = 60; // Keep 60 data points (1 minute at 1s interval)
+  
+  // Check if any model uses localhost (for showing metrics panel)
+  const hasLocalModel = useMemo(() => {
+    if (!project) return false;
+    
+    const isLocalhostUrl = (url: string | undefined): boolean => {
+      if (!url) return false;
+      const lower = url.toLowerCase();
+      return lower.includes('localhost') || 
+             lower.includes('127.0.0.1') || 
+             lower.includes('0.0.0.0') ||
+             lower.includes('host.docker.internal');
+    };
+    
+    const isLocalModel = (provider: string | undefined, apiBase: string | undefined): boolean => {
+      // Explicit localhost URL
+      if (isLocalhostUrl(apiBase)) return true;
+      // LiteLLM with empty base URL defaults to localhost
+      if (provider === 'litellm' && !apiBase) return true;
+      return false;
+    };
+    
+    // Check app-level models
+    for (const model of project.app.models || []) {
+      if (isLocalModel(model.provider, model.api_base)) return true;
+    }
+    
+    // Check agent-level models
+    for (const agent of project.agents || []) {
+      if (agent.type === 'LlmAgent' && agent.model) {
+        if (isLocalModel(agent.model.provider, agent.model.api_base)) return true;
+      }
+    }
+    
+    return false;
+  }, [project]);
+  
+  // Close metrics drawer if no local models
+  useEffect(() => {
+    if (!hasLocalModel && isMetricsDrawerOpen) {
+      setIsMetricsDrawerOpen(false);
+    }
+  }, [hasLocalModel, isMetricsDrawerOpen]);
   
   // Compute run state for AgentGraph visualization
   const agentGraphRunState = useMemo((): 'idle' | 'running' | 'completed' | 'failed' | 'cancelled' => {
@@ -2854,6 +3048,55 @@ export default function RunPanel() {
   
   const eventListRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Fetch system metrics when drawer is open
+  useEffect(() => {
+    if (!isMetricsDrawerOpen) {
+      // Clear interval when drawer closes
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
+      }
+      return;
+    }
+    
+    // Fetch metrics immediately
+    const fetchMetrics = async () => {
+      try {
+        const metrics = await getSystemMetrics();
+        setSystemMetrics(metrics);
+        setMetricsError(null);
+        
+        // Add to history for time series
+        setMetricsHistory(prev => {
+          const newPoint = {
+            timestamp: Date.now(),
+            cpu: metrics.cpu.percent || 0,
+            memory: metrics.memory.percent || 0,
+            gpu: metrics.gpu[0]?.utilization_percent ?? undefined,
+            gpuMemory: metrics.gpu[0]?.memory_percent ?? undefined,
+          };
+          const updated = [...prev, newPoint];
+          // Keep only last MAX_METRICS_HISTORY points
+          return updated.slice(-MAX_METRICS_HISTORY);
+        });
+      } catch (err) {
+        setMetricsError(err instanceof Error ? err.message : 'Failed to fetch metrics');
+      }
+    };
+    
+    fetchMetrics();
+    
+    // Poll every 1 second
+    metricsIntervalRef.current = setInterval(fetchMetrics, 1000);
+    
+    return () => {
+      if (metricsIntervalRef.current) {
+        clearInterval(metricsIntervalRef.current);
+        metricsIntervalRef.current = null;
+      }
+    };
+  }, [isMetricsDrawerOpen]);
   
   // Handle sidebar resize
   useEffect(() => {
@@ -5076,6 +5319,153 @@ export default function RunPanel() {
           color: #a78bfa;
           font-weight: 700;
         }
+        
+        /* Metrics Bottom Drawer */
+        .metrics-toggle-button {
+          position: fixed;
+          bottom: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #27272a;
+          border: 1px solid #3f3f46;
+          border-bottom: none;
+          border-radius: 12px 12px 0 0;
+          padding: 6px 16px;
+          color: #a1a1aa;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+          font-weight: 500;
+          z-index: 1001;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .metrics-toggle-button:hover {
+          background: #3f3f46;
+          color: #e4e4e7;
+        }
+        
+        .metrics-toggle-button.open {
+          bottom: 140px;
+          background: #22d3ee22;
+          border-color: #22d3ee;
+          color: #22d3ee;
+        }
+        
+        .metrics-bottom-drawer {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: 140px;
+          background: linear-gradient(180deg, #1a1a1f 0%, #18181b 100%);
+          border-top: 1px solid #3f3f46;
+          border-radius: 20px 20px 0 0;
+          transform: translateY(100%);
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          z-index: 1000;
+          box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+        }
+        
+        .metrics-bottom-drawer.open {
+          transform: translateY(0);
+        }
+        
+        .metrics-bottom-drawer .metrics-drawer-content {
+          height: 100%;
+          padding: 12px 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .metrics-charts-row {
+          display: flex;
+          gap: 20px;
+          width: 100%;
+          height: 100%;
+          max-width: 1400px;
+        }
+        
+        .metrics-chart-container {
+          flex: 1;
+          min-width: 200px;
+          max-width: 400px;
+          display: flex;
+          flex-direction: column;
+          background: #27272a;
+          border-radius: 12px;
+          padding: 8px 12px;
+          overflow: hidden;
+        }
+        
+        .metrics-chart-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 4px;
+        }
+        
+        .metrics-chart-label {
+          font-size: 10px;
+          font-weight: 600;
+          color: #a1a1aa;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        
+        .metrics-chart-value {
+          font-size: 14px;
+          font-weight: 700;
+          font-family: 'SF Mono', 'Consolas', monospace;
+        }
+        
+        .metrics-error {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 16px;
+          background: #450a0a;
+          border: 1px solid #dc2626;
+          border-radius: 6px;
+          color: #fca5a5;
+          font-size: 12px;
+        }
+        
+        .metrics-loading {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: #71717a;
+          font-size: 12px;
+        }
+        
+        .metrics-notice {
+          font-size: 11px;
+          color: #71717a;
+          padding: 12px 16px;
+          background: #27272a;
+          border-radius: 8px;
+        }
+        
+        .metrics-notice code {
+          background: #3f3f46;
+          padding: 1px 4px;
+          border-radius: 3px;
+          color: #22d3ee;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        .spin {
+          animation: spin 1s linear infinite;
+        }
       `}</style>
       
       {/* Agent Network Graph */}
@@ -5263,6 +5653,7 @@ export default function RunPanel() {
             📋 Logs
           </button>
         )}
+        
       </div>
       
       {/* Toolbar */}
@@ -5848,6 +6239,86 @@ export default function RunPanel() {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* System Metrics Bottom Drawer */}
+      {hasLocalModel && (
+        <>
+          {/* Metrics Toggle Button */}
+          <button
+            className={`metrics-toggle-button ${isMetricsDrawerOpen ? 'open' : ''}`}
+            onClick={() => setIsMetricsDrawerOpen(!isMetricsDrawerOpen)}
+            title="Toggle system metrics"
+          >
+            <Activity size={14} />
+            <ChevronDown 
+              size={14} 
+              style={{ 
+                transform: isMetricsDrawerOpen ? 'rotate(0deg)' : 'rotate(180deg)',
+                transition: 'transform 0.3s ease'
+              }} 
+            />
+          </button>
+          
+          {/* Bottom Drawer */}
+          <div className={`metrics-bottom-drawer ${isMetricsDrawerOpen ? 'open' : ''}`}>
+            <div className="metrics-drawer-content">
+              {metricsError ? (
+                <div className="metrics-error">
+                  <AlertTriangle size={16} />
+                  <span>{metricsError}</span>
+                </div>
+              ) : !systemMetrics ? (
+                <div className="metrics-loading">
+                  <RefreshCw size={16} className="spin" />
+                  <span>Loading metrics...</span>
+                </div>
+              ) : !systemMetrics.available.psutil ? (
+                <div className="metrics-notice" style={{ margin: 'auto' }}>
+                  Install <code>psutil</code> for system metrics
+                </div>
+              ) : (
+                <div className="metrics-charts-row">
+                  {/* CPU Chart */}
+                  <MetricsTimeSeriesChart
+                    data={metricsHistory.map(m => ({ timestamp: m.timestamp, value: m.cpu }))}
+                    color="#22d3ee"
+                    label="CPU"
+                    currentValue={systemMetrics.cpu.percent || 0}
+                  />
+                  
+                  {/* Memory Chart */}
+                  <MetricsTimeSeriesChart
+                    data={metricsHistory.map(m => ({ timestamp: m.timestamp, value: m.memory }))}
+                    color="#a78bfa"
+                    label="Memory"
+                    currentValue={systemMetrics.memory.percent || 0}
+                  />
+                  
+                  {/* GPU Chart (if available) */}
+                  {systemMetrics.available.gpu && systemMetrics.gpu[0]?.utilization_percent !== undefined && (
+                    <MetricsTimeSeriesChart
+                      data={metricsHistory.filter(m => m.gpu !== undefined).map(m => ({ timestamp: m.timestamp, value: m.gpu! }))}
+                      color="#fb923c"
+                      label={`GPU${systemMetrics.gpu[0]?.name ? ` (${systemMetrics.gpu[0].name.slice(0, 20)})` : ''}`}
+                      currentValue={systemMetrics.gpu[0]?.utilization_percent || 0}
+                    />
+                  )}
+                  
+                  {/* GPU Memory Chart (if available) */}
+                  {systemMetrics.available.gpu && systemMetrics.gpu[0]?.memory_percent !== undefined && (
+                    <MetricsTimeSeriesChart
+                      data={metricsHistory.filter(m => m.gpuMemory !== undefined).map(m => ({ timestamp: m.timestamp, value: m.gpuMemory! }))}
+                      color="#f472b6"
+                      label="GPU VRAM"
+                      currentValue={systemMetrics.gpu[0]?.memory_percent || 0}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

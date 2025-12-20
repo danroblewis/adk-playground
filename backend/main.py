@@ -2214,6 +2214,243 @@ async def health_check():
 
 
 # ============================================================================
+# System Metrics API
+# ============================================================================
+
+@app.get("/api/system/metrics")
+async def get_system_metrics():
+    """Get system metrics for the machine running the backend.
+    
+    Useful for monitoring local model inference or heavy workloads.
+    Returns CPU, memory, disk, and GPU (if available) metrics.
+    """
+    import platform
+    
+    metrics = {
+        "timestamp": time.time(),
+        "platform": platform.system(),
+        "cpu": {},
+        "memory": {},
+        "disk": {},
+        "gpu": [],
+        "available": {
+            "psutil": False,
+            "gpu": False,
+        }
+    }
+    
+    # Try to get CPU and memory metrics via psutil
+    try:
+        import psutil
+        metrics["available"]["psutil"] = True
+        
+        # CPU metrics
+        cpu_percent = psutil.cpu_percent(interval=0.1, percpu=True)
+        cpu_freq = psutil.cpu_freq()
+        load_avg = None
+        try:
+            load_avg = list(os.getloadavg())  # Unix only
+        except (AttributeError, OSError):
+            pass
+        
+        metrics["cpu"] = {
+            "percent": psutil.cpu_percent(interval=None),  # Overall CPU %
+            "percent_per_core": cpu_percent,
+            "count": psutil.cpu_count(),
+            "count_physical": psutil.cpu_count(logical=False),
+            "frequency_mhz": cpu_freq.current if cpu_freq else None,
+            "frequency_max_mhz": cpu_freq.max if cpu_freq else None,
+            "load_avg_1m": load_avg[0] if load_avg else None,
+            "load_avg_5m": load_avg[1] if load_avg else None,
+            "load_avg_15m": load_avg[2] if load_avg else None,
+        }
+        
+        # Memory metrics
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        metrics["memory"] = {
+            "total_gb": round(mem.total / (1024**3), 2),
+            "available_gb": round(mem.available / (1024**3), 2),
+            "used_gb": round(mem.used / (1024**3), 2),
+            "percent": mem.percent,
+            "swap_total_gb": round(swap.total / (1024**3), 2),
+            "swap_used_gb": round(swap.used / (1024**3), 2),
+            "swap_percent": swap.percent,
+        }
+        
+        # Disk metrics (root partition)
+        try:
+            disk = psutil.disk_usage('/')
+            metrics["disk"] = {
+                "total_gb": round(disk.total / (1024**3), 2),
+                "used_gb": round(disk.used / (1024**3), 2),
+                "free_gb": round(disk.free / (1024**3), 2),
+                "percent": disk.percent,
+            }
+        except Exception:
+            pass
+            
+    except ImportError:
+        logger.debug("psutil not available for system metrics")
+    
+    # Try to get NVIDIA GPU metrics via pynvml
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        metrics["available"]["gpu"] = True
+        
+        device_count = pynvml.nvmlDeviceGetCount()
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode('utf-8')
+            
+            # Memory info
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            
+            # Utilization
+            try:
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                gpu_util = util.gpu
+                mem_util = util.memory
+            except pynvml.NVMLError:
+                gpu_util = None
+                mem_util = None
+            
+            # Temperature
+            try:
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+            except pynvml.NVMLError:
+                temp = None
+            
+            # Power
+            try:
+                power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000  # mW to W
+                power_limit = pynvml.nvmlDeviceGetPowerManagementLimit(handle) / 1000
+            except pynvml.NVMLError:
+                power = None
+                power_limit = None
+            
+            metrics["gpu"].append({
+                "index": i,
+                "name": name,
+                "memory_total_gb": round(mem_info.total / (1024**3), 2),
+                "memory_used_gb": round(mem_info.used / (1024**3), 2),
+                "memory_free_gb": round(mem_info.free / (1024**3), 2),
+                "memory_percent": round(mem_info.used / mem_info.total * 100, 1),
+                "utilization_percent": gpu_util,
+                "memory_utilization_percent": mem_util,
+                "temperature_c": temp,
+                "power_w": round(power, 1) if power else None,
+                "power_limit_w": round(power_limit, 1) if power_limit else None,
+            })
+        
+        pynvml.nvmlShutdown()
+    except ImportError:
+        logger.debug("pynvml not available for GPU metrics")
+    except Exception as e:
+        logger.debug(f"Error getting GPU metrics: {e}")
+    
+    # Try to get Apple Silicon GPU metrics (macOS) using ioreg
+    if platform.system() == "Darwin" and not metrics["gpu"]:
+        try:
+            import subprocess
+            import re
+            
+            # Get GPU name from system_profiler
+            gpu_name = "Apple Silicon GPU"
+            try:
+                name_result = subprocess.run(
+                    ["system_profiler", "SPDisplaysDataType", "-json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if name_result.returncode == 0:
+                    name_data = json.loads(name_result.stdout)
+                    displays = name_data.get("SPDisplaysDataType", [])
+                    if displays:
+                        gpu_name = displays[0].get("sppci_model", gpu_name)
+            except Exception:
+                pass
+            
+            # Get GPU utilization from ioreg (IOAccelerator)
+            result = subprocess.run(
+                ["ioreg", "-r", "-c", "IOAccelerator"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                output = result.stdout
+                
+                # Parse PerformanceStatistics
+                # Look for: "Device Utilization %" = 74
+                device_util = None
+                renderer_util = None
+                tiler_util = None
+                in_use_memory = None
+                alloc_memory = None
+                
+                # Find Device Utilization %
+                match = re.search(r'"Device Utilization %"\s*=\s*(\d+)', output)
+                if match:
+                    device_util = int(match.group(1))
+                
+                # Find Renderer Utilization %
+                match = re.search(r'"Renderer Utilization %"\s*=\s*(\d+)', output)
+                if match:
+                    renderer_util = int(match.group(1))
+                
+                # Find Tiler Utilization %
+                match = re.search(r'"Tiler Utilization %"\s*=\s*(\d+)', output)
+                if match:
+                    tiler_util = int(match.group(1))
+                
+                # Find In use system memory (bytes)
+                match = re.search(r'"In use system memory"\s*=\s*(\d+)', output)
+                if match:
+                    in_use_memory = int(match.group(1))
+                
+                # Find Alloc system memory (bytes)
+                match = re.search(r'"Alloc system memory"\s*=\s*(\d+)', output)
+                if match:
+                    alloc_memory = int(match.group(1))
+                
+                # Use Device Utilization as the primary metric, fall back to Renderer
+                utilization = device_util if device_util is not None else renderer_util
+                
+                # Calculate memory percent if we have both values
+                memory_percent = None
+                memory_used_gb = None
+                memory_total_gb = None
+                if in_use_memory is not None and alloc_memory is not None and alloc_memory > 0:
+                    memory_percent = round(in_use_memory / alloc_memory * 100, 1)
+                    memory_used_gb = round(in_use_memory / (1024**3), 2)
+                    memory_total_gb = round(alloc_memory / (1024**3), 2)
+                
+                if utilization is not None:
+                    metrics["gpu"].append({
+                        "index": 0,
+                        "name": gpu_name,
+                        "type": "apple_silicon",
+                        "utilization_percent": utilization,
+                        "renderer_utilization_percent": renderer_util,
+                        "tiler_utilization_percent": tiler_util,
+                        "memory_used_gb": memory_used_gb,
+                        "memory_total_gb": memory_total_gb,
+                        "memory_percent": memory_percent,
+                    })
+                    metrics["available"]["gpu"] = True
+        except Exception as e:
+            logger.debug(f"Error getting Apple Silicon GPU metrics: {e}")
+    
+    return metrics
+
+
+# ============================================================================
 # Knowledge Base API
 # ============================================================================
 

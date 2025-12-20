@@ -702,3 +702,58 @@ export const api = {
   },
 };
 
+// System Metrics
+export interface SystemMetrics {
+  timestamp: number;
+  platform: string;
+  cpu: {
+    percent: number;
+    percent_per_core: number[];
+    count: number;
+    count_physical: number;
+    frequency_mhz: number | null;
+    frequency_max_mhz: number | null;
+    load_avg_1m: number | null;
+    load_avg_5m: number | null;
+    load_avg_15m: number | null;
+  };
+  memory: {
+    total_gb: number;
+    available_gb: number;
+    used_gb: number;
+    percent: number;
+    swap_total_gb: number;
+    swap_used_gb: number;
+    swap_percent: number;
+  };
+  disk: {
+    total_gb: number;
+    used_gb: number;
+    free_gb: number;
+    percent: number;
+  };
+  gpu: Array<{
+    index: number;
+    name: string;
+    memory_total_gb?: number;
+    memory_used_gb?: number;
+    memory_free_gb?: number;
+    memory_percent?: number;
+    utilization_percent?: number | null;
+    memory_utilization_percent?: number | null;
+    temperature_c?: number | null;
+    power_w?: number | null;
+    power_limit_w?: number | null;
+    vram?: string;
+    type?: string;
+  }>;
+  available: {
+    psutil: boolean;
+    gpu: boolean;
+  };
+}
+
+export async function getSystemMetrics(): Promise<SystemMetrics> {
+  return fetchJSON<SystemMetrics>('/system/metrics');
+}
+

@@ -15,6 +15,7 @@ dependencies = [
     "litellm>=1.75.5,<2.0.0",  # Required for LiteLlm model support (matches google-adk extensions)
     "numpy>=1.20.0",  # For vector operations
     "docker>=7.0.0",  # For Docker sandbox (works even if Docker daemon not installed)
+    "psutil>=5.9.0",  # For system metrics (CPU, memory, disk)
 ]
 
 [project.scripts]
@@ -26,6 +27,9 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
+]
+gpu = [
+    "pynvml>=11.0.0",  # For NVIDIA GPU metrics
 ]
 
 [build-system]
