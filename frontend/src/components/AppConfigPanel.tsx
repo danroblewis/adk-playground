@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Plus, Trash2, Database, Key, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff, Shield, Globe, HardDrive, FolderOpen } from 'lucide-react';
+import { Plus, Trash2, Database, Settings2, Zap, Clock, RefreshCw, Cpu, Star, Lock, Eye, EyeOff, Shield, Globe, HardDrive, FolderOpen } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { StateKeyConfig, PluginConfig, ArtifactConfig, AppModelConfig, AllowlistPattern, PatternType, SandboxConfig, NetworkAllowlist, VolumeMount } from '../utils/types';
+import type { PluginConfig, ArtifactConfig, AppModelConfig, AllowlistPattern, PatternType, SandboxConfig, NetworkAllowlist, VolumeMount } from '../utils/types';
 import { ModelConfigForm } from './ModelConfigForm';
 
 // Common environment variables with descriptions
@@ -52,26 +52,6 @@ export default function AppConfigPanel() {
     }
     
     updateApp({ name: value });
-  }
-  
-  function addStateKey() {
-    const newKey: StateKeyConfig = {
-      name: `state_key_${app.state_keys.length + 1}`,
-      description: '',
-      type: 'string',
-      scope: 'session'
-    };
-    updateApp({ state_keys: [...app.state_keys, newKey] });
-  }
-  
-  function updateStateKey(index: number, updates: Partial<StateKeyConfig>) {
-    const keys = [...app.state_keys];
-    keys[index] = { ...keys[index], ...updates };
-    updateApp({ state_keys: keys });
-  }
-  
-  function removeStateKey(index: number) {
-    updateApp({ state_keys: app.state_keys.filter((_, i) => i !== index) });
   }
   
   function addPlugin(type: PluginConfig['type'] = 'ReflectAndRetryToolPlugin') {
@@ -925,67 +905,8 @@ export default function AppConfigPanel() {
         )}
       </section>
       
-      {/* State Keys & Advanced Options - Two Column Layout */}
+      {/* Advanced Options & Plugins - Two Column Layout */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        {/* State Keys */}
-        <section className="section" style={{ margin: 0 }}>
-          <div className="section-header">
-            <h2 className="section-title">
-              <Key size={20} />
-              State Keys
-            </h2>
-            <button className="btn btn-secondary btn-sm" onClick={addStateKey}>
-              <Plus size={14} />
-              Add
-            </button>
-          </div>
-          
-          {app.state_keys.length === 0 ? (
-            <p className="empty-message">
-              No state keys. Auto-created when you add LlmAgents.
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {app.state_keys.map((key, index) => (
-                <div key={index} style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: 8,
-                  padding: '6px 8px',
-                  background: 'var(--bg-secondary)',
-                  borderRadius: 4,
-                }}>
-                  <input
-                    type="text"
-                    value={key.name}
-                    onChange={(e) => updateStateKey(index, { name: e.target.value })}
-                    placeholder="Key name"
-                    style={{ flex: 1, minWidth: 0, padding: '4px 8px', fontSize: 12 }}
-                  />
-                  <select
-                    value={key.type}
-                    onChange={(e) => updateStateKey(index, { type: e.target.value as any })}
-                    style={{ width: 60, flexShrink: 0, padding: '4px 6px', fontSize: 11 }}
-                  >
-                    <option value="string">str</option>
-                    <option value="number">num</option>
-                    <option value="boolean">bool</option>
-                    <option value="object">obj</option>
-                    <option value="array">arr</option>
-                  </select>
-                  <button 
-                    className="delete-item" 
-                    onClick={() => removeStateKey(index)}
-                    style={{ padding: 4, flexShrink: 0 }}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-        
         {/* Advanced Options */}
         <section className="section" style={{ margin: 0 }}>
           <div className="section-header">
@@ -1056,155 +977,119 @@ export default function AppConfigPanel() {
             </div>
           </div>
         </section>
-      </div>
-      
-      {/* Plugins */}
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">
-            <RefreshCw size={20} />
-            Plugins
-          </h2>
-          <div className="plugin-add-dropdown">
-            <select 
-              className="btn btn-secondary btn-sm"
-              value=""
-              onChange={(e) => {
-                if (e.target.value) {
-                  addPlugin(e.target.value as PluginConfig['type']);
-                  e.target.value = '';
-                }
-              }}
-              style={{ paddingRight: 8 }}
-            >
-              <option value="">+ Add Plugin...</option>
-              <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
-              <option value="ContextFilterPlugin">Context Filter</option>
-              <option value="LoggingPlugin">Logging</option>
-              <option value="GlobalInstructionPlugin">Global Instruction</option>
-              <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
-              <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
-            </select>
-          </div>
-        </div>
         
-        {app.plugins.length === 0 ? (
-          <p className="empty-message">
-            No plugins configured. Add plugins to extend agent functionality.
-          </p>
-        ) : (
-          app.plugins.map((plugin, index) => (
-            <div key={index} className="list-item" style={{ flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 12 }}>
-                <select
-                  value={plugin.type}
-                  onChange={(e) => updatePlugin(index, { type: e.target.value as PluginConfig['type'] })}
-                  style={{ flex: 1 }}
-                >
-                  <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
-                  <option value="ContextFilterPlugin">Context Filter</option>
-                  <option value="LoggingPlugin">Logging</option>
-                  <option value="GlobalInstructionPlugin">Global Instruction</option>
-                  <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
-                  <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
-                </select>
-                <button className="delete-item" onClick={() => removePlugin(index)}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-              
-              {/* Plugin-specific configuration */}
-                {plugin.type === 'ReflectAndRetryToolPlugin' && (
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
-                  <div className="form-group" style={{ flex: 0 }}>
-                    <label style={{ fontSize: 12 }}>Max Retries</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={plugin.max_retries ?? 3}
-                      onChange={(e) => updatePlugin(index, { max_retries: parseInt(e.target.value) || 0 })}
-                      style={{ width: 70 }}
-                    />
+        {/* Plugins */}
+        <section className="section" style={{ margin: 0 }}>
+          <div className="section-header">
+            <h2 className="section-title">
+              <RefreshCw size={20} />
+              Plugins
+            </h2>
+            <div className="plugin-add-dropdown">
+              <select 
+                className="btn btn-secondary btn-sm"
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    addPlugin(e.target.value as PluginConfig['type']);
+                    e.target.value = '';
+                  }
+                }}
+                style={{ paddingRight: 8 }}
+              >
+                <option value="">+ Add...</option>
+                <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
+                <option value="ContextFilterPlugin">Context Filter</option>
+                <option value="LoggingPlugin">Logging</option>
+                <option value="GlobalInstructionPlugin">Global Instruction</option>
+                <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
+                <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
+              </select>
+            </div>
+          </div>
+          
+          {app.plugins.length === 0 ? (
+            <p className="empty-message">
+              No plugins configured.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {app.plugins.map((plugin, index) => (
+                <div key={index} style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  gap: 8,
+                  padding: '8px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 4,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <select
+                      value={plugin.type}
+                      onChange={(e) => updatePlugin(index, { type: e.target.value as PluginConfig['type'] })}
+                      style={{ flex: 1, fontSize: 12 }}
+                    >
+                      <option value="ReflectAndRetryToolPlugin">Reflect & Retry Tool</option>
+                      <option value="ContextFilterPlugin">Context Filter</option>
+                      <option value="LoggingPlugin">Logging</option>
+                      <option value="GlobalInstructionPlugin">Global Instruction</option>
+                      <option value="SaveFilesAsArtifactsPlugin">Save Files as Artifacts</option>
+                      <option value="MultimodalToolResultsPlugin">Multimodal Tool Results</option>
+                    </select>
+                    <button 
+                      className="delete-item" 
+                      onClick={() => removePlugin(index)}
+                      style={{ padding: 4, flexShrink: 0 }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                    <span className="toggle-switch">
+                  
+                  {/* Plugin-specific configuration - compact */}
+                  {plugin.type === 'ReflectAndRetryToolPlugin' && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+                      <span>Retries:</span>
                       <input
-                        type="checkbox"
-                        checked={plugin.throw_exception_if_retry_exceeded ?? false}
-                        onChange={(e) => updatePlugin(index, { throw_exception_if_retry_exceeded: e.target.checked })}
+                        type="number"
+                        min="0"
+                        max="10"
+                        value={plugin.max_retries ?? 3}
+                        onChange={(e) => updatePlugin(index, { max_retries: parseInt(e.target.value) || 0 })}
+                        style={{ width: 50, padding: '2px 4px', fontSize: 11 }}
                       />
-                      <span className="toggle-slider" />
-                    </span>
-                    Throw exception if retry exceeded
-                    </label>
-                </div>
-                )}
-              
-              {plugin.type === 'ContextFilterPlugin' && (
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8 }}>
-                  <div className="form-group" style={{ flex: 0 }}>
-                    <label style={{ fontSize: 12 }}>Invocations to Keep</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={plugin.num_invocations_to_keep ?? 5}
-                      onChange={(e) => updatePlugin(index, { num_invocations_to_keep: parseInt(e.target.value) || 1 })}
-                      style={{ width: 70 }}
-                    />
-              </div>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Keeps only the last N conversation turns to reduce context size
-                  </span>
-                </div>
-              )}
-              
-              {plugin.type === 'LoggingPlugin' && (
-                <div style={{ paddingLeft: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Logs all agent events (messages, tool calls, responses) to the console
-                  </span>
-                </div>
-              )}
-              
-              {plugin.type === 'GlobalInstructionPlugin' && (
-                <div style={{ width: '100%', paddingLeft: 8 }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: 12 }}>Global Instruction</label>
+                    </div>
+                  )}
+                  
+                  {plugin.type === 'ContextFilterPlugin' && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
+                      <span>Keep:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={plugin.num_invocations_to_keep ?? 5}
+                        onChange={(e) => updatePlugin(index, { num_invocations_to_keep: parseInt(e.target.value) || 1 })}
+                        style={{ width: 50, padding: '2px 4px', fontSize: 11 }}
+                      />
+                      <span style={{ color: 'var(--text-muted)' }}>invocations</span>
+                    </div>
+                  )}
+                  
+                  {plugin.type === 'GlobalInstructionPlugin' && (
                     <textarea
                       value={plugin.global_instruction ?? ''}
                       onChange={(e) => updatePlugin(index, { global_instruction: e.target.value })}
-                      placeholder="Instructions that apply to all agents in the app..."
-                      rows={3}
-                      style={{ width: '100%' }}
+                      placeholder="Global instruction for all agents..."
+                      rows={2}
+                      style={{ width: '100%', fontSize: 11 }}
                     />
-                  </div>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    This instruction is prepended to every agent's system prompt
-                  </span>
+                  )}
                 </div>
-              )}
-              
-              {plugin.type === 'SaveFilesAsArtifactsPlugin' && (
-                <div style={{ paddingLeft: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Automatically saves files uploaded in user messages as artifacts for later retrieval
-                  </span>
-                </div>
-              )}
-              
-              {plugin.type === 'MultimodalToolResultsPlugin' && (
-                <div style={{ paddingLeft: 8 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Allows tools to return multimodal content (images, files) directly to the LLM
-                  </span>
-                </div>
-              )}
+              ))}
             </div>
-          ))
-        )}
-      </section>
+          )}
+        </section>
+      </div>
       
       {/* Sandbox Settings */}
       <section className="section">
