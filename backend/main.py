@@ -2213,6 +2213,23 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.get("/api/version")
+async def get_version():
+    """Get version and build information."""
+    version_info = {
+        "version": "0.1.0",
+    }
+    
+    # Try to read version from package metadata
+    try:
+        from importlib.metadata import version
+        version_info["version"] = version("adk-playground")
+    except Exception:
+        pass
+    
+    return version_info
+
+
 # ============================================================================
 # System Metrics API
 # ============================================================================

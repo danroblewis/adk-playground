@@ -247,6 +247,18 @@ export default function ProjectList() {
           </div>
         )}
       </div>
+      
+      {/* Version footer */}
+      <div style={{
+        position: 'fixed',
+        bottom: '8px',
+        right: '12px',
+        fontSize: '10px',
+        color: '#52525b',
+        fontFamily: 'monospace',
+      }}>
+        v{__APP_VERSION__} ({__GIT_COMMIT_SHORT__})
+      </div>
     </div>
   );
 }
