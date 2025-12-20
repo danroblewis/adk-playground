@@ -6,11 +6,14 @@ import asyncio
 import json
 import time
 import logging
-
-logger = logging.getLogger(__name__)
 import os
+import platform
+import re
+import subprocess
 import sys
 import uuid
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -2241,8 +2244,6 @@ async def get_system_metrics():
     Useful for monitoring local model inference or heavy workloads.
     Returns CPU, memory, disk, and GPU (if available) metrics.
     """
-    import platform
-    
     metrics = {
         "timestamp": time.time(),
         "platform": platform.system(),
@@ -2372,9 +2373,6 @@ async def get_system_metrics():
     # Try to get Apple Silicon GPU metrics (macOS) using ioreg
     if platform.system() == "Darwin" and not metrics["gpu"]:
         try:
-            import subprocess
-            import re
-            
             # Get GPU name from system_profiler
             gpu_name = "Apple Silicon GPU"
             try:
@@ -2467,8 +2465,6 @@ async def get_system_metrics():
     # Try to get Raspberry Pi GPU metrics (Linux with V3D)
     if platform.system() == "Linux" and not metrics["gpu"]:
         try:
-            import subprocess
-            
             # Check for V3D GPU stats (Raspberry Pi 4/5)
             gpu_stats_path = "/sys/devices/platform/axi/1002000000.v3d/gpu_stats"
             if not os.path.exists(gpu_stats_path):
