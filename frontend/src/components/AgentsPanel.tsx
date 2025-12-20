@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench } from 'lucide-react';
+import { Bot, Workflow, Repeat, GitBranch, Trash2, ChevronRight, ChevronDown, GripVertical, Wand2, Loader, Users, Wrench, Key, Plus } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
-import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig } from '../utils/types';
+import type { AgentConfig, LlmAgentConfig, SequentialAgentConfig, LoopAgentConfig, ParallelAgentConfig, ToolConfig, AppModelConfig, ModelConfig, StateKeyConfig } from '../utils/types';
 import AgentEditor from './AgentEditor';
 import { generateAgentConfig } from '../utils/api';
 
@@ -81,7 +81,7 @@ interface AgentsPanelProps {
 }
 
 export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
-  const { project, addAgent, removeAgent, updateAgent, selectedAgentId, setSelectedAgentId, mcpServers } = useStore();
+  const { project, addAgent, removeAgent, updateAgent, updateProject, selectedAgentId, setSelectedAgentId, mcpServers } = useStore();
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
   const [showQuickSetup, setShowQuickSetup] = useState(false);
   const [quickSetupDescription, setQuickSetupDescription] = useState('');
@@ -292,6 +292,36 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setExpandedAgents(next);
+  }
+  
+  // State key management functions
+  function addStateKey() {
+    if (!project) return;
+    const newKey: StateKeyConfig = {
+      name: `state_key_${project.app.state_keys.length + 1}`,
+      description: '',
+      type: 'string',
+      scope: 'session'
+    };
+    updateProject({ 
+      app: { ...project.app, state_keys: [...project.app.state_keys, newKey] } 
+    });
+  }
+  
+  function updateStateKey(index: number, updates: Partial<StateKeyConfig>) {
+    if (!project) return;
+    const keys = [...project.app.state_keys];
+    keys[index] = { ...keys[index], ...updates };
+    updateProject({ 
+      app: { ...project.app, state_keys: keys } 
+    });
+  }
+  
+  function removeStateKey(index: number) {
+    if (!project) return;
+    updateProject({ 
+      app: { ...project.app, state_keys: project.app.state_keys.filter((_, i) => i !== index) } 
+    });
   }
   
   // Auto-scroll while dragging near edges
@@ -620,7 +650,7 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
         .agents-panel {
           display: flex;
           gap: 20px;
-          height: calc(100vh - 180px);
+          height: calc(100vh - 120px);
         }
         
         .agents-sidebar {
@@ -681,6 +711,99 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           flex: 1;
           overflow-y: auto;
           padding: 8px;
+        }
+        
+        .state-keys-section {
+          border-top: 1px solid var(--border-color);
+          padding: 12px;
+          background: var(--bg-tertiary);
+        }
+        
+        .state-keys-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+        
+        .state-keys-header h4 {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          margin: 0;
+        }
+        
+        .state-keys-header .btn-icon {
+          padding: 4px;
+          color: var(--text-muted);
+          border-radius: var(--radius-sm);
+          transition: all 0.15s ease;
+        }
+        
+        .state-keys-header .btn-icon:hover {
+          color: var(--text-primary);
+          background: var(--bg-secondary);
+        }
+        
+        .state-keys-list {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          max-height: 150px;
+          overflow-y: auto;
+        }
+        
+        .state-keys-list .empty-hint {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin: 0;
+        }
+        
+        .state-key-item {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        
+        .state-key-item input {
+          flex: 1;
+          min-width: 0;
+          padding: 4px 6px;
+          font-size: 11px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+        }
+        
+        .state-key-item select {
+          width: 50px;
+          flex-shrink: 0;
+          padding: 4px 2px;
+          font-size: 10px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: var(--radius-sm);
+        }
+        
+        .state-key-item .btn-icon {
+          padding: 4px;
+          color: var(--text-muted);
+          flex-shrink: 0;
+          opacity: 0;
+          transition: all 0.15s ease;
+        }
+        
+        .state-key-item:hover .btn-icon {
+          opacity: 1;
+        }
+        
+        .state-key-item .btn-icon.delete:hover {
+          color: var(--error);
         }
         
         .agent-item {
@@ -1096,6 +1219,49 @@ export default function AgentsPanel({ onSelectAgent }: AgentsPanelProps) {
           ) : (
             renderAgentTree(rootAgents)
           )}
+        </div>
+        
+        {/* State Keys Section */}
+        <div className="state-keys-section">
+          <div className="state-keys-header">
+            <h4><Key size={14} /> State Keys</h4>
+            <button className="btn-icon" onClick={addStateKey} title="Add state key">
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="state-keys-list">
+            {project.app.state_keys.length === 0 ? (
+              <p className="empty-hint">Auto-created when you set output_key</p>
+            ) : (
+              project.app.state_keys.map((key, index) => (
+                <div key={index} className="state-key-item">
+                  <input
+                    type="text"
+                    value={key.name}
+                    onChange={(e) => updateStateKey(index, { name: e.target.value })}
+                    placeholder="Key name"
+                  />
+                  <select
+                    value={key.type}
+                    onChange={(e) => updateStateKey(index, { type: e.target.value as any })}
+                  >
+                    <option value="string">str</option>
+                    <option value="number">num</option>
+                    <option value="boolean">bool</option>
+                    <option value="object">obj</option>
+                    <option value="array">arr</option>
+                  </select>
+                  <button 
+                    className="btn-icon delete" 
+                    onClick={() => removeStateKey(index)}
+                    title="Remove state key"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </aside>
       
