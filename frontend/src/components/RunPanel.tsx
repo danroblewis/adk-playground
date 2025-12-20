@@ -2990,7 +2990,7 @@ export default function RunPanel() {
   }>>([]);
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_METRICS_HISTORY = 60; // Keep 60 data points (1 minute at 1s interval)
+  const MAX_METRICS_HISTORY = 20; // Keep 60 data points (1 minute at 1s interval)
   
   // Check if any model uses localhost (for showing metrics panel)
   const hasLocalModel = useMemo(() => {
