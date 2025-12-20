@@ -1746,7 +1746,19 @@ Write an instruction prompt for: **{target_agent.name}**
     )
     
     if result["success"]:
-        return {"prompt": result["output"], "success": True}
+        # Strip markdown code blocks if present
+        output = result["output"]
+        if output:
+            output = output.strip()
+            # Remove opening code fence (```markdown, ```text, ```, etc.)
+            if output.startswith("```"):
+                first_newline = output.find("\n")
+                if first_newline != -1:
+                    output = output[first_newline + 1:]
+            # Remove closing code fence
+            if output.rstrip().endswith("```"):
+                output = output.rstrip()[:-3].rstrip()
+        return {"prompt": output, "success": True}
     else:
         return {
             "prompt": None,
