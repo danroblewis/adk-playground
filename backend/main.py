@@ -2504,31 +2504,47 @@ async def get_system_metrics():
                 except Exception:
                     pass
                 
-                # Get GPU memory allocation
-                gpu_mem_mb = None
+                # Get GPU memory usage from bo_stats (requires read access to debugfs)
+                gpu_mem_used_kb = None
+                gpu_mem_total_kb = None
                 try:
-                    result = subprocess.run(
-                        ['vcgencmd', 'get_mem', 'gpu'],
-                        capture_output=True,
-                        text=True,
-                        timeout=2
-                    )
-                    if result.returncode == 0:
-                        # Format: gpu=4M
-                        match = re.search(r'gpu=(\d+)M', result.stdout)
+                    bo_stats_path = "/sys/kernel/debug/dri/1002000000.v3d/bo_stats"
+                    if os.path.exists(bo_stats_path):
+                        with open(bo_stats_path, 'r') as f:
+                            content = f.read()
+                        match = re.search(r'allocated bo size \(kb\):\s*(\d+)', content)
                         if match:
-                            gpu_mem_mb = int(match.group(1))
+                            gpu_mem_used_kb = int(match.group(1))
+                except Exception:
+                    pass
+                
+                # Get CMA total from /proc/meminfo (this is the GPU memory pool)
+                try:
+                    with open('/proc/meminfo', 'r') as f:
+                        for line in f:
+                            if line.startswith('CmaTotal:'):
+                                match = re.search(r'CmaTotal:\s*(\d+)', line)
+                                if match:
+                                    gpu_mem_total_kb = int(match.group(1))
+                                break
                 except Exception:
                     pass
                 
                 if gpu_util is not None:
-                    metrics["gpu"].append({
+                    gpu_info = {
                         "index": 0,
                         "name": gpu_name,
                         "type": "raspberry_pi",
                         "utilization_percent": gpu_util,
-                        "memory_total_mb": gpu_mem_mb,
-                    })
+                    }
+                    
+                    # Add memory info if available
+                    if gpu_mem_used_kb is not None and gpu_mem_total_kb is not None:
+                        gpu_info["memory_used_gb"] = round(gpu_mem_used_kb / (1024 * 1024), 3)
+                        gpu_info["memory_total_gb"] = round(gpu_mem_total_kb / (1024 * 1024), 3)
+                        gpu_info["memory_percent"] = round(gpu_mem_used_kb / gpu_mem_total_kb * 100, 1) if gpu_mem_total_kb > 0 else None
+                    
+                    metrics["gpu"].append(gpu_info)
                     metrics["available"]["gpu"] = True
         except Exception as e:
             logger.debug(f"Error getting Raspberry Pi GPU metrics: {e}")
