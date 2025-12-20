@@ -2447,6 +2447,92 @@ async def get_system_metrics():
         except Exception as e:
             logger.debug(f"Error getting Apple Silicon GPU metrics: {e}")
     
+    # Try to get Raspberry Pi GPU metrics (Linux with V3D)
+    if platform.system() == "Linux" and not metrics["gpu"]:
+        try:
+            import subprocess
+            
+            # Check for V3D GPU stats (Raspberry Pi 4/5)
+            gpu_stats_path = "/sys/devices/platform/axi/1002000000.v3d/gpu_stats"
+            if not os.path.exists(gpu_stats_path):
+                # Try alternative path for Pi 4
+                gpu_stats_path = "/sys/devices/platform/soc/fe800000.v3d/gpu_stats"
+            
+            if os.path.exists(gpu_stats_path):
+                # Read GPU stats
+                with open(gpu_stats_path, 'r') as f:
+                    lines = f.readlines()
+                
+                # Parse render queue stats (format: queue timestamp jobs runtime)
+                render_runtime = None
+                render_timestamp = None
+                for line in lines:
+                    parts = line.strip().split()
+                    if len(parts) >= 4 and parts[0] == 'render':
+                        render_timestamp = int(parts[1])
+                        render_runtime = int(parts[3])
+                        break
+                
+                # Calculate GPU utilization using cached previous reading
+                gpu_util = None
+                if render_runtime is not None and render_timestamp is not None:
+                    cache_key = "rpi_gpu_stats"
+                    if not hasattr(get_system_metrics, '_cache'):
+                        get_system_metrics._cache = {}
+                    
+                    prev = get_system_metrics._cache.get(cache_key)
+                    if prev:
+                        time_delta = render_timestamp - prev['timestamp']
+                        runtime_delta = render_runtime - prev['runtime']
+                        if time_delta > 0:
+                            # runtime is in nanoseconds, timestamp is also in nanoseconds
+                            gpu_util = min(100, round((runtime_delta / time_delta) * 100, 1))
+                    
+                    # Store current reading for next calculation
+                    get_system_metrics._cache[cache_key] = {
+                        'timestamp': render_timestamp,
+                        'runtime': render_runtime
+                    }
+                
+                # Get Pi model name
+                gpu_name = "Raspberry Pi GPU"
+                try:
+                    with open('/proc/device-tree/model', 'r') as f:
+                        model = f.read().strip().replace('\x00', '')
+                        if 'Raspberry Pi' in model:
+                            gpu_name = model.split(' Rev')[0] + " V3D"
+                except Exception:
+                    pass
+                
+                # Get GPU memory allocation
+                gpu_mem_mb = None
+                try:
+                    result = subprocess.run(
+                        ['vcgencmd', 'get_mem', 'gpu'],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    if result.returncode == 0:
+                        # Format: gpu=4M
+                        match = re.search(r'gpu=(\d+)M', result.stdout)
+                        if match:
+                            gpu_mem_mb = int(match.group(1))
+                except Exception:
+                    pass
+                
+                if gpu_util is not None:
+                    metrics["gpu"].append({
+                        "index": 0,
+                        "name": gpu_name,
+                        "type": "raspberry_pi",
+                        "utilization_percent": gpu_util,
+                        "memory_total_mb": gpu_mem_mb,
+                    })
+                    metrics["available"]["gpu"] = True
+        except Exception as e:
+            logger.debug(f"Error getting Raspberry Pi GPU metrics: {e}")
+    
     return metrics
 
 
