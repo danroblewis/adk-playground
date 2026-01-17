@@ -156,6 +156,7 @@ def extract_exception_details(exc: Exception) -> dict:
 
 from models import Project, RunSession, RunEvent
 from code_generator import generate_python_code
+from tracking import TrackingPlugin, create_tracking_plugin_wrapper
 
 
 # =============================================================================
@@ -259,194 +260,6 @@ def create_artifact_service_from_uri(uri: str):
             return InMemoryArtifactService()
     else:
         return InMemoryArtifactService()
-
-
-# =============================================================================
-# Tracking Plugin
-# =============================================================================
-
-class TrackingPlugin:
-    """Plugin that tracks all events during agent execution."""
-    
-    def __init__(self, session: RunSession, callback):
-        self.session = session
-        self.callback = callback
-        self.token_counts = {"input": 0, "output": 0}
-    
-    def _get_branch(self, context) -> str | None:
-        """Extract branch from callback_context or tool_context."""
-        if hasattr(context, "_invocation_context"):
-            branch = getattr(context._invocation_context, "branch", None)
-            # Ensure branch is a valid string (not a mock or other object)
-            if isinstance(branch, str):
-                return branch
-        return None
-    
-    async def _emit(self, event: RunEvent):
-        """Emit an event."""
-        self.session.events.append(event)
-        await self.callback(event)
-    
-    async def before_agent_callback(self, *, agent, callback_context, **kwargs):
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="agent_start",
-            agent_name=agent.name,
-            branch=self._get_branch(callback_context),
-            data={"instruction": getattr(agent, "instruction", "") or ""},
-        ))
-        return None
-    
-    async def after_agent_callback(self, *, agent, callback_context, **kwargs):
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="agent_end",
-            agent_name=agent.name,
-            branch=self._get_branch(callback_context),
-            data={},
-        ))
-        return None
-    
-    async def on_event_callback(self, *, invocation_context, event, **kwargs):
-        if hasattr(event, "actions") and event.actions and event.actions.state_delta:
-            branch = getattr(invocation_context, "branch", None)
-            # Ensure branch is a valid string (not a mock or other object)
-            branch = branch if isinstance(branch, str) else None
-            await self._emit(RunEvent(
-                timestamp=time.time(),
-                event_type="state_change",
-                agent_name=getattr(event, "author", None) or "system",
-                branch=branch,
-                data={"state_delta": dict(event.actions.state_delta)},
-            ))
-        return None
-    
-    async def before_model_callback(self, *, callback_context, llm_request, **kwargs):
-        contents = self._serialize_contents(getattr(llm_request, "contents", None))
-        
-        system_instruction = None
-        if hasattr(llm_request, "config") and llm_request.config:
-            si = getattr(llm_request.config, "system_instruction", None)
-            if si:
-                if isinstance(si, str):
-                    system_instruction = si
-                elif hasattr(si, "parts"):
-                    system_instruction = "".join(
-                        getattr(p, "text", "") for p in si.parts if hasattr(p, "text")
-                    )
-        
-        tool_names = list(getattr(llm_request, "tools_dict", {}).keys())
-        
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="model_call",
-            agent_name=getattr(callback_context, "agent_name", None) or "system",
-            branch=self._get_branch(callback_context),
-            data={
-                "contents": contents,
-                "system_instruction": system_instruction,
-                "tool_names": tool_names,
-                "tool_count": len(tool_names),
-            },
-        ))
-        return None
-    
-    async def after_model_callback(self, *, callback_context, llm_response, **kwargs):
-        response_parts = []
-        if hasattr(llm_response, "content") and llm_response.content:
-            if hasattr(llm_response.content, "parts"):
-                for part in llm_response.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        part_data = {"type": "text", "text": part.text}
-                        if hasattr(part, "thought") and part.thought:
-                            part_data["thought"] = True
-                        response_parts.append(part_data)
-                    elif hasattr(part, "function_call") and part.function_call:
-                        fc = part.function_call
-                        response_parts.append({
-                            "type": "function_call",
-                            "name": getattr(fc, "name", "unknown"),
-                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
-                        })
-        
-        if hasattr(llm_response, "usage_metadata") and llm_response.usage_metadata:
-            usage = llm_response.usage_metadata
-            self.token_counts["input"] += getattr(usage, "prompt_token_count", 0) or 0
-            self.token_counts["output"] += getattr(usage, "candidates_token_count", 0) or 0
-        
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="model_response",
-            agent_name=getattr(callback_context, "agent_name", None) or "system",
-            branch=self._get_branch(callback_context),
-            data={"parts": response_parts, "token_counts": dict(self.token_counts)},
-        ))
-        return None
-    
-    async def before_tool_callback(self, *, tool, tool_args, tool_context, **kwargs):
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="tool_call",
-            agent_name=getattr(tool_context, "agent_name", None) or "system",
-            branch=self._get_branch(tool_context),
-            data={"tool_name": tool.name, "args": tool_args},
-        ))
-        return None
-    
-    async def after_tool_callback(self, *, tool, tool_args, tool_context, result, **kwargs):
-        branch = self._get_branch(tool_context)
-        if hasattr(tool_context, "_event_actions") and tool_context._event_actions.state_delta:
-            await self._emit(RunEvent(
-                timestamp=time.time(),
-                event_type="state_change",
-                agent_name=getattr(tool_context, "agent_name", None) or "system",
-                branch=branch,
-                data={"state_delta": dict(tool_context._event_actions.state_delta)},
-            ))
-        
-        await self._emit(RunEvent(
-            timestamp=time.time(),
-            event_type="tool_result",
-            agent_name=getattr(tool_context, "agent_name", None) or "system",
-            branch=branch,
-            data={"tool_name": tool.name, "result": result},
-        ))
-        return None
-
-    def _serialize_contents(self, contents) -> list:
-        if not contents:
-            return []
-        
-        result = []
-        for content in contents:
-            content_data = {"role": getattr(content, "role", "unknown"), "parts": []}
-            
-            if hasattr(content, "parts") and content.parts:
-                for part in content.parts:
-                    part_data = {}
-                    if hasattr(part, "text") and part.text:
-                        part_data = {"type": "text", "text": part.text}
-                    elif hasattr(part, "function_call") and part.function_call:
-                        fc = part.function_call
-                        part_data = {
-                            "type": "function_call",
-                            "name": getattr(fc, "name", "unknown"),
-                            "args": dict(getattr(fc, "args", {})) if hasattr(fc, "args") else {},
-                        }
-                    elif hasattr(part, "function_response") and part.function_response:
-                        fr = part.function_response
-                        part_data = {
-                            "type": "function_response",
-                            "name": getattr(fr, "name", "unknown"),
-                            "response": getattr(fr, "response", None),
-                        }
-                    if hasattr(part, "thought") and part.thought:
-                        part_data["thought"] = True
-                    if part_data:
-                        content_data["parts"].append(part_data)
-            
-            result.append(content_data)
-        return result
 
 
 # =============================================================================
@@ -610,40 +423,12 @@ class RuntimeManager:
             app = self._execute_generated_code(project)
             
             # Create tracking plugin and inject it
-            tracking = TrackingPlugin(session, event_callback)
-            
-            from google.adk.plugins import BasePlugin
-            
-            class TrackingPluginWrapper(BasePlugin):
-                def __init__(self, tracker):
-                    super().__init__(name="tracking")
-                    self.tracker = tracker
-                
-                async def before_agent_callback(self, *, agent, callback_context):
-                    return await self.tracker.before_agent_callback(agent=agent, callback_context=callback_context)
-                
-                async def after_agent_callback(self, *, agent, callback_context):
-                    return await self.tracker.after_agent_callback(agent=agent, callback_context=callback_context)
-                
-                async def before_model_callback(self, *, callback_context, llm_request):
-                    return await self.tracker.before_model_callback(callback_context=callback_context, llm_request=llm_request)
-                
-                async def after_model_callback(self, *, callback_context, llm_response):
-                    return await self.tracker.after_model_callback(callback_context=callback_context, llm_response=llm_response)
-                
-                async def before_tool_callback(self, *, tool, tool_args, tool_context):
-                    return await self.tracker.before_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context)
-                
-                async def after_tool_callback(self, *, tool, tool_args, tool_context, result):
-                    return await self.tracker.after_tool_callback(tool=tool, tool_args=tool_args, tool_context=tool_context, result=result)
-                
-                async def on_event_callback(self, *, invocation_context, event):
-                    return await self.tracker.on_event_callback(invocation_context=invocation_context, event=event)
+            tracking = TrackingPlugin(event_callback, session=session)
             
             # Inject tracking plugin at the beginning
             if not hasattr(app, 'plugins') or app.plugins is None:
                 app.plugins = []
-            app.plugins.insert(0, TrackingPluginWrapper(tracking))
+            app.plugins.insert(0, create_tracking_plugin_wrapper(tracking))
             
             # Get cached services (persists sessions across calls)
             from google.adk.runners import Runner

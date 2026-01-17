@@ -511,8 +511,15 @@ mcp_manager = MCPSessionManager()
 class TrackingPlugin:
     """Plugin that tracks all events during agent execution.
     
-    This mirrors the TrackingPlugin from runtime.py to capture
-    model_call, model_response, tool_call, tool_result, etc.
+    NOTE: This is a copy of backend/tracking/plugin.py adapted for the Docker
+    sandbox environment. The sandbox runs in isolation and cannot import from
+    the main backend package. Keep this in sync with the shared module.
+    
+    Key differences from the shared module:
+    - Emits plain dicts instead of RunEvent objects (no access to models.py)
+    - Self-contained with no external imports from backend/
+    
+    See: backend/tracking/plugin.py for the canonical implementation.
     """
     
     def __init__(self, emit_callback):

@@ -23,7 +23,9 @@ from models import (
     CustomCallbackDefinition,
     RunEvent,
 )
-from runtime import RuntimeManager, TrackingPlugin, RunSession
+from runtime import RuntimeManager
+from tracking import TrackingPlugin
+from models import RunSession
 
 
 class TestCallbackLoading:
@@ -94,7 +96,7 @@ class TestCallbackWrapping:
             status="running",
         )
         
-        tracking = TrackingPlugin(session, collector)
+        tracking = TrackingPlugin(collector, session=session)
         
         # Simulate wrapping a sync callback
         def original_callback(callback_context):
@@ -140,7 +142,7 @@ class TestCallbackWrapping:
             status="running",
         )
         
-        tracking = TrackingPlugin(session, collector)
+        tracking = TrackingPlugin(collector, session=session)
         
         async def original_async_callback(callback_context):
             callback_context.state["test"] = "async_value"
@@ -303,7 +305,7 @@ class TestCallbackStateModification:
             status="running",
         )
         
-        tracking = TrackingPlugin(session, collector)
+        tracking = TrackingPlugin(collector, session=session)
         
         # Create mock agent with proper string name
         mock_agent = MagicMock()

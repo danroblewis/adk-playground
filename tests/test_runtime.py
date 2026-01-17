@@ -22,7 +22,9 @@ from models import (
     ModelConfig,
     RunEvent,
 )
-from runtime import RuntimeManager, TrackingPlugin, RunSession
+from runtime import RuntimeManager
+from tracking import TrackingPlugin
+from models import RunSession
 
 
 class TestTrackingPlugin:
@@ -43,7 +45,7 @@ class TestTrackingPlugin:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         # Create mock agent and callback_context
         mock_agent = MagicMock()
@@ -78,7 +80,7 @@ class TestTrackingPlugin:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         mock_agent = MagicMock()
         mock_agent.name = "test_agent"
@@ -107,7 +109,7 @@ class TestTrackingPlugin:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         mock_context = MagicMock()
         mock_context.agent_name = "test_agent"
@@ -143,7 +145,7 @@ class TestTrackingPlugin:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         mock_tool = MagicMock()
         mock_tool.name = "add_numbers"
@@ -308,7 +310,7 @@ class TestEventSerialization:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         # Create mock content with text
         mock_content = MagicMock()
@@ -343,7 +345,7 @@ class TestEventSerialization:
             status="running",
         )
         
-        plugin = TrackingPlugin(session, collector)
+        plugin = TrackingPlugin(collector, session=session)
         
         # Create mock content with function call
         mock_content = MagicMock()
