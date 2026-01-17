@@ -71,7 +71,7 @@ def load_mcp_servers_from_file() -> List[MCPServerConfig]:
                     env=server_config.get("env", {}),
                     url=server_config.get("url"),
                     headers=server_config.get("headers", {}),
-                    timeout=server_config.get("timeout", 60.0),
+                    timeout=server_config.get("timeout", 10.0),
                     tool_filter=server_config.get("tool_filter"),
                     tool_name_prefix=server_config.get("tool_name_prefix"),
                 )

@@ -231,27 +231,31 @@ export const useStore = create<Store>((set, get) => ({
       const existingAgent = project.agents.find(a => a.id === id);
       let updatedApp = project.app;
       
-      // If this is an LlmAgent and the output_key is changing, add new state key if needed
-      // NOTE: We only ADD state keys here, never remove them. State keys should only be 
-      // deleted manually from the App Config page.
+      // If this is an LlmAgent and the name/output_key is changing, update state_keys
       if (existingAgent && existingAgent.type === 'LlmAgent' && updates.output_key) {
+        const oldOutputKey = (existingAgent as any).output_key;
         const newOutputKey = updates.output_key;
         
-        // Only add the new key if it doesn't already exist
-        const existingNewKey = project.app.state_keys.find(k => k.name === newOutputKey);
-        if (!existingNewKey) {
-          updatedApp = {
-            ...project.app,
-            state_keys: [
-              ...project.app.state_keys,
-              {
-                name: newOutputKey,
-                description: `Output from ${updates.name || existingAgent.name} agent`,
-                type: 'string' as const,
-                scope: 'session' as const,
-              },
-            ],
-          };
+        if (oldOutputKey !== newOutputKey) {
+          // Remove old state key if it exists, add new one
+          const filteredKeys = project.app.state_keys.filter(k => k.name !== oldOutputKey);
+          const existingNewKey = filteredKeys.find(k => k.name === newOutputKey);
+          if (!existingNewKey) {
+            updatedApp = {
+              ...project.app,
+              state_keys: [
+                ...filteredKeys,
+                {
+                  name: newOutputKey,
+                  description: `Output from ${updates.name || existingAgent.name} agent`,
+                  type: 'string' as const,
+                  scope: 'session' as const,
+                },
+              ],
+            };
+          } else {
+            updatedApp = { ...project.app, state_keys: filteredKeys };
+          }
         }
       }
       

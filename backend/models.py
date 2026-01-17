@@ -67,7 +67,7 @@ class MCPServerConfig(BaseModel):
     # SSE/HTTP params
     url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
-    timeout: float = 60.0  # 60s default - npm servers can take a while to start
+    timeout: float = 10.0
     # Tool filtering (null = no filter/all tools, [] = no tools, ["a","b"] = only those tools)
     tool_filter: Optional[List[str]] = None
     tool_name_prefix: Optional[str] = None
@@ -119,7 +119,7 @@ class ModelConfig(BaseModel):
     top_k: Optional[int] = None
     # Retry and timeout settings (especially useful for local models like Ollama)
     num_retries: Optional[int] = None  # Number of retries on failure (default: 3 for litellm)
-    request_timeout: Optional[float] = None  # Timeout in seconds per request (default: 1800)
+    request_timeout: Optional[float] = None  # Timeout in seconds per request (default: 600)
     # Marker for linking to an App model - if set, this config mirrors an App model
     app_model_id: Optional[str] = Field(default=None, alias="_appModelId")
     
@@ -415,8 +415,7 @@ class RunEvent(BaseModel):
     timestamp: float
     event_type: Literal["agent_start", "agent_end", "tool_call", "tool_result", 
                         "model_call", "model_response", "state_change", "transfer",
-                        "callback_start", "callback_end", "callback_error", "user_message",
-                        "compaction"]
+                        "callback_start", "callback_end", "callback_error", "user_message"]
     agent_name: str
     branch: Optional[str] = None  # For parallel execution tracking (e.g., "parallel_agent.sub_agent_a")
     data: Dict[str, Any] = Field(default_factory=dict)
@@ -571,15 +570,19 @@ class InvocationResult(BaseModel):
     session_id: Optional[str] = None
 
 
-class SingleRunResult(BaseModel):
-    """Result of a single run within a multi-run evaluation case."""
-    run_number: int
+class EvalCaseResult(BaseModel):
+    """Result of running a single evaluation case."""
+    eval_case_id: str
+    eval_case_name: str
+    eval_set_id: str = ""
+    eval_set_name: str = ""
     session_id: str
-    passed: bool = True
     metric_results: List[MetricResult] = Field(default_factory=list)
     rubric_results: List[Dict[str, Any]] = Field(default_factory=list)
+    passed: bool = True
     invocation_results: List[InvocationResult] = Field(default_factory=list)
     final_state: Dict[str, Any] = Field(default_factory=dict)
+    expected_final_state: Optional[Dict[str, Any]] = None
     state_matched: Optional[bool] = None
     started_at: float = 0.0
     ended_at: float = 0.0
@@ -589,38 +592,6 @@ class SingleRunResult(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_tokens: int = 0
-
-
-class EvalCaseResult(BaseModel):
-    """Result of running a single evaluation case (potentially multiple times)."""
-    eval_case_id: str
-    eval_case_name: str
-    eval_set_id: str = ""
-    eval_set_name: str = ""
-    session_id: str  # Session ID of the last/representative run
-    metric_results: List[MetricResult] = Field(default_factory=list)  # Aggregated metrics
-    rubric_results: List[Dict[str, Any]] = Field(default_factory=list)  # Aggregated rubrics
-    passed: bool = True  # Overall pass (majority vote or threshold)
-    invocation_results: List[InvocationResult] = Field(default_factory=list)  # From representative run
-    final_state: Dict[str, Any] = Field(default_factory=dict)
-    expected_final_state: Optional[Dict[str, Any]] = None
-    state_matched: Optional[bool] = None
-    started_at: float = 0.0
-    ended_at: float = 0.0
-    duration_ms: float = 0.0
-    error: Optional[str] = None
-    # Token usage (aggregated across all runs)
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    total_tokens: int = 0
-    # Multi-run statistics
-    num_runs: int = 1  # Number of runs configured
-    runs_completed: int = 1  # Number of runs actually completed
-    runs_passed: int = 0  # Number of runs that passed
-    runs_failed: int = 0  # Number of runs that failed
-    runs_errored: int = 0  # Number of runs that had errors
-    pass_rate: float = 0.0  # runs_passed / runs_completed
-    run_results: List[SingleRunResult] = Field(default_factory=list)  # Individual run results
 
 
 class EvalSetResult(BaseModel):

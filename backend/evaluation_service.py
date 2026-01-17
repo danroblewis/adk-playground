@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from models import (
     Project, EvalSet, EvalCase, EvalInvocation, ExpectedToolCall,
-    EvalSetResult, EvalCaseResult, SingleRunResult, InvocationResult, MetricResult,
+    EvalSetResult, EvalCaseResult, InvocationResult, MetricResult,
     ToolTrajectoryMatchType, EvalMetricType, EvalConfig, EvalMetricConfig,
 )
 
@@ -372,131 +372,11 @@ class EvaluationService:
         eval_set_id: str = "",
         eval_set_name: str = "",
     ) -> EvalCaseResult:
-        """Run a single evaluation case (potentially multiple times based on num_runs)."""
+        """Run a single evaluation case."""
         # Use provided config or default
         if eval_config is None:
             eval_config = EvalConfig()
         
-        num_runs = getattr(eval_config, 'num_runs', 1) or 1
-        
-        result = EvalCaseResult(
-            eval_case_id=eval_case.id,
-            eval_case_name=eval_case.name,
-            eval_set_id=eval_set_id,
-            eval_set_name=eval_set_name,
-            session_id="",
-            started_at=time.time(),
-            num_runs=num_runs,
-        )
-        
-        # Run the test case num_runs times
-        for run_num in range(1, num_runs + 1):
-            logger.info(f"Running eval case '{eval_case.name}' - run {run_num}/{num_runs}")
-            
-            single_run = await self._run_single_eval(
-                project=project,
-                eval_case=eval_case,
-                eval_config=eval_config,
-                agent_id=agent_id,
-                run_number=run_num,
-            )
-            
-            result.run_results.append(single_run)
-            result.runs_completed += 1 if run_num > 1 else 0  # First run already counted in default
-            
-            # Aggregate token counts
-            result.total_input_tokens += single_run.total_input_tokens
-            result.total_output_tokens += single_run.total_output_tokens
-            
-            if single_run.error:
-                result.runs_errored += 1
-            elif single_run.passed:
-                result.runs_passed += 1
-            else:
-                result.runs_failed += 1
-        
-        result.runs_completed = len(result.run_results)
-        result.total_tokens = result.total_input_tokens + result.total_output_tokens
-        
-        # Calculate pass rate
-        if result.runs_completed > 0:
-            result.pass_rate = result.runs_passed / result.runs_completed
-        
-        # Determine overall pass using majority voting (> 50% must pass)
-        result.passed = result.pass_rate > 0.5
-        
-        # Use the first successful run (or first run if all failed) as the representative result
-        representative_run = None
-        for run in result.run_results:
-            if run.passed and not run.error:
-                representative_run = run
-                break
-        if representative_run is None and result.run_results:
-            representative_run = result.run_results[0]
-        
-        if representative_run:
-            result.session_id = representative_run.session_id
-            result.metric_results = representative_run.metric_results
-            result.rubric_results = representative_run.rubric_results
-            result.invocation_results = representative_run.invocation_results
-            result.final_state = representative_run.final_state
-            result.state_matched = representative_run.state_matched
-            if representative_run.error and not result.error:
-                result.error = representative_run.error
-        
-        # Aggregate metric scores across all runs for averaged results
-        if num_runs > 1:
-            result.metric_results = self._aggregate_metrics_across_runs(result.run_results, eval_config)
-        
-        result.ended_at = time.time()
-        result.duration_ms = (result.ended_at - result.started_at) * 1000
-        
-        logger.info(f"Eval case '{eval_case.name}' completed: {result.runs_passed}/{result.runs_completed} passed ({result.pass_rate*100:.1f}%)")
-        
-        return result
-    
-    def _aggregate_metrics_across_runs(
-        self, 
-        run_results: List[SingleRunResult], 
-        eval_config: EvalConfig
-    ) -> List[MetricResult]:
-        """Aggregate metric results across multiple runs."""
-        # Collect all scores per metric
-        metric_scores: Dict[str, List[float]] = {}
-        metric_thresholds: Dict[str, float] = {}
-        
-        for run in run_results:
-            for mr in run.metric_results:
-                if mr.metric not in metric_scores:
-                    metric_scores[mr.metric] = []
-                    metric_thresholds[mr.metric] = mr.threshold
-                if mr.score is not None:
-                    metric_scores[mr.metric].append(mr.score)
-        
-        # Create aggregated results with average scores
-        aggregated = []
-        for metric, scores in metric_scores.items():
-            if scores:
-                avg_score = sum(scores) / len(scores)
-                threshold = metric_thresholds.get(metric, 0.7)
-                aggregated.append(MetricResult(
-                    metric=metric,
-                    score=avg_score,
-                    threshold=threshold,
-                    passed=avg_score >= threshold,
-                ))
-        
-        return aggregated
-    
-    async def _run_single_eval(
-        self,
-        project: Project,
-        eval_case: EvalCase,
-        eval_config: EvalConfig,
-        agent_id: Optional[str],
-        run_number: int,
-    ) -> SingleRunResult:
-        """Run a single evaluation (one run of a test case)."""
         # Get thresholds from enabled metrics
         response_config = self._get_metric_config(eval_config, EvalMetricType.RESPONSE_MATCH_SCORE)
         trajectory_config = self._get_metric_config(eval_config, EvalMetricType.TOOL_TRAJECTORY_AVG_SCORE)
@@ -508,8 +388,11 @@ class EvaluationService:
         response_evaluator = ResponseEvaluator(threshold=response_threshold)
         trajectory_evaluator = TrajectoryEvaluator(match_type=trajectory_match_type)
         
-        result = SingleRunResult(
-            run_number=run_number,
+        result = EvalCaseResult(
+            eval_case_id=eval_case.id,
+            eval_case_name=eval_case.name,
+            eval_set_id=eval_set_id,
+            eval_set_name=eval_set_name,
             session_id="",
             started_at=time.time(),
         )

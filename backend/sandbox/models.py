@@ -236,7 +236,7 @@ class SandboxConfig(BaseModel):
     agent_cpu_limit: float = 1.0
     mcp_memory_limit_mb: int = 256  # Per MCP container
     mcp_cpu_limit: float = 0.5  # Per MCP container
-    run_timeout: int = 3600  # Total run timeout in seconds (default: 1 hour)
+    run_timeout: int = 300
     volume_mounts: List[VolumeMount] = Field(default_factory=list)  # Host directories to mount
 
 

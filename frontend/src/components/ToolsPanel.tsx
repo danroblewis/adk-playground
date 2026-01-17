@@ -198,8 +198,9 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
           config.headers = server.headers;
         }
       }
-      // Always include timeout so it's visible and editable
-      config.timeout = server.timeout || 60;
+      if (server.timeout && server.timeout !== 30) {
+        config.timeout = server.timeout;
+      }
       if (server.tool_filter) {
         config.tool_filter = server.tool_filter;
       }
@@ -446,7 +447,7 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
       args: ['-y', '@modelcontextprotocol/server-example'],
       env: {},
       headers: {},
-      timeout: 60, // 60s default - npm servers can take a while to download
+      timeout: 10,
       // tool_filter: null means no filter (all tools available)
     };
     updateProject({
@@ -1711,10 +1712,6 @@ export default function ToolsPanel({ onSelectTool }: ToolsPanelProps) {
               <p>
                 Configure your MCP servers using the standard <code>mcp.json</code> format.
                 Select a known server from the dropdown to add its configuration.
-                <br />
-                <small style={{ color: 'var(--text-muted)' }}>
-                  💡 Tip: Increase <code>timeout</code> (in seconds) for slow-starting servers like npm-based ones.
-                </small>
               </p>
             </div>
             

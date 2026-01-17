@@ -790,6 +790,7 @@ class AgentRunner:
             data: Dict with 'code' (generated Python code), 'project_name', and 'app_id'
         """
         self.generated_code = data.get("code")
+        # self.generated_code.replace("localhost", "host.docker.internal")
         self.project_name = data.get("project_name", "sandbox_app")
         self.app_id = data.get("app_id")
         

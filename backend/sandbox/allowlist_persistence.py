@@ -33,7 +33,7 @@ DEFAULT_SANDBOX_CONFIG = {
     "agent_cpu_limit": 1.0,
     "mcp_memory_limit_mb": 256,
     "mcp_cpu_limit": 0.5,
-    "run_timeout": 3600,
+    "run_timeout": 300,
 }
 
 
@@ -218,7 +218,7 @@ def load_sandbox_config_from_project(project_path: Path) -> SandboxConfig:
         agent_cpu_limit=app_sandbox_data.get("agent_cpu_limit", sandbox_data.get("agent_cpu_limit", 1.0)),
         mcp_memory_limit_mb=app_sandbox_data.get("mcp_memory_limit_mb", sandbox_data.get("mcp_memory_limit_mb", 256)),
         mcp_cpu_limit=app_sandbox_data.get("mcp_cpu_limit", sandbox_data.get("mcp_cpu_limit", 0.5)),
-        run_timeout=app_sandbox_data.get("run_timeout", sandbox_data.get("run_timeout", 3600)),
+        run_timeout=app_sandbox_data.get("run_timeout", sandbox_data.get("run_timeout", 300)),
         volume_mounts=app_sandbox_data.get("volume_mounts", sandbox_data.get("volume_mounts", [])) or [],
     )
 

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Play, FolderTree, FileCheck, Trash2, ChevronRight, ChevronDown, 
-  CheckCircle, XCircle, Clock, AlertCircle, AlertTriangle, Settings, Target, Percent,
-  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy, Sparkles
+  CheckCircle, XCircle, Clock, AlertCircle, Settings, Target, Percent,
+  MessageSquare, RefreshCw, Download, Upload, ExternalLink, Link2, Code, Copy
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../hooks/useStore';
-import { api, generateEvalSet } from '../utils/api';
+import { api } from '../utils/api';
 
 // ADK Prebuilt Metrics
 type EvalMetricType = 
@@ -191,19 +191,6 @@ interface InvocationResult {
   output_tokens?: number;
 }
 
-interface SingleRunResult {
-  run_number: number;
-  session_id: string;
-  passed: boolean;
-  metric_results: MetricResult[];
-  invocation_results: InvocationResult[];
-  duration_ms: number;
-  error?: string;
-  total_input_tokens?: number;
-  total_output_tokens?: number;
-  total_tokens?: number;
-}
-
 interface EvalCaseResult {
   eval_case_id: string;
   eval_case_name: string;
@@ -217,14 +204,6 @@ interface EvalCaseResult {
   total_input_tokens?: number;
   total_output_tokens?: number;
   total_tokens?: number;
-  // Multi-run statistics
-  num_runs?: number;
-  runs_completed?: number;
-  runs_passed?: number;
-  runs_failed?: number;
-  runs_errored?: number;
-  pass_rate?: number;
-  run_results?: SingleRunResult[];
 }
 
 interface EvalSetResult {
@@ -497,44 +476,6 @@ export default function EvalPanel() {
       setExpandedSets(prev => new Set([...prev, response.eval_set.id]));
     } catch (err: any) {
       setError(err.message || 'Failed to create eval set');
-    }
-  };
-  
-  // Generate eval set with AI
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
-  const [generateContext, setGenerateContext] = useState('');
-  
-  const openGenerateDialog = () => {
-    setGenerateContext('');
-    setShowGenerateDialog(true);
-  };
-  
-  const generateEvalSetWithAI = async () => {
-    if (!project?.id) return;
-    
-    setShowGenerateDialog(false);
-    setIsGenerating(true);
-    setError(null);
-    
-    try {
-      const result = await generateEvalSet(project.id, {
-        context: generateContext || undefined,
-      });
-      
-      if (result.success && result.eval_set) {
-        setEvalSets(prev => [...prev, result.eval_set]);
-        setSelectedSetId(result.eval_set.id);
-        setExpandedSets(prev => new Set([...prev, result.eval_set.id]));
-      } else {
-        setError(result.error || 'Failed to generate eval set');
-        console.error('AI generation error:', result.traceback || result.raw_output);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate eval set with AI');
-    } finally {
-      setIsGenerating(false);
-      setGenerateContext('');
     }
   };
   
@@ -1335,21 +1276,6 @@ export default function EvalPanel() {
               <Plus size={14} />
               Set
             </button>
-            <button 
-              className="btn btn-primary btn-sm" 
-              onClick={openGenerateDialog}
-              disabled={isGenerating}
-              title="Generate eval set with AI"
-              style={{ 
-                background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-              }}
-            >
-              {isGenerating ? (
-                <RefreshCw size={14} className="spin" />
-              ) : (
-                <Sparkles size={14} />
-              )}
-            </button>
           </div>
         </div>
         
@@ -1365,7 +1291,7 @@ export default function EvalPanel() {
           {!loading && evalSets.length === 0 && (
             <div className="empty-state" style={{ padding: '32px' }}>
               <Target size={32} />
-              <p>No evaluation sets yet.<br/>Create one or use AI to generate tests.</p>
+              <p>No evaluation sets yet.<br/>Create one to get started.</p>
             </div>
           )}
           
@@ -1605,84 +1531,6 @@ export default function EvalPanel() {
           </div>
         )}
       </div>
-      
-      {/* AI Generate Dialog */}
-      {showGenerateDialog && (
-        <div 
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-          }}
-          onClick={() => setShowGenerateDialog(false)}
-        >
-          <div 
-            style={{
-              background: 'var(--bg-primary)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '24px',
-              width: '90%',
-              maxWidth: '500px',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <Sparkles size={24} style={{ color: '#8b5cf6' }} />
-              <h3 style={{ margin: 0, fontSize: '18px' }}>Generate Test Set with AI</h3>
-            </div>
-            
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
-              Describe what you want to test. The AI will generate test cases with expected outcomes, 
-              tool calls, and evaluation rubrics.
-            </p>
-            
-            <textarea
-              value={generateContext}
-              onChange={(e) => setGenerateContext(e.target.value)}
-              placeholder="e.g., Test error handling when user provides invalid input, edge cases for date parsing, scenarios where the agent should ask clarifying questions..."
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '12px',
-                fontSize: '14px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
-                color: 'var(--text-primary)',
-                resize: 'vertical',
-              }}
-              autoFocus
-            />
-            
-            <div style={{ display: 'flex', gap: '12px', marginTop: '20px', justifyContent: 'flex-end' }}>
-              <button 
-                className="btn btn-secondary"
-                onClick={() => setShowGenerateDialog(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-primary"
-                onClick={generateEvalSetWithAI}
-                style={{ 
-                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <Sparkles size={16} />
-                Generate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2013,21 +1861,6 @@ function TestResultViewer({
                     color: 'var(--text-muted)',
                     fontWeight: 400,
                   }}>
-                    {/* Show multi-run pass rate if more than 1 run */}
-                    {(caseResult.num_runs || 1) > 1 && (
-                      <span style={{ 
-                        marginRight: 8,
-                        padding: '2px 6px',
-                        borderRadius: 4,
-                        background: (caseResult.pass_rate || 0) >= 0.5 
-                          ? 'rgba(var(--success-rgb), 0.15)' 
-                          : 'rgba(var(--error-rgb), 0.15)',
-                        color: (caseResult.pass_rate || 0) >= 0.5 ? 'var(--success)' : 'var(--error)',
-                        fontWeight: 500,
-                      }}>
-                        {caseResult.runs_passed}/{caseResult.runs_completed} runs ({((caseResult.pass_rate || 0) * 100).toFixed(0)}%)
-                      </span>
-                    )}
                     {totalFailed > 0 && <span style={{ color: 'var(--error)' }}>{totalFailed} failed</span>}
                     {totalFailed > 0 && totalPassed > 0 && ' · '}
                     {totalPassed > 0 && <span style={{ color: 'var(--success)' }}>{totalPassed} passed</span>}
@@ -2196,51 +2029,6 @@ function TestResultViewer({
                   </div>
                 )}
                 
-                {/* Multi-run Results (shown when expanded and num_runs > 1) */}
-                {isExpanded && (caseResult.num_runs || 1) > 1 && caseResult.run_results && caseResult.run_results.length > 0 && (
-                  <div style={{ marginTop: 12, marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                      Individual Run Results ({caseResult.runs_passed}/{caseResult.runs_completed} passed)
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {caseResult.run_results.map((run, runIdx) => (
-                        <div
-                          key={runIdx}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 'var(--radius-sm)',
-                            background: run.error 
-                              ? 'rgba(255, 193, 7, 0.15)' 
-                              : run.passed 
-                                ? 'rgba(var(--success-rgb), 0.1)' 
-                                : 'rgba(var(--error-rgb), 0.1)',
-                            border: `1px solid ${run.error ? 'var(--warning)' : run.passed ? 'var(--success)' : 'var(--error)'}`,
-                            fontSize: 11,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                          }}
-                          title={run.error || `Run ${run.run_number}: ${run.passed ? 'Passed' : 'Failed'} (${(run.duration_ms / 1000).toFixed(2)}s)`}
-                        >
-                          {run.error ? (
-                            <AlertTriangle size={12} style={{ color: 'var(--warning)' }} />
-                          ) : run.passed ? (
-                            <CheckCircle size={12} style={{ color: 'var(--success)' }} />
-                          ) : (
-                            <XCircle size={12} style={{ color: 'var(--error)' }} />
-                          )}
-                          <span style={{ color: run.error ? 'var(--warning)' : run.passed ? 'var(--success)' : 'var(--error)' }}>
-                            Run {run.run_number}
-                          </span>
-                          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
-                            {(run.duration_ms / 1000).toFixed(1)}s
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 {/* Invocation Summary */}
                 {displayInvocations?.length > 0 && (
                   <div className="invocation-summary">

@@ -1283,7 +1283,6 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           border: 1px solid rgba(99, 102, 241, 0.3);
           border-left: none;
           box-shadow: 4px 0 20px rgba(0,0,0,0.4);
-          overflow: hidden;
           position: relative;
           transition: background 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
         }
@@ -1324,6 +1323,7 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           cursor: pointer;
           transition: all 0.3s ease;
           align-self: center;
+          margin-left: -4px;
         }
         
         .agent-graph-toggle.state-idle,
@@ -1351,9 +1351,12 @@ export default function AgentGraph({ agents, events, selectedEventIndex, isOpen:
           color: #fde047;
         }
         
+        /*
         .agent-graph-toggle:hover {
           filter: brightness(1.2);
+          margin-left: -4px;
         }
+        */
         
         .agent-graph-toggle svg {
           transition: transform 0.3s ease;
